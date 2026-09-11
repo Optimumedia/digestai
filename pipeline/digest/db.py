@@ -196,10 +196,33 @@ def engine() -> Engine:
             url = url.replace("postgresql://", "postgresql+psycopg://", 1)
         _engine = create_engine(url, future=True, pool_pre_ping=True)
         metadata.create_all(_engine)
+        _migrate(_engine)
         if _engine.dialect.name == "sqlite":
             with _engine.begin() as conn:
                 conn.execute(text("PRAGMA journal_mode=WAL"))
     return _engine
+
+
+def _migrate(eng: Engine) -> None:
+    """Add columns that exist in the models but not yet in a database created by an older version.
+
+    create_all only creates missing tables; a persisted database needs the new columns added
+    in place. ADD COLUMN works on both SQLite and Postgres.
+    """
+    from sqlalchemy import inspect
+
+    insp = inspect(eng)
+    with eng.begin() as conn:
+        for table in metadata.sorted_tables:
+            existing = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in existing:
+                    continue
+                ddl = f'ALTER TABLE {table.name} ADD COLUMN {col.name} {col.type.compile(dialect=eng.dialect)}'
+                if col.default is not None and getattr(col.default, "arg", None) is not None and not callable(col.default.arg):
+                    val = col.default.arg
+                    ddl += f" DEFAULT {int(val) if isinstance(val, bool) else repr(val)}"
+                conn.execute(text(ddl))
 
 
 def utcnow() -> datetime:
