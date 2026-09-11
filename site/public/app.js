@@ -12,12 +12,18 @@
   };
 
   /* ---------- reader events ---------- */
+  // Opt-out for the site's own team: visit any page with ?notrack=1 (or use the switch on
+  // /admin) and this browser stops sending events; ?notrack=0 turns them back on.
+  const nt = new URLSearchParams(location.search).get("notrack");
+  if (nt === "1") store.set("notrack", true);
+  if (nt === "0") store.set("notrack", false);
+  const noTrack = store.get("notrack", false);
   const storyId = Number(document.body.dataset.storyId) || null;
   const articleId = Number(document.body.dataset.articleId) || null;
   let sid = session.get("s");
   if (!sid) { sid = Math.random().toString(36).slice(2, 12); session.set("s", sid); }
   function send(type, value, useBeacon) {
-    if (!cfg.supabaseUrl || !cfg.supabaseKey) return;
+    if (!cfg.supabaseUrl || !cfg.supabaseKey || noTrack) return;
     const body = JSON.stringify({ story_id: storyId, article_id: articleId, type, value: value ?? 1, session: sid, path: location.pathname, created_at: new Date().toISOString() });
     const url = `${cfg.supabaseUrl}/rest/v1/events`;
     if (useBeacon && navigator.sendBeacon) {

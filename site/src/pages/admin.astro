@@ -268,6 +268,12 @@ const mins = (m: number | null | undefined) => m == null ? "—" : m >= 120 ? `$
           <div class="tokenrow"><input type="password" id="gh-token" placeholder="ghp_… (kept in this browser only)" autocomplete="off" /><button class="tb" id="save-token">Save token</button><span id="token-state" class="muted"></span></div>
           <p id="action-status" class="muted" aria-live="polite"></p>
         </section>
+
+        <section class="card">
+          <h2>Your own visits <span class="muted">keep the team out of the reader numbers</span></h2>
+          <p class="muted">The site records no IP addresses, so exclusion works per browser: switch it on here on every device you use, or open any page with <code>?notrack=1</code> added to the address (<code>?notrack=0</code> turns it back on).</p>
+          <div class="tokenrow"><button class="tb" id="notrack-toggle">…</button><span id="notrack-state" class="muted"></span></div>
+        </section>
       </>
     )}
   </div>
@@ -327,6 +333,12 @@ const mins = (m: number | null | undefined) => m == null ? "—" : m >= 120 ? `$
         if (action === "pin") btn.textContent = idx >= 0 ? "Pin" : "Unpin";
       } catch (e) { status(e.message, true); }
     }));
+    // Exclude this browser from reader counts.
+    const ntBtn = document.getElementById("notrack-toggle"), ntState = document.getElementById("notrack-state");
+    const ntGet = () => { try { return JSON.parse(localStorage.getItem("notrack")) === true; } catch { return false; } };
+    const ntRender = () => { const on = ntGet(); if (ntBtn) ntBtn.textContent = on ? "Count my visits again" : "Exclude this browser from counts"; if (ntState) ntState.textContent = on ? "This browser is excluded from reader counts." : "This browser is currently counted."; };
+    ntBtn?.addEventListener("click", () => { try { localStorage.setItem("notrack", JSON.stringify(!ntGet())); } catch {} ntRender(); });
+    ntRender();
     // Sortable sources table.
     document.querySelectorAll("table.sortable th[data-sort]").forEach((th) => th.addEventListener("click", () => {
       const key = th.dataset.sort, tbody = th.closest("table").querySelector("tbody");
