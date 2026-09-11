@@ -128,8 +128,15 @@ def call_gemini(prompt: str) -> dict:
         resp = requests.post(url, headers={"x-goog-api-key": config.GEMINI_API_KEY}, json=body, timeout=90)
         if resp.status_code in (404, 429):
             _gemini_dead.add(model)
-            last = QuotaExhausted(f"gemini {model} {resp.status_code}")
-            log.warning("gemini %s unavailable (%s); trying next model", model, resp.status_code)
+            detail = ""
+            try:
+                err = resp.json().get("error", {})
+                quotas = [v.get("quotaId", "") for d in err.get("details", []) for v in d.get("violations", [])]
+                detail = ",".join(q for q in quotas if q) or err.get("message", "")[:120]
+            except Exception:  # noqa: BLE001
+                pass
+            last = QuotaExhausted(f"gemini {model} {resp.status_code} {detail}")
+            log.warning("gemini %s unavailable (%s %s); trying next model", model, resp.status_code, detail)
             continue
         if resp.status_code >= 500:
             # Overloaded: try the next model this time, keep this one for later articles.
@@ -293,17 +300,20 @@ def run() -> dict:
             if budgets["groq"] > 0:
                 providers.append((f"groq:{config.GROQ_MODEL}", call_groq))
     keyed = bool(config.GEMINI_API_KEY or config.GROQ_API_KEY)
-    local_only = not providers and not keyed and ollama_available()
-    if local_only:
+    # The local model is the safety net: it takes over when the keyed providers are out of quota
+    # (for the day, or mid-run), so a run never leaves the site without fresh stories.
+    if ollama_available():
         providers.append((f"ollama:{config.OLLAMA_MODEL}", call_ollama))
+        budgets["ollama"] = config.MAX_ENRICH_LOCAL_PER_RUN
+    local_only = providers and all(p[0].startswith("ollama") for p in providers)
     stats["budget"] = budgets
-    if keyed and not providers:
-        # Daily budget spent: leave the articles gated for tomorrow rather than degrade them.
-        log.info("LLM daily budget exhausted; deferring enrichment to the next run")
-        return stats
     if not providers:
+        if keyed:
+            log.info("LLM daily budget exhausted and no local model; deferring enrichment to the next run")
+            return stats
         log.warning("no LLM key configured and no local model; using heuristic enrichment")
-    limit = config.MAX_ENRICH_LOCAL_PER_RUN if local_only else max(budgets.values(), default=config.MAX_ENRICH_PER_RUN)
+    keyed_share = sum(v for k, v in budgets.items() if k != "ollama")
+    limit = keyed_share + budgets.get("ollama", 0) if providers else config.MAX_ENRICH_PER_RUN
     input_words = config.LOCAL_INPUT_WORDS if local_only else config.LLM_INPUT_WORDS
     spent: dict[str, int] = {}
 
@@ -312,8 +322,9 @@ def run() -> dict:
             select(db.articles, db.sources.c.category_hint, db.sources.c.name.label("source_name"), db.sources.c.weight)
             .join(db.sources, db.articles.c.source_id == db.sources.c.id)
             .where(db.articles.c.status == "gated")
-            # Freshest first: a 30-minute news cadence matters more than source prestige.
-            .order_by(db.articles.c.published_at.desc(), db.sources.c.weight.desc())
+            # The scarce, best model takes the first rows, so the labs' own announcements and
+            # the strongest press come first; the local model takes the rest, freshest first.
+            .order_by(db.sources.c.weight.desc(), db.articles.c.published_at.desc())
             .limit(limit)
         ).all()
 
@@ -331,11 +342,19 @@ def run() -> dict:
             provider = name.split(":")[0]
             if provider in budgets and spent.get(provider, 0) >= budgets[provider]:
                 continue  # this provider's share for the run is spent; try the next one
+            if provider == "ollama":
+                # Long inputs are slow on CPU; trim for the local model only.
+                prompt = PROMPT.format(
+                    categories=", ".join(f'"{k}" ({v})' for k, v in config.CATEGORIES.items()),
+                    title=row.title, source=row.source_name,
+                    published=row.published_at.isoformat() if row.published_at else "unknown",
+                    text=_truncate(text, config.LOCAL_INPUT_WORDS),
+                )
             try:
                 result = fn(prompt)
                 model_used = name
                 spent[provider] = spent.get(provider, 0) + 1
-                if provider in budgets:
+                if provider in budgets and provider != "ollama":
                     record_usage(eng, provider, 1)
                 break
             except QuotaExhausted as exc:
@@ -347,11 +366,12 @@ def run() -> dict:
                 stats["errors"] += 1
                 log.warning("%s failed on #%s: %s", name, row.id, exc)
         if result is None:
-            if providers and any(spent.get(p[0].split(":")[0], 0) < budgets.get(p[0].split(":")[0], 10**9) for p in providers):
+            remaining = [p for p in providers if spent.get(p[0].split(":")[0], 0) < budgets.get(p[0].split(":")[0], 10**9)]
+            if remaining:
                 # A transient error: leave the row for the next run rather than degrade it.
                 continue
-            if keyed:
-                break  # budget for this run is spent; the rest waits for the next run
+            if keyed or budgets.get("ollama"):
+                break  # every provider's share for this run is spent; the rest waits for the next run
             result = heuristic(row, row.category_hint)
         stats["model"] = model_used
         clean = _clean(result, row, row.category_hint)

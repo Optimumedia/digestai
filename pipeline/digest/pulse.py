@@ -14,7 +14,7 @@ from . import config, db, enrich
 log = logging.getLogger("digest.pulse")
 
 MIN_POINTS = 30
-MAX_PER_RUN = 4
+MAX_PER_RUN = 2
 MAX_COMMENTS = 25
 PROMPT = """Below are top comments from the Hacker News discussion of the article "{title}".
 Write 2 to 3 sentences, plain text, summarising what the commenters think: the main reactions,
