@@ -57,7 +57,7 @@ def run() -> dict:
         return stats
     with eng.connect() as conn:
         due = conn.execute(
-            select(db.topics).where(db.topics.c.story_count >= MIN_STORIES)
+            select(db.topics).where(db.topics.c.story_count >= MIN_STORIES, db.topics.c.kind != "page")
             .order_by(db.topics.c.story_count.desc())
         ).all()
         allowance = enrich.allowance(conn, "groq") if config.GROQ_API_KEY else enrich.allowance(conn, "gemini")

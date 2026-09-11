@@ -2,7 +2,7 @@
 import Base from "../../layouts/Base.astro";
 import StoryRow from "../../components/StoryRow.astro";
 import Rail from "../../components/Rail.astro";
-import { storiesByWeek, weekMonday, formatDate, trackers, money, weekKey, sourceLeaderboard } from "../../lib/data";
+import { storiesByWeek, weekMonday, formatDate, trackers, money, weekKey, sourceLeaderboard, topicInfo } from "../../lib/data";
 
 export function getStaticPaths() {
   return [...storiesByWeek().entries()].map(([week, list]) => ({ params: { week }, props: { list } }));
@@ -18,7 +18,8 @@ const models = trackers.models.filter((m) => weekKey(m.date) === week);
 const deals = trackers.funding.filter((f) => weekKey(f.date) === week);
 const weeks = [...storiesByWeek().keys()];
 const idx = weeks.indexOf(week!);
-const description = `What changed in AI in the week of ${range}: ${top.slice(0, 3).map((s) => s.headline).join("; ")}.`;
+const intro = topicInfo[`week-${week!.toLowerCase()}`]?.description || "";
+const description = (intro || `What changed in AI in the week of ${range}: ${top.slice(0, 3).map((s) => s.headline).join("; ")}.`).slice(0, 300);
 ---
 
 <Base title={`AI news, week of ${formatDate(monday.toISOString(), { day: "numeric", month: "long", year: "numeric" })}`} description={description}>
@@ -27,6 +28,7 @@ const description = `What changed in AI in the week of ${range}: ${top.slice(0, 
       <header class="page-head">
         <div class="eyebrow">Weekly recap · {week}</div>
         <h1>What changed in AI, {range}</h1>
+        {intro && <p class="intro">{intro}</p>}
         <p>{list.length} stories this week. The ten that mattered most, then every model release and deal.</p>
       </header>
       <div class="dayhead"><h2>The ten that mattered</h2></div>
