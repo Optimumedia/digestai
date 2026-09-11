@@ -286,6 +286,9 @@ export function topicPages(): { slug: string; entity: Entity }[] {
   return [...bySlug.entries()].map(([slug, entity]) => ({ slug, entity }));
 }
 
+/** Slugs that actually have a topic page; tags for anything else render as plain text. */
+export const topicSlugs: Set<string> = new Set(topicPages().map((t) => t.slug));
+
 export function dateKey(iso: string | null | undefined): string {
   return (iso || "").slice(0, 10);
 }

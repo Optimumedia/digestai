@@ -344,3 +344,4 @@ table.sortable th:hover { color: var(--ink); }
 .st.warn { color: var(--status-warning); }
 .mini { display: inline-block; width: 44px; height: 6px; background: var(--surface-2); border-radius: 3px; vertical-align: middle; margin-right: 6px; overflow: hidden; }
 .mini i { display: block; height: 100%; background: var(--series-1); }
+.taglist span { font-size: 13px; padding: 4px 9px; border: 1px solid transparent; color: var(--ink-3); }

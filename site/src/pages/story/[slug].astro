@@ -2,7 +2,7 @@
 import Base from "../../layouts/Base.astro";
 import Rail from "../../components/Rail.astro";
 import Coverage from "../../components/Coverage.astro";
-import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, readingMinutes, related, entitySlug, meta, threadFor, threadStories } from "../../lib/data";
+import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, readingMinutes, related, entitySlug, meta, threadFor, threadStories, topicSlugs } from "../../lib/data";
 
 export function getStaticPaths() {
   return stories.map((story) => ({ params: { slug: story.slug }, props: { story } }));
@@ -168,7 +168,7 @@ const jsonLd = {
       {entityList.length > 0 && (
         <section style="margin-top: 28px">
           <div class="eyebrow" style="margin-bottom: 8px">Topics · follow one to build your own front page</div>
-          <div class="taglist">{entityList.map(({ n }) => <a href={`/topic/${entitySlug(n)}`}>{n}</a>)}</div>
+          <div class="taglist">{entityList.map(({ n }) => topicSlugs.has(entitySlug(n)) ? <a href={`/topic/${entitySlug(n)}`}>{n}</a> : <span>{n}</span>)}</div>
         </section>
       )}
 
