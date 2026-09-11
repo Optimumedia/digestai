@@ -165,6 +165,19 @@ events = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
 
+topics = Table(
+    "topics",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("slug", String(140), unique=True, nullable=False),
+    Column("name", String(200), nullable=False),
+    Column("kind", String(20)),  # companies | models | people
+    Column("description", Text),  # two or three model-written sentences: what it is, why it matters now
+    Column("story_count", Integer, nullable=False, default=0),
+    Column("described_at_count", Integer, nullable=False, default=0),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
 llm_usage = Table(
     "llm_usage",
     metadata,

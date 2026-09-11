@@ -2,7 +2,8 @@
 import Base from "../../layouts/Base.astro";
 import StoryRow from "../../components/StoryRow.astro";
 import Rail from "../../components/Rail.astro";
-import { categories, storiesInCategory } from "../../lib/data";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
+import { categories, storiesInCategory, meta } from "../../lib/data";
 
 export function getStaticPaths() {
   return Object.entries(categories).map(([category, name]) => ({ params: { category }, props: { name } }));
@@ -23,11 +24,21 @@ const blurbs: Record<string, string> = {
   society: "Jobs, education, culture and daily life in an AI-shaped world.",
 };
 const follow = JSON.stringify({ kind: "category", slug: category, name });
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "CollectionPage",
+  name: `${name} news`,
+  description: blurbs[category!],
+  url: `${meta.siteUrl}/category/${category}`,
+  mainEntity: { "@type": "ItemList", itemListElement: list.slice(0, 20).map((s, i) => ({ "@type": "ListItem", position: i + 1, url: `${meta.siteUrl}/story/${s.slug}`, name: s.headline })) },
+};
 ---
 
-<Base title={name} description={blurbs[category!] || `${name} news, digested.`} currentCategory={category}>
+<Base title={`${name} news`} description={`${blurbs[category!]} ${list.length} stories, updated every 30 minutes.`} currentCategory={category} jsonLd={jsonLd}>
+  <link slot="head" rel="alternate" type="application/rss+xml" title={`Digest AI: ${name}`} href={`${meta.siteUrl}/feeds/category/${category}.xml`} />
   <div class="grid">
     <div>
+      <Breadcrumbs items={[{ name }]} />
       <header class="page-head">
         <div class="eyebrow">Category</div>
         <div class="head-row">

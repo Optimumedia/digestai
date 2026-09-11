@@ -1,0 +1,22 @@
+---
+import { meta } from "../lib/data";
+
+interface Props { items: { name: string; href?: string }[] }
+const { items } = Astro.props;
+const site = meta.siteUrl;
+const trail = [{ name: "Digest AI", href: "/" }, ...items];
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: trail.map((it, i) => ({ "@type": "ListItem", position: i + 1, name: it.name, ...(it.href ? { item: `${site}${it.href}` } : {}) })),
+};
+---
+
+<nav class="crumbs" aria-label="Breadcrumb">
+  <ol>
+    {trail.map((it, i) => (
+      <li>{it.href && i < trail.length - 1 ? <a href={it.href}>{it.name}</a> : <span aria-current="page">{it.name}</span>}</li>
+    ))}
+  </ol>
+</nav>
+<script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />

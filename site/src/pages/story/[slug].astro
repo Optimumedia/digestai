@@ -2,7 +2,8 @@
 import Base from "../../layouts/Base.astro";
 import Rail from "../../components/Rail.astro";
 import Coverage from "../../components/Coverage.astro";
-import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, readingMinutes, related, entitySlug, meta, threadFor, threadStories, topicSlugs } from "../../lib/data";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
+import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, readingMinutes, related, entitySlug, meta, threadFor, threadStories, topicSlugs, storiesInCategory } from "../../lib/data";
 
 export function getStaticPaths() {
   return stories.map((story) => ({ params: { slug: story.slug }, props: { story } }));
@@ -17,6 +18,8 @@ const description = plain(story.summaryMd || story.keyPoints.join(" "), 160);
 const site = meta.siteUrl;
 const entityList = Object.entries(story.entities || {}).flatMap(([kind, names]) => names.map((n) => ({ kind, n })));
 const rel = related(story, 5);
+const relIds = new Set(rel.map((s) => s.id));
+const moreInCategory = storiesInCategory(story.category || "").filter((s) => s.id !== story.id && !relIds.has(s.id)).slice(0, 5);
 const discussions = story.discussions || [];
 const thread = threadFor(story.threadId);
 const earlier = thread ? threadStories(thread).filter((s) => s.id !== story.id && (s.firstPublishedAt || "") <= (story.firstPublishedAt || "")).reverse() : [];
@@ -61,6 +64,7 @@ const jsonLd = {
 >
   <div class="grid">
     <article>
+      <Breadcrumbs items={[{ name: categories[story.category || ""] || "AI", href: `/category/${story.category}` }, { name: story.headline }]} />
       <header class="story-head">
         <div class="meta-row">
           <a class:list={["chip", { hot: story.importance >= 8 }]} href={`/category/${story.category}`}>{categories[story.category || ""] || "AI"}</a>
@@ -198,6 +202,13 @@ const jsonLd = {
             async
             is:inline
           ></script>
+        </section>
+      )}
+
+      {moreInCategory.length > 0 && (
+        <section style="margin-top: 36px">
+          <div class="dayhead"><h2>More in {categories[story.category || ""] || "AI"}</h2><a class="eyebrow" href={`/category/${story.category}`}>All →</a></div>
+          <ul class="coverage">{moreInCategory.map((s) => <li><a class="t" href={`/story/${s.slug}`}>{s.headline}</a><span class="mono muted"><time datetime={s.firstPublishedAt || undefined}></time> · {s.articleCount} src</span></li>)}</ul>
         </section>
       )}
 

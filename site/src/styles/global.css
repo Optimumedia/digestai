@@ -373,3 +373,8 @@ table.sortable th:hover { color: var(--ink); }
 .ranked li a:hover { color: var(--accent); }
 .ranked .mono { display: block; margin-top: 1px; }
 .ranked li .mono { grid-column: 2; }
+.crumbs { font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); padding-top: 16px; }
+.crumbs ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.crumbs li + li::before { content: "/"; margin-right: 6px; color: var(--line); }
+.crumbs a { color: var(--ink-2); } .crumbs a:hover { color: var(--accent); }
+.crumbs span { color: var(--ink-3); max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }

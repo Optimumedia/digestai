@@ -59,7 +59,10 @@ const clientConfig = {
     <meta name="description" content={description} />
     <meta name="google-site-verification" content="1HVcSBsyJYBfZLnj_r85TRK8n70zv2rexCrkXu6Bbyw" />
     <link rel="canonical" href={url} />
-    {noindex && <meta name="robots" content="noindex" />}
+    <meta name="robots" content={noindex ? "noindex, nofollow" : "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"} />
+    <meta name="googlebot-news" content={noindex ? "noindex" : "index"} />
+    <meta name="theme-color" content="#0e1116" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="alternate" type="application/rss+xml" title="Digest AI" href={`${site}/rss.xml`} />
     <meta property="og:site_name" content="Digest AI" />
@@ -76,6 +79,8 @@ const clientConfig = {
     <meta name="twitter:image" content={ogImage} />
     {publishedAt && <meta property="article:published_time" content={publishedAt} />}
     {modifiedAt && <meta property="article:modified_time" content={modifiedAt} />}
+    {currentCategory && <meta property="article:section" content={categories[currentCategory] || currentCategory} />}
+    {type === "article" && <meta property="article:publisher" content={site} />}
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -89,8 +94,23 @@ const clientConfig = {
       } catch {}
     </script>
     <script is:inline set:html={`window.DIGEST=${JSON.stringify(clientConfig)};`} />
-    <script src="/app.js" defer is:inline></script>
+    <script src={`/app.js?v=${meta.generatedAt.replace(/\D/g, "").slice(0, 12)}`} defer is:inline></script>
+    <slot name="head" />
     {jsonLd && <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />}
+    <script type="application/ld+json" set:html={JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "NewsMediaOrganization",
+      "@id": `${site}/#organization`,
+      name: "Digest AI",
+      alternateName: "Digest AI News",
+      url: site,
+      logo: { "@type": "ImageObject", url: `${site}/logo-512.png`, width: 512, height: 512 },
+      description: "The AI news desk: every important story in artificial intelligence, digested and linked to its sources, updated every 30 minutes.",
+      foundingDate: "2026",
+      publishingPrinciples: `${site}/about#standards`,
+      correctionsPolicy: `${site}/about#corrections`,
+      contactPoint: { "@type": "ContactPoint", contactType: "editorial", email: "hello@digestai.news" },
+    })} />
   </head>
   <body data-story-id={storyId} data-article-id={articleId}>
     <header class="masthead">
