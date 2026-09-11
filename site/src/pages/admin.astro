@@ -11,277 +11,333 @@ try { admin = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "src/data/a
 const repo = import.meta.env.PUBLIC_GISCUS_REPO || "Optimumedia/digestai";
 const C = { s1: "var(--series-1)", s2: "var(--series-2)", s3: "var(--series-3)", s4: "var(--series-4)", neutral: "var(--series-neutral)", good: "var(--status-good)", crit: "var(--status-critical)" };
 
-// ---- group step rows into pipeline runs (steps within 30 minutes of a fetch belong together)
+// ---- runs: group step rows into pipeline runs
 type Step = { step: string; startedAt: string; finishedAt: string | null; stats: any };
 const steps: Step[] = (admin?.runs || []).slice().sort((a: Step, b: Step) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
 const runs: { startedAt: string; finishedAt: string | null; steps: Step[]; ok: boolean; seconds: number }[] = [];
 for (const s of steps) {
   const last = runs[runs.length - 1];
-  if (last && Date.parse(s.startedAt) - Date.parse(last.startedAt) < 29 * 60 * 1000 && s.step !== "fetch") {
-    last.steps.push(s);
-    last.finishedAt = s.finishedAt || last.finishedAt;
-  } else {
-    runs.push({ startedAt: s.startedAt, finishedAt: s.finishedAt, steps: [s], ok: true, seconds: 0 });
-  }
+  if (last && Date.parse(s.startedAt) - Date.parse(last.startedAt) < 29 * 60 * 1000 && s.step !== "fetch") { last.steps.push(s); last.finishedAt = s.finishedAt || last.finishedAt; }
+  else runs.push({ startedAt: s.startedAt, finishedAt: s.finishedAt, steps: [s], ok: true, seconds: 0 });
 }
-for (const r of runs) {
-  r.ok = r.steps.every((s) => !s.stats?.crashed);
-  r.seconds = r.steps.reduce((n, s) => n + (Number(s.stats?.seconds) || 0), 0);
-}
+for (const r of runs) { r.ok = r.steps.every((s) => !s.stats?.crashed); r.seconds = r.steps.reduce((n, s) => n + (Number(s.stats?.seconds) || 0), 0); }
 runs.reverse();
 const lastRun = runs[0];
 const stat = (r: typeof lastRun | undefined, step: string) => r?.steps.find((s) => s.step === step)?.stats || {};
+const nextRunMin = lastRun ? Math.max(0, 30 - Math.round((Date.now() - Date.parse(lastRun.startedAt)) / 60000)) : null;
 
+// ---- derived numbers with deltas
 const days: string[] = admin?.days || [];
-const today = days[days.length - 1];
-const funnel = admin?.funnel || [];
-const todayFunnel = funnel[funnel.length - 1] || {};
-const published7 = funnel.slice(-7).reduce((n: number, f: any) => n + f.published, 0);
-const storiesToday = (admin?.content?.storiesPerDay || []).find((d: any) => d.day === today)?.stories ?? 0;
+const today = days[days.length - 1], yesterday = days[days.length - 2];
+const funnel: any[] = admin?.funnel || [];
+const byDay = (arr: any[], key: string) => Object.fromEntries(arr.map((r: any) => [r.day, r[key]]));
+const storiesPerDay = byDay(admin?.content?.storiesPerDay || [], "stories");
+const publishedPerDay = byDay(funnel, "published");
+const sum = (arr: any[], key: string, from: number, to: number) => arr.slice(from, to).reduce((n, r) => n + (Number(r[key]) || 0), 0);
+const week = (arr: any[], key: string) => sum(arr, key, -7, undefined as any);
+const prevWeek = (arr: any[], key: string) => sum(arr, key, -14, -7);
+const pct = (now: number, before: number) => (before > 0 ? Math.round(((now - before) / before) * 100) : null);
+const delta = (now: number, before: number) => { const p = pct(now, before); return p == null ? "" : `${p >= 0 ? "+" : ""}${p}% vs prev. 7d`; };
+
+const eng = admin?.engagement || { available: false, perDay: [], topStories: [] };
+const views7 = week(eng.perDay, "views"), viewsPrev = prevWeek(eng.perDay, "views");
+const sessions7 = week(eng.perDay, "sessions");
+const clicks7 = week(eng.perDay, "clicks"), saves7 = week(eng.perDay, "saves"), follows7 = week(eng.perDay, "follows"), shares7 = week(eng.perDay, "shares");
+const dwell7 = week(eng.perDay, "dwellSeconds");
+const avgDwell = views7 ? Math.round(dwell7 / views7) : null;
+const engagedActions7 = clicks7 + saves7 + follows7 + shares7;
 
 const usageToday = (admin?.llm?.usage || []).filter((u: any) => u.day === today);
 const budgets = admin?.llm?.budgets || {};
-const llmDays = days.map((d) => {
-  const row: any = { day: d, gemini: 0, groq: 0 };
-  for (const u of (admin?.llm?.usage || []).filter((u: any) => u.day === d)) row[u.provider] = u.requests;
-  return row;
-});
+const llmDays = days.map((d) => { const row: any = { day: d, gemini: 0, groq: 0 }; for (const u of (admin?.llm?.usage || []).filter((u: any) => u.day === d)) row[u.provider] = u.requests; return row; });
 
 const sources = (admin?.sources || []).slice().sort((a: any, b: any) => b.published - a.published || b.articles - a.articles);
 const twoHours = Date.now() - 2 * 3600 * 1000;
-const healthy = sources.filter((s: any) => s.enabled && !s.discovered && s.errorCount === 0 && Date.parse(s.lastFetchedAt || "0") > twoHours).length;
-const curated = sources.filter((s: any) => s.enabled && !s.discovered).length;
+const curatedSources = sources.filter((s: any) => s.enabled && !s.discovered);
+const healthy = curatedSources.filter((s: any) => s.errorCount === 0 && Date.parse(s.lastFetchedAt || "0") > twoHours).length;
 const failing = sources.filter((s: any) => s.enabled && s.errorCount > 0);
-
-const eng = admin?.engagement || { available: false, perDay: [], topStories: [] };
-const views7 = eng.perDay.slice(-7).reduce((n: number, d: any) => n + d.views, 0);
-
-const modelSeries = [
-  { key: "gemini", label: "Gemini", color: C.s1 },
-  { key: "groq", label: "Groq", color: C.s2 },
-  { key: "ollama", label: "Local model", color: C.s3 },
-  { key: "heuristic", label: "Heuristic", color: C.neutral },
-];
-const funnelSeries = [
-  { key: "published", label: "Published", color: C.s1 },
-  { key: "rejectedGate", label: "Rejected at gate", color: C.neutral },
-  { key: "rejectedExtract", label: "Extraction failed", color: C.s2 },
-  { key: "rejectedLlm", label: "Rejected by model", color: C.s3 },
-  { key: "pending", label: "Waiting for a summary", color: C.s4 },
-];
-const runRows = runs.slice(0, 48).reverse().map((r) => ({ t: r.startedAt, seconds: Math.round(r.seconds), ok: r.ok }));
-const catRows = (admin?.content?.categories || []).map((c: any) => ({ label: c.name, value: c.stories }));
-const srcRows = sources.filter((s: any) => s.published > 0).slice(0, 14).map((s: any) => ({ label: s.name, value: s.published, title: `${s.name}: ${s.published} published of ${s.articles} fetched, ${s.discussed} discussed on the web` }));
-const rel = (iso: string | null | undefined) => iso ? `${Math.round((Date.now() - Date.parse(iso)) / 60000)}m ago` : "never";
 const alerts: { level: string; text: string }[] = admin?.alerts || [];
+const critical = alerts.filter((a) => a.level === "critical");
 const perf: any[] = admin?.performance || [];
 const fresh = admin?.freshness || { perDay: [], perSource: {} };
 const freshRows = fresh.perDay.map((d: any) => ({ day: d.day, minutes: d.medianMinutes ?? 0 }));
+const freshToday = fresh.perDay[fresh.perDay.length - 1]?.medianMinutes ?? null;
 const extraction: any[] = admin?.extraction || [];
-const exSeries = [
-  { key: "full", label: "Full text", color: C.s1 },
-  { key: "short", label: "Short text", color: C.s4 },
-  { key: "description", label: "Summary only", color: C.neutral },
-  { key: "failed", label: "Failed", color: C.s2 },
-];
+const exSeries = [{ key: "full", label: "Full text", color: C.s1 }, { key: "short", label: "Short text", color: C.s4 }, { key: "description", label: "Summary only", color: C.neutral }, { key: "failed", label: "Failed", color: C.s2 }];
+const modelSeries = [{ key: "gemini", label: "Gemini", color: C.s1 }, { key: "groq", label: "Groq", color: C.s2 }, { key: "ollama", label: "Local model", color: C.s3 }, { key: "heuristic", label: "Heuristic", color: C.neutral }];
+const funnelSeries = [{ key: "published", label: "Published", color: C.s1 }, { key: "rejectedGate", label: "Rejected at gate", color: C.neutral }, { key: "rejectedExtract", label: "Extraction failed", color: C.s2 }, { key: "rejectedLlm", label: "Rejected by model", color: C.s3 }, { key: "pending", label: "Waiting for a summary", color: C.s4 }];
+const runRows = runs.slice(0, 48).reverse().map((r) => ({ t: r.startedAt, ok: r.ok ? Math.round(r.seconds) : 0, bad: r.ok ? 0 : Math.round(r.seconds) }));
+const catRows = (admin?.content?.categories || []).map((c: any) => ({ label: c.name, value: c.stories }));
+const srcRows = sources.filter((s: any) => s.published > 0).slice(0, 12).map((s: any) => ({ label: s.name, value: s.published, title: `${s.name}: ${s.published} published of ${s.articles} fetched, ${s.discussed} discussed on the web` }));
 const mins = (m: number | null | undefined) => m == null ? "—" : m >= 120 ? `${(m / 60).toFixed(1)} h` : `${m} min`;
+const rel = (iso: string | null | undefined) => iso ? `${Math.round((Date.now() - Date.parse(iso)) / 60000)} min ago` : "never";
+const topNow = perf.slice().sort((a, b) => b.score - a.score).slice(0, 6);
+const topReaders = perf.slice().sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 6);
+const statusText = critical.length ? `${critical.length} critical alert${critical.length > 1 ? "s" : ""}` : lastRun && !lastRun.ok ? "last run failed" : "all systems normal";
+const statusKind = critical.length || (lastRun && !lastRun.ok) ? "bad" : alerts.length ? "warn" : "good";
 ---
 
-<Base title="Digest AI Admin" description="Pipeline health, sources, model usage and reader engagement." noindex={true}>
+<Base title="Digest AI Admin" description="Pipeline health, readers, content, sources and model usage." noindex={true}>
   <div class="admin" data-pagefind-ignore>
     <header class="admin-head">
       <div>
-        <div class="eyebrow">Admin · generated <time datetime={admin?.generatedAt}></time> · database: {admin?.dbMode === "postgres" ? "Supabase" : "SQLite in the Actions cache"}</div>
-        <h1>Newsroom dashboard</h1>
+        <div class="eyebrow">Admin · data <time datetime={admin?.generatedAt}></time>{nextRunMin != null && ` · next run in about ${nextRunMin} min`}</div>
+        <h1>Newsroom</h1>
       </div>
+      <div class="statusline"><span class:list={["st", statusKind]}>●</span> {statusText}</div>
       <div class="admin-actions">
-        <a class="tb" href={`https://github.com/${repo}/actions`} target="_blank" rel="noopener">Actions log ↗</a>
-        <a class="tb" href={`https://github.com/${repo}/edit/main/pipeline/digest/sources.yaml`} target="_blank" rel="noopener">Edit sources ↗</a>
-        <a class="tb" href={`https://github.com/${repo}/edit/main/pipeline/digest/moderation.yaml`} target="_blank" rel="noopener">Edit moderation ↗</a>
         <button class="tb primary" id="run-now">Run pipeline now</button>
+        <a class="tb" href={`https://github.com/${repo}/actions`} target="_blank" rel="noopener">Actions log ↗</a>
       </div>
     </header>
+
+    <nav class="tabs" aria-label="Dashboard sections">
+      <a href="#today" data-tab="today">Today</a>
+      <a href="#readers" data-tab="readers">Readers</a>
+      <a href="#content" data-tab="content">Content</a>
+      <a href="#sources" data-tab="sources">Sources</a>
+      <a href="#pipeline" data-tab="pipeline">Pipeline</a>
+      <a href="#settings" data-tab="settings">Settings</a>
+    </nav>
 
     {!admin && <p class="muted">No admin data yet. The pipeline writes it on its next run.</p>}
 
     {admin && (
       <>
-        <section class="alerts" aria-label="Needs attention">
-          {alerts.length === 0 ? (
-            <div class="alert ok"><span class="st good">●</span> Nothing needs attention. Last check <time datetime={admin.generatedAt}></time>.</div>
-          ) : alerts.map((a) => (
-            <div class:list={["alert", a.level]}><span class:list={["st", a.level === "critical" ? "bad" : "warn"]}>●</span> {a.text}</div>
-          ))}
-        </section>
-
-        <section class="tiles">
-          <div class:list={["tile", { bad: lastRun && !lastRun.ok }]}>
-            <span class="label">Last run</span>
-            <span class="value">{lastRun ? (lastRun.ok ? "OK" : "Failed") : "—"}</span>
-            <span class="sub">{lastRun ? `${rel(lastRun.startedAt)} · ${Math.round(lastRun.seconds / 60)} min` : ""}</span>
+        <!-- ============ TODAY: the 30-second read ============ -->
+        <section class="tab" data-tab="today">
+          {alerts.length > 0 ? (
+            <div class="alerts">{alerts.map((a) => <div class:list={["alert", a.level]}><span class:list={["st", a.level === "critical" ? "bad" : "warn"]}>●</span> {a.text}</div>)}</div>
+          ) : (
+            <div class="alerts"><div class="alert ok"><span class="st good">●</span> Nothing needs attention.</div></div>
+          )}
+          <div class="tiles">
+            <div class="tile"><span class="label">Stories published today</span><span class="value">{storiesPerDay[today] ?? 0}</span><span class="sub">yesterday {storiesPerDay[yesterday] ?? 0}</span></div>
+            <div class:list={["tile", { off: !eng.available }]}><span class="label">Readers, 7 days</span><span class="value">{eng.available ? views7 : "—"}</span><span class="sub">{eng.available ? (viewsPrev ? delta(views7, viewsPrev) : `${sessions7} sessions`) : "no reader data yet"}</span></div>
+            <div class:list={["tile", { off: !eng.available }]}><span class="label">Time on story</span><span class="value">{avgDwell != null ? `${avgDwell}s` : "—"}</span><span class="sub">average per view, 7 days</span></div>
+            <div class:list={["tile", { warn: failing.length > 0 }]}><span class="label">Sources fetching</span><span class="value">{healthy}/{curatedSources.length}</span><span class="sub">{failing.length ? `${failing.length} failing` : "all fetching"}</span></div>
+            <div class:list={["tile", { bad: lastRun && !lastRun.ok }]}><span class="label">Last run</span><span class="value">{lastRun ? (lastRun.ok ? "OK" : "Failed") : "—"}</span><span class="sub">{lastRun ? `${rel(lastRun.startedAt)} · ${Math.round(lastRun.seconds / 60)} min` : ""}</span></div>
           </div>
-          <div class="tile"><span class="label">Stories today</span><span class="value">{storiesToday}</span><span class="sub">{todayFunnel.fetched ?? 0} links fetched</span></div>
-          <div class="tile"><span class="label">Published, 7 days</span><span class="value">{published7}</span><span class="sub">{Math.round(published7 / 7)} a day</span></div>
-          <div class="tile">
-            <span class="label">Model calls today</span>
-            <span class="value">{usageToday.reduce((n: number, u: any) => n + u.requests, 0)}</span>
-            <span class="sub">{Object.keys(budgets).map((p) => `${p} ${usageToday.find((u: any) => u.provider === p)?.requests ?? 0}/${budgets[p]}`).join(" · ")}</span>
-          </div>
-          <div class:list={["tile", { warn: failing.length > 0 }]}><span class="label">Sources healthy</span><span class="value">{healthy}/{curated}</span><span class="sub">{failing.length ? `${failing.length} failing` : "all fetching"}</span></div>
-          <div class:list={["tile", { off: !eng.available }]}><span class="label">Reader views, 7 days</span><span class="value">{eng.available ? views7 : "—"}</span><span class="sub">{eng.available ? `${eng.perDay.slice(-7).reduce((n: number, d: any) => n + d.sessions, 0)} sessions` : "connect Supabase to record"}</span></div>
-        </section>
-
-        <section class="cards">
-          <article class="card">
-            <h2>Article funnel <span class="muted">per day, last 14 days</span></h2>
-            <div class="legend">{funnelSeries.map((s) => <span><i style={`background:${s.color}`}></i>{s.label}</span>)}</div>
-            <Fragment set:html={columns(funnel, "day", funnelSeries)} />
-          </article>
-          <article class="card">
-            <h2>Published articles by model <span class="muted">who wrote the summary</span></h2>
-            <div class="legend">{modelSeries.map((s) => <span><i style={`background:${s.color}`}></i>{s.label}</span>)}</div>
-            <Fragment set:html={columns(admin.publishedByModel, "day", modelSeries)} />
-          </article>
-          <article class="card">
-            <h2>Model calls per day <span class="muted">against daily budgets {Object.entries(budgets).map(([p, b]) => `${p} ${b}`).join(", ")}</span></h2>
-            <div class="legend"><span><i style={`background:${C.s1}`}></i>Gemini</span><span><i style={`background:${C.s2}`}></i>Groq</span></div>
-            <Fragment set:html={columns(llmDays, "day", [{ key: "gemini", label: "Gemini", color: C.s1 }, { key: "groq", label: "Groq", color: C.s2 }])} />
-          </article>
-          <article class="card">
-            <h2>Run duration <span class="muted">last {runRows.length} runs, seconds; red = a step crashed</span></h2>
-            <Fragment set:html={columns(runRows.map((r) => ({ t: r.t, ok: r.ok ? r.seconds : 0, bad: r.ok ? 0 : r.seconds })), "t", [{ key: "ok", label: "OK", color: C.s1 }, { key: "bad", label: "Failed", color: C.crit }], { xFormat: (v) => String(v).slice(11, 16), labelEvery: 8 })} />
-          </article>
-          <article class="card">
-            <h2>Stories by category <span class="muted">published, 14 days</span></h2>
-            <Fragment set:html={bars(catRows, { color: C.s1 })} />
-          </article>
-          <article class="card">
-            <h2>Sources that publish <span class="muted">articles published, 7 days</span></h2>
-            <Fragment set:html={bars(srcRows, { color: C.s1 })} />
-          </article>
-          <article class="card">
-            <h2>Freshness <span class="muted">median minutes from publication to our site, per day</span></h2>
-            <Fragment set:html={lines(freshRows, "day", [{ key: "minutes", label: "Minutes", color: C.s1 }])} />
-          </article>
-          <article class="card">
-            <h2>Extraction quality by publisher <span class="muted">7 days, share of articles</span></h2>
-            <div class="legend">{exSeries.map((s) => <span><i style={`background:${s.color}`}></i>{s.label}</span>)}</div>
-            <Fragment set:html={stackedBars(extraction.slice(0, 12), "domain", exSeries)} />
-          </article>
-          <article class="card wide">
-            <h2>Readers <span class="muted">views and sessions per day</span></h2>
-            {eng.available ? (
-              <>
-                <div class="legend"><span><i style={`background:${C.s1}`}></i>Views</span><span><i style={`background:${C.s2}`}></i>Sessions</span><span><i style={`background:${C.s3}`}></i>Clicks to source</span></div>
-                <Fragment set:html={lines(eng.perDay, "day", [{ key: "views", label: "Views", color: C.s1 }, { key: "sessions", label: "Sessions", color: C.s2 }, { key: "clicks", label: "Clicks", color: C.s3 }])} />
-              </>
-            ) : (
-              <p class="muted">No reader events yet. The site records views, time on page, clicks to sources, saves, follows and shares as soon as Supabase is connected (SETUP.md, section 1). The ranking model then trains on what readers actually do; until then it learns from web popularity (Hacker News, Reddit, Mastodon).</p>
-            )}
-          </article>
-        </section>
-
-        <section class="card">
-          <h2>Story performance <span class="muted">7 days · predicted vs actual{eng.available ? "" : " (web signals until readers are recorded)"} · click a header to sort</span></h2>
-          <div class="tablewrap">
-            <table class="tracker sortable" id="stories-table">
-              <thead><tr>
-                <th data-sort="score" class="num">Score</th><th data-sort="headline">Story</th><th data-sort="category">Category</th>
-                <th data-sort="predicted" class="num">Predicted</th><th data-sort="actual" class="num">Actual</th>
-                <th data-sort="views" class="num">Views</th><th data-sort="dwellavg" class="num">Time</th><th data-sort="clicks" class="num">Clicks</th>
-                <th data-sort="hnpoints" class="num">HN</th><th data-sort="trend" class="num">Shares</th><th data-sort="sources" class="num">Src</th><th>Actions</th>
-              </tr></thead>
-              <tbody>
-                {perf.map((s: any) => (
-                  <tr data-slug={s.slug} data-score={s.score} data-headline={s.headline} data-category={s.category} data-predicted={s.predicted} data-actual={s.actual} data-views={s.views} data-dwellavg={s.dwellAvg ?? ""} data-clicks={s.clicks} data-hnpoints={s.hnPoints} data-trend={s.trend} data-sources={s.sources}>
-                    <td class="num">{s.score.toFixed(2)}</td>
-                    <td><a href={`/story/${s.slug}`}>{s.headline}</a>{s.pinned && <span class="cov-tag"> pinned</span>}{s.primary && <span class="cov-tag"> primary</span>}</td>
-                    <td>{(categories[s.category] || s.category || "").split(" & ")[0]}</td>
-                    <td class="num"><span class="mini"><i style={`width:${Math.round(s.predicted * 100)}%`}></i></span>{s.predicted.toFixed(2)}</td>
-                    <td class="num">{eng.available ? s.actual : "—"}</td>
-                    <td class="num">{eng.available ? s.views : "—"}</td>
-                    <td class="num">{eng.available && s.dwellAvg != null ? `${s.dwellAvg}s` : "—"}</td>
-                    <td class="num">{eng.available ? s.clicks : "—"}</td>
-                    <td class="num">{s.hnPoints || ""}</td>
-                    <td class="num">{s.trend || ""}</td>
-                    <td class="num">{s.sources}</td>
-                    <td class="acts"><button class="tb" data-mod="pin" data-slug={s.slug}>{s.pinned ? "Unpin" : "Pin"}</button><button class="tb danger" data-mod="unpublish" data-slug={s.slug}>Unpublish</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div class="cards">
+            <article class="card">
+              <h2>On the front page now <span class="muted">feed score</span></h2>
+              <ol class="ranked">{topNow.map((s: any) => <li><a href={`/story/${s.slug}`}>{s.headline}</a><span class="mono muted">{(categories[s.category] || "").split(" & ")[0]} · {s.sources} src{s.hnPoints ? ` · HN ${s.hnPoints}` : ""}</span></li>)}</ol>
+            </article>
+            <article class="card">
+              <h2>What readers opened <span class="muted">7 days</span></h2>
+              {eng.available ? (
+                <ol class="ranked">{topReaders.map((s: any) => <li><a href={`/story/${s.slug}`}>{s.headline}</a><span class="mono muted">{s.views} views{s.dwellAvg != null ? ` · ${s.dwellAvg}s` : ""}{s.clicks ? ` · ${s.clicks} clicks` : ""}</span></li>)}</ol>
+              ) : <p class="muted">Appears once reader events arrive.</p>}
+            </article>
+            <article class="card wide">
+              <h2>Published per day <span class="muted">14 days</span></h2>
+              <Fragment set:html={columns(funnel, "day", [{ key: "published", label: "Published", color: C.s1 }])} />
+            </article>
           </div>
         </section>
 
-        <section class="card">
-          <h2>Sources <span class="muted">7-day performance · click a header to sort</span></h2>
-          <div class="tablewrap">
-            <table class="tracker sortable" id="sources-table">
-              <thead><tr><th data-sort="name">Source</th><th data-sort="type">Type</th><th data-sort="weight" class="num">Weight</th><th data-sort="performance" class="num">Performance</th><th data-sort="articles" class="num">Fetched</th><th data-sort="published" class="num">Published</th><th data-sort="discussed" class="num">Discussed</th><th data-sort="medianminutes" class="num">Freshness</th><th data-sort="lastFetchedAt">Last fetch</th><th>Status</th></tr></thead>
-              <tbody>
-                {sources.map((s: any) => (
-                  <tr data-name={s.name} data-type={s.type} data-weight={s.weight} data-performance={s.performance} data-articles={s.articles} data-published={s.published} data-discussed={s.discussed} data-medianminutes={s.medianMinutes ?? ""} data-lastfetchedat={s.lastFetchedAt || ""}>
-                    <td>{s.name}{s.discovered && <span class="cov-tag"> discovered</span>}</td>
-                    <td>{s.type}</td>
-                    <td class="num">{s.weight.toFixed(1)}</td>
-                    <td class="num">{s.performance ? s.performance.toFixed(2) : "—"}</td>
-                    <td class="num">{s.articles}</td>
-                    <td class="num">{s.published}</td>
-                    <td class="num">{s.discussed}</td>
-                    <td class="num">{mins(s.medianMinutes)}</td>
-                    <td class="num"><time datetime={s.lastFetchedAt || undefined}></time></td>
-                    <td>{!s.enabled ? <span class="st off">● off</span> : s.errorCount > 0 ? <span class="st bad" title={s.lastError}>● failing ({s.errorCount})</span> : <span class="st good">● ok</span>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <!-- ============ READERS ============ -->
+        <section class="tab" data-tab="readers" hidden>
+          {!eng.available && <div class="alerts"><div class="alert warning"><span class="st warn">●</span> No reader events yet. They appear as soon as people open story pages.</div></div>}
+          <div class="tiles">
+            <div class="tile"><span class="label">Views, 7 days</span><span class="value">{views7}</span><span class="sub">{delta(views7, viewsPrev) || "first week"}</span></div>
+            <div class="tile"><span class="label">Sessions, 7 days</span><span class="value">{sessions7}</span><span class="sub">{sessions7 ? `${(views7 / sessions7).toFixed(1)} views per session` : ""}</span></div>
+            <div class="tile"><span class="label">Time on story</span><span class="value">{avgDwell != null ? `${avgDwell}s` : "—"}</span><span class="sub">average per view</span></div>
+            <div class="tile"><span class="label">Actions, 7 days</span><span class="value">{engagedActions7}</span><span class="sub">{clicks7} to source · {saves7} saved · {follows7} follows · {shares7} shares</span></div>
           </div>
-        </section>
-
-        <section class="card">
-          <h2>Recent runs <span class="muted">each step's numbers</span></h2>
-          <div class="tablewrap">
-            <table class="tracker">
-              <thead><tr><th>Started</th><th>Status</th><th class="num">Min</th><th>Fetched</th><th>Extracted</th><th>Gate</th><th>Enriched</th><th>Stories</th><th>Model</th></tr></thead>
-              <tbody>
-                {runs.slice(0, 20).map((r) => (
-                  <tr>
-                    <td class="num"><time datetime={r.startedAt} data-static>{formatDate(r.startedAt, { day: "numeric", month: "short" })} {r.startedAt.slice(11, 16)}</time></td>
-                    <td>{r.ok ? <span class="st good">● ok</span> : <span class="st bad">● failed</span>}</td>
-                    <td class="num">{(r.seconds / 60).toFixed(1)}</td>
-                    <td class="num">{stat(r, "fetch").inserted ?? "—"} <span class="muted">/ {stat(r, "fetch").items ?? ""}</span></td>
-                    <td class="num">{stat(r, "extract").ok ?? "—"} <span class="muted">/ {stat(r, "extract").processed ?? ""}</span></td>
-                    <td class="num">{stat(r, "gate").passed ?? "—"} <span class="muted">/ {stat(r, "gate").checked ?? ""}</span></td>
-                    <td class="num">{stat(r, "enrich").enriched ?? "—"}</td>
-                    <td class="num">{stat(r, "export").stories ?? "—"}</td>
-                    <td>{String(stat(r, "enrich").model || "").replace(/:.*/, "")}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div class="cards">
+            <article class="card wide">
+              <h2>Views, sessions and clicks to source <span class="muted">per day</span></h2>
+              <div class="legend"><span><i style={`background:${C.s1}`}></i>Views</span><span><i style={`background:${C.s2}`}></i>Sessions</span><span><i style={`background:${C.s3}`}></i>Clicks to source</span></div>
+              <Fragment set:html={lines(eng.perDay, "day", [{ key: "views", label: "Views", color: C.s1 }, { key: "sessions", label: "Sessions", color: C.s2 }, { key: "clicks", label: "Clicks", color: C.s3 }])} />
+            </article>
           </div>
+          <section class="card">
+            <h2>Story performance <span class="muted">7 days · what the model predicted vs what happened · click a header to sort</span></h2>
+            <div class="tablewrap">
+              <table class="tracker sortable" id="stories-table">
+                <thead><tr><th data-sort="headline">Story</th><th data-sort="category">Category</th><th data-sort="predicted" class="num">Predicted</th><th data-sort="views" class="num">Views</th><th data-sort="dwellavg" class="num">Time</th><th data-sort="clicks" class="num">Clicks</th><th data-sort="hnpoints" class="num">HN</th><th data-sort="sources" class="num">Src</th><th data-sort="score" class="num">Score</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {perf.map((s: any) => (
+                    <tr data-slug={s.slug} data-score={s.score} data-headline={s.headline} data-category={s.category} data-predicted={s.predicted} data-views={s.views} data-dwellavg={s.dwellAvg ?? ""} data-clicks={s.clicks} data-hnpoints={s.hnPoints} data-sources={s.sources}>
+                      <td><a href={`/story/${s.slug}`}>{s.headline}</a>{s.pinned && <span class="cov-tag"> pinned</span>}</td>
+                      <td>{(categories[s.category] || s.category || "").split(" & ")[0]}</td>
+                      <td class="num"><span class="mini"><i style={`width:${Math.round(s.predicted * 100)}%`}></i></span>{s.predicted.toFixed(2)}</td>
+                      <td class="num">{eng.available ? s.views : "—"}</td>
+                      <td class="num">{eng.available && s.dwellAvg != null ? `${s.dwellAvg}s` : "—"}</td>
+                      <td class="num">{eng.available ? s.clicks : "—"}</td>
+                      <td class="num">{s.hnPoints || ""}</td>
+                      <td class="num">{s.sources}</td>
+                      <td class="num">{s.score.toFixed(2)}</td>
+                      <td class="acts"><button class="tb" data-mod="pin" data-slug={s.slug}>{s.pinned ? "Unpin" : "Pin"}</button><button class="tb danger" data-mod="unpublish" data-slug={s.slug}>Unpublish</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
         </section>
 
-        <section class="card">
-          <h2>Actions <span class="muted">run the pipeline, pin or unpublish stories</span></h2>
-          <p class="muted">Actions commit to the repository through GitHub's API, so they need a GitHub token with <b>repo</b> and <b>workflow</b> scopes. It is stored only in this browser. Create one at <a href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=digestai-admin" target="_blank" rel="noopener">github.com/settings/tokens</a>.</p>
-          <div class="tokenrow"><input type="password" id="gh-token" placeholder="ghp_… (kept in this browser only)" autocomplete="off" /><button class="tb" id="save-token">Save token</button><span id="token-state" class="muted"></span></div>
-          <p id="action-status" class="muted" aria-live="polite"></p>
+        <!-- ============ CONTENT ============ -->
+        <section class="tab" data-tab="content" hidden>
+          <div class="tiles">
+            <div class="tile"><span class="label">Published, 7 days</span><span class="value">{week(funnel, "published")}</span><span class="sub">{delta(week(funnel, "published"), prevWeek(funnel, "published")) || `${Math.round(week(funnel, "published") / 7)} a day`}</span></div>
+            <div class="tile"><span class="label">Developing threads</span><span class="value">{admin.content.threads}</span><span class="sub">with 2+ episodes</span></div>
+            <div class="tile"><span class="label">Stories with community pulse</span><span class="value">{admin.content.storiesWithPulse}</span><span class="sub">from Hacker News threads</span></div>
+            <div class="tile"><span class="label">Moderated</span><span class="value">{admin.content.unpublished + admin.content.pinned.length}</span><span class="sub">{admin.content.unpublished} unpublished · {admin.content.pinned.length} pinned</span></div>
+          </div>
+          <div class="cards">
+            <article class="card">
+              <h2>Stories by category <span class="muted">published, 14 days</span></h2>
+              <Fragment set:html={bars(catRows, { color: C.s1 })} />
+            </article>
+            <article class="card">
+              <h2>Where articles end up <span class="muted">per day</span></h2>
+              <div class="legend">{funnelSeries.map((s) => <span><i style={`background:${s.color}`}></i>{s.label}</span>)}</div>
+              <Fragment set:html={columns(funnel, "day", funnelSeries)} />
+            </article>
+            <article class="card">
+              <h2>Who wrote the summaries <span class="muted">published articles by model</span></h2>
+              <div class="legend">{modelSeries.map((s) => <span><i style={`background:${s.color}`}></i>{s.label}</span>)}</div>
+              <Fragment set:html={columns(admin.publishedByModel, "day", modelSeries)} />
+            </article>
+            <article class="card">
+              <h2>Freshness <span class="muted">median minutes from publication to the site</span></h2>
+              <p class="muted" style="margin:0 0 6px">Today: {mins(freshToday)}. Daily newsletters and digests pull this number up; breaking sources sit far lower.</p>
+              <Fragment set:html={lines(freshRows, "day", [{ key: "minutes", label: "Minutes", color: C.s1 }])} />
+            </article>
+          </div>
+          <p class="muted">Pin and unpublish live on the <a href="#readers">Readers</a> tab's story table. Moderation rules can also be edited directly in <a href={`https://github.com/${repo}/edit/main/pipeline/digest/moderation.yaml`} target="_blank" rel="noopener">moderation.yaml</a>.</p>
         </section>
 
-        <section class="card">
-          <h2>Your own visits <span class="muted">keep the team out of the reader numbers</span></h2>
-          <p class="muted">The site records no IP addresses, so exclusion works per browser: switch it on here on every device you use, or open any page with <code>?notrack=1</code> added to the address (<code>?notrack=0</code> turns it back on).</p>
-          <div class="tokenrow"><button class="tb" id="notrack-toggle">…</button><span id="notrack-state" class="muted"></span></div>
+        <!-- ============ SOURCES ============ -->
+        <section class="tab" data-tab="sources" hidden>
+          <div class="tiles">
+            <div class:list={["tile", { warn: failing.length > 0 }]}><span class="label">Fetching</span><span class="value">{healthy}/{curatedSources.length}</span><span class="sub">{failing.length ? failing.map((s: any) => s.name).slice(0, 3).join(", ") : "all healthy"}</span></div>
+            <div class="tile"><span class="label">Discovered feeds</span><span class="value">{sources.filter((s: any) => s.discovered && s.enabled).length}</span><span class="sub">temporary searches for hot topics</span></div>
+            <div class="tile"><span class="label">Publishing sources, 7 days</span><span class="value">{sources.filter((s: any) => s.published > 0).length}</span><span class="sub">of {sources.length} total</span></div>
+          </div>
+          <div class="cards">
+            <article class="card">
+              <h2>Who gets published <span class="muted">articles, 7 days</span></h2>
+              <Fragment set:html={bars(srcRows, { color: C.s1 })} />
+            </article>
+            <article class="card">
+              <h2>Extraction quality by publisher <span class="muted">7 days</span></h2>
+              <div class="legend">{exSeries.map((s) => <span><i style={`background:${s.color}`}></i>{s.label}</span>)}</div>
+              <Fragment set:html={stackedBars(extraction.slice(0, 12), "domain", exSeries)} />
+            </article>
+          </div>
+          <section class="card">
+            <h2>All sources <span class="muted">7-day performance · click a header to sort</span></h2>
+            <div class="tablewrap">
+              <table class="tracker sortable" id="sources-table">
+                <thead><tr><th data-sort="name">Source</th><th data-sort="type">Type</th><th data-sort="weight" class="num">Weight</th><th data-sort="performance" class="num">Perf.</th><th data-sort="articles" class="num">Fetched</th><th data-sort="published" class="num">Published</th><th data-sort="discussed" class="num">Discussed</th><th data-sort="medianminutes" class="num">Freshness</th><th data-sort="lastFetchedAt">Last fetch</th><th>Status</th></tr></thead>
+                <tbody>
+                  {sources.map((s: any) => (
+                    <tr data-name={s.name} data-type={s.type} data-weight={s.weight} data-performance={s.performance} data-articles={s.articles} data-published={s.published} data-discussed={s.discussed} data-medianminutes={s.medianMinutes ?? ""} data-lastfetchedat={s.lastFetchedAt || ""}>
+                      <td>{s.name}{s.discovered && <span class="cov-tag"> discovered</span>}</td>
+                      <td>{s.type}</td><td class="num">{s.weight.toFixed(1)}</td><td class="num">{s.performance ? s.performance.toFixed(2) : "—"}</td>
+                      <td class="num">{s.articles}</td><td class="num">{s.published}</td><td class="num">{s.discussed}</td><td class="num">{mins(s.medianMinutes)}</td>
+                      <td class="num"><time datetime={s.lastFetchedAt || undefined}></time></td>
+                      <td>{!s.enabled ? <span class="st off">● off</span> : s.errorCount > 0 ? <span class="st bad" title={s.lastError}>● failing ({s.errorCount})</span> : <span class="st good">● ok</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p class="muted">Add or remove sources in <a href={`https://github.com/${repo}/edit/main/pipeline/digest/sources.yaml`} target="_blank" rel="noopener">sources.yaml</a>; the next run picks them up.</p>
+          </section>
+        </section>
+
+        <!-- ============ PIPELINE ============ -->
+        <section class="tab" data-tab="pipeline" hidden>
+          <div class="tiles">
+            <div class:list={["tile", { bad: lastRun && !lastRun.ok }]}><span class="label">Last run</span><span class="value">{lastRun ? (lastRun.ok ? "OK" : "Failed") : "—"}</span><span class="sub">{lastRun ? `${rel(lastRun.startedAt)} · ${Math.round(lastRun.seconds / 60)} min` : ""}</span></div>
+            <div class="tile"><span class="label">Runs today</span><span class="value">{runs.filter((r) => r.startedAt.slice(0, 10) === today).length}</span><span class="sub">{runs.filter((r) => r.startedAt.slice(0, 10) === today && !r.ok).length} failed</span></div>
+            <div class="tile"><span class="label">Model calls today</span><span class="value">{usageToday.reduce((n: number, u: any) => n + u.requests, 0)}</span><span class="sub">{Object.keys(budgets).map((p) => `${p} ${usageToday.find((u: any) => u.provider === p)?.requests ?? 0}/${budgets[p]}`).join(" · ")}</span></div>
+            <div class="tile"><span class="label">Links fetched today</span><span class="value">{funnel[funnel.length - 1]?.fetched ?? 0}</span><span class="sub">{funnel[funnel.length - 1]?.pending ?? 0} waiting for a summary</span></div>
+          </div>
+          <div class="cards">
+            <article class="card">
+              <h2>Run duration <span class="muted">seconds, last {runRows.length} runs; red = a step crashed</span></h2>
+              <Fragment set:html={columns(runRows, "t", [{ key: "ok", label: "OK", color: C.s1 }, { key: "bad", label: "Failed", color: C.crit }], { xFormat: (v) => String(v).slice(11, 16), labelEvery: 8 })} />
+            </article>
+            <article class="card">
+              <h2>Model calls per day <span class="muted">budgets: {Object.entries(budgets).map(([p, b]) => `${p} ${b}`).join(", ")}</span></h2>
+              <div class="legend"><span><i style={`background:${C.s1}`}></i>Gemini</span><span><i style={`background:${C.s2}`}></i>Groq</span></div>
+              <Fragment set:html={columns(llmDays, "day", [{ key: "gemini", label: "Gemini", color: C.s1 }, { key: "groq", label: "Groq", color: C.s2 }])} />
+            </article>
+          </div>
+          <section class="card">
+            <h2>Recent runs <span class="muted">each step's numbers</span></h2>
+            <div class="tablewrap">
+              <table class="tracker">
+                <thead><tr><th>Started</th><th>Status</th><th class="num">Min</th><th>Fetched</th><th>Extracted</th><th>Gate</th><th>Enriched</th><th>Stories</th><th>Model</th></tr></thead>
+                <tbody>
+                  {runs.slice(0, 20).map((r) => (
+                    <tr>
+                      <td class="num"><time datetime={r.startedAt} data-static>{formatDate(r.startedAt, { day: "numeric", month: "short" })} {r.startedAt.slice(11, 16)}</time></td>
+                      <td>{r.ok ? <span class="st good">● ok</span> : <span class="st bad">● failed</span>}</td>
+                      <td class="num">{(r.seconds / 60).toFixed(1)}</td>
+                      <td class="num">{stat(r, "fetch").inserted ?? "—"} <span class="muted">/ {stat(r, "fetch").items ?? ""}</span></td>
+                      <td class="num">{stat(r, "extract").ok ?? "—"} <span class="muted">/ {stat(r, "extract").processed ?? ""}</span></td>
+                      <td class="num">{stat(r, "gate").passed ?? "—"} <span class="muted">/ {stat(r, "gate").checked ?? ""}</span></td>
+                      <td class="num">{stat(r, "enrich").enriched ?? "—"}</td>
+                      <td class="num">{stat(r, "export").stories ?? "—"}</td>
+                      <td>{String(stat(r, "enrich").model || "").replace(/:.*/, "")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <!-- ============ SETTINGS ============ -->
+        <section class="tab" data-tab="settings" hidden>
+          <section class="card">
+            <h2>GitHub token <span class="muted">needed for Run now, Pin and Unpublish</span></h2>
+            <p class="muted">Actions commit through GitHub's API and need a token with <b>repo</b> and <b>workflow</b> scopes, stored only in this browser. Create one at <a href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=digestai-admin" target="_blank" rel="noopener">github.com/settings/tokens</a>.</p>
+            <div class="tokenrow"><input type="password" id="gh-token" placeholder="ghp_… (kept in this browser only)" autocomplete="off" /><button class="tb" id="save-token">Save token</button><span id="token-state" class="muted"></span></div>
+            <p id="action-status" class="muted" aria-live="polite"></p>
+          </section>
+          <section class="card">
+            <h2>Your own visits</h2>
+            <p class="muted">The site records no IP addresses, so exclusion works per browser. Switch it on here on each device, or open any page with <code>?notrack=1</code> (<code>?notrack=0</code> to undo).</p>
+            <div class="tokenrow"><button class="tb" id="notrack-toggle">…</button><span id="notrack-state" class="muted"></span></div>
+          </section>
+          <section class="card">
+            <h2>Edit the configuration</h2>
+            <div class="admin-actions">
+              <a class="tb" href={`https://github.com/${repo}/edit/main/pipeline/digest/sources.yaml`} target="_blank" rel="noopener">sources.yaml ↗</a>
+              <a class="tb" href={`https://github.com/${repo}/edit/main/pipeline/digest/moderation.yaml`} target="_blank" rel="noopener">moderation.yaml ↗</a>
+              <a class="tb" href={`https://github.com/${repo}/settings/variables/actions`} target="_blank" rel="noopener">Budgets and variables ↗</a>
+              <a class="tb" href="https://supabase.com/dashboard" target="_blank" rel="noopener">Supabase Studio ↗</a>
+              <a class="tb" href={`https://github.com/${repo}/issues?q=label%3Aneeds-attention`} target="_blank" rel="noopener">Alert issues ↗</a>
+            </div>
+          </section>
         </section>
       </>
     )}
   </div>
 
   <script is:inline define:vars={{ repo }}>
+    // Tabs, remembered in the URL hash.
+    const tabs = [...document.querySelectorAll(".tabs a[data-tab]")];
+    const panels = [...document.querySelectorAll("section.tab[data-tab]")];
+    function show(name) {
+      if (!panels.some((p) => p.dataset.tab === name)) name = "today";
+      panels.forEach((p) => (p.hidden = p.dataset.tab !== name));
+      tabs.forEach((t) => t.setAttribute("aria-current", t.dataset.tab === name ? "page" : "false"));
+    }
+    show((location.hash || "#today").slice(1));
+    addEventListener("hashchange", () => show(location.hash.slice(1)));
+    document.querySelectorAll('a[href^="#"]').forEach((a) => a.addEventListener("click", (e) => { const n = a.getAttribute("href").slice(1); if (panels.some((p) => p.dataset.tab === n)) { e.preventDefault(); history.replaceState(null, "", "#" + n); show(n); window.scrollTo({ top: 0 }); } }));
+
     const tokenKey = "admin_gh_token";
     const get = () => { try { return localStorage.getItem(tokenKey) || ""; } catch { return ""; } };
-    const status = (msg, bad) => { const el = document.getElementById("action-status"); if (el) { el.textContent = msg; el.style.color = bad ? "var(--status-critical)" : ""; } };
+    const status = (msg, bad) => { const el = document.getElementById("action-status"); if (el) { el.textContent = msg; el.style.color = bad ? "var(--status-critical)" : ""; } if (bad || !get()) { history.replaceState(null, "", "#settings"); show("settings"); } };
     const state = document.getElementById("token-state");
     if (state) state.textContent = get() ? "token saved" : "no token";
     document.getElementById("save-token")?.addEventListener("click", () => {
@@ -292,54 +348,45 @@ const mins = (m: number | null | undefined) => m == null ? "—" : m >= 120 ? `$
     });
     const api = async (path, method = "GET", body) => {
       const t = get();
-      if (!t) throw new Error("Save a GitHub token first");
+      if (!t) throw new Error("Save a GitHub token first (Settings tab)");
       const r = await fetch(`https://api.github.com/repos/${repo}/${path}`, { method, headers: { Authorization: `Bearer ${t}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
       if (!r.ok) throw new Error(`${method} ${path}: ${r.status} ${(await r.text()).slice(0, 120)}`);
       return r.status === 204 ? null : r.json();
     };
     document.getElementById("run-now")?.addEventListener("click", async () => {
-      try { status("Starting…"); await api("actions/workflows/pipeline.yml/dispatches", "POST", { ref: "main" }); status("Run started. It takes 8 to 15 minutes; the site updates when it finishes."); }
+      try { await api("actions/workflows/pipeline.yml/dispatches", "POST", { ref: "main" }); alert("Run started. It takes 8 to 15 minutes; the site updates when it finishes."); }
       catch (e) { status(e.message, true); }
     });
-    // Moderation: edit moderation.yaml's unpublish/pin lists and commit.
     const toB64 = (s) => btoa(unescape(encodeURIComponent(s)));
     const fromB64 = (s) => decodeURIComponent(escape(atob(s.replace(/\n/g, ""))));
     const listRe = (key) => new RegExp(`^${key}:\\s*(\\[[^\\]]*\\]|(?:\\n\\s*-\\s*.*)*)`, "m");
     function readList(yaml, key) {
-      const m = yaml.match(listRe(key));
-      if (!m) return [];
+      const m = yaml.match(listRe(key)); if (!m) return [];
       const body = m[1].trim();
       if (body.startsWith("[")) return body.slice(1, -1).split(",").map((x) => x.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
       return body.split("\n").map((l) => l.replace(/^\s*-\s*/, "").trim().replace(/^["']|["']$/g, "")).filter(Boolean);
     }
-    function writeList(yaml, key, items) {
-      const rendered = `${key}: [${items.map((i) => JSON.stringify(i)).join(", ")}]`;
-      return yaml.match(listRe(key)) ? yaml.replace(listRe(key), rendered) : yaml + `\n${rendered}\n`;
-    }
+    function writeList(yaml, key, items) { const rendered = `${key}: [${items.map((i) => JSON.stringify(i)).join(", ")}]`; return yaml.match(listRe(key)) ? yaml.replace(listRe(key), rendered) : yaml + `\n${rendered}\n`; }
     document.querySelectorAll("[data-mod]").forEach((btn) => btn.addEventListener("click", async () => {
       const slug = btn.dataset.slug, action = btn.dataset.mod;
       if (action === "unpublish" && !confirm(`Unpublish "${slug}" on the next run?`)) return;
       try {
-        status("Updating moderation.yaml…");
         const file = await api("contents/pipeline/digest/moderation.yaml");
         let yaml = fromB64(file.content);
         const key = action === "unpublish" ? "unpublish" : "pin";
-        const list = readList(yaml, key);
-        const idx = list.indexOf(slug);
+        const list = readList(yaml, key); const idx = list.indexOf(slug);
         if (idx >= 0) list.splice(idx, 1); else list.push(slug);
         yaml = writeList(yaml, key, list);
         await api("contents/pipeline/digest/moderation.yaml", "PUT", { message: `admin: ${idx >= 0 ? "remove" : "add"} ${slug} in ${key}`, content: toB64(yaml), sha: file.sha });
-        status(`${idx >= 0 ? "Removed from" : "Added to"} ${key}: ${slug}. Applied on the next run (or press "Run pipeline now").`);
-        if (action === "pin") btn.textContent = idx >= 0 ? "Pin" : "Unpin";
+        btn.textContent = action === "pin" ? (idx >= 0 ? "Pin" : "Unpin") : (idx >= 0 ? "Unpublish" : "Queued");
+        btn.title = "Applied on the next run";
       } catch (e) { status(e.message, true); }
     }));
-    // Exclude this browser from reader counts.
     const ntBtn = document.getElementById("notrack-toggle"), ntState = document.getElementById("notrack-state");
     const ntGet = () => { try { return JSON.parse(localStorage.getItem("notrack")) === true; } catch { return false; } };
     const ntRender = () => { const on = ntGet(); if (ntBtn) ntBtn.textContent = on ? "Count my visits again" : "Exclude this browser from counts"; if (ntState) ntState.textContent = on ? "This browser is excluded from reader counts." : "This browser is currently counted."; };
     ntBtn?.addEventListener("click", () => { try { localStorage.setItem("notrack", JSON.stringify(!ntGet())); } catch {} ntRender(); });
     ntRender();
-    // Sortable sources table.
     document.querySelectorAll("table.sortable th[data-sort]").forEach((th) => th.addEventListener("click", () => {
       const key = th.dataset.sort, tbody = th.closest("table").querySelector("tbody");
       const dir = th.dataset.dir === "asc" ? "desc" : "asc"; th.dataset.dir = dir;

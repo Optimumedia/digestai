@@ -360,3 +360,15 @@ table.sortable th:hover { color: var(--ink); }
 .mini { display: inline-block; width: 44px; height: 6px; background: var(--surface-2); border-radius: 3px; vertical-align: middle; margin-right: 6px; overflow: hidden; }
 .mini i { display: block; height: 100%; background: var(--series-1); }
 .taglist span { font-size: 13px; padding: 4px 9px; border: 1px solid transparent; color: var(--ink-3); }
+.statusline { font-family: var(--font-mono); font-size: 13px; color: var(--ink-2); padding: 6px 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 0 0 18px; overflow-x: auto; scrollbar-width: none; position: sticky; top: 0; background: var(--bg); z-index: 5; }
+.tabs a { padding: 10px 14px; font-size: 14px; font-weight: 600; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.tabs a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+.tabs a:hover { color: var(--ink); }
+.ranked { list-style: none; margin: 0; padding: 0; counter-reset: k; }
+.ranked li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); counter-increment: k; font-size: 14.5px; }
+.ranked li:first-child { border-top: 0; }
+.ranked li::before { content: counter(k); font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); padding-top: 2px; }
+.ranked li a { font-weight: 600; display: block; }
+.ranked li a:hover { color: var(--accent); }
+.ranked .mono { display: block; margin-top: 1px; }
