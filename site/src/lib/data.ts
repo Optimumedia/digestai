@@ -74,6 +74,8 @@ export interface Thread {
   categoryName: string;
   entities: Record<string, string[]>;
   storyCount: number;
+  named?: boolean;
+  ogImage?: string;
   firstAt: string | null;
   updatedAt: string | null;
   storyIds: number[];

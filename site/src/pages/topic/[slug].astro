@@ -13,9 +13,20 @@ const { entity } = Astro.props;
 const list = storiesForEntity(entity);
 const kindLabel = { companies: "Company", models: "Model", people: "Person" }[entity.kind] || "Topic";
 const follow = JSON.stringify({ kind: "topic", slug, name: entity.name });
+const latestHeads = list.slice(0, 3).map((s) => s.headline).join("; ");
+const description = `${entity.name} in the AI news, ${list.length} ${list.length === 1 ? "story" : "stories"} with sources and discussion. Latest: ${latestHeads}`.slice(0, 300);
+const ogImage = list.length >= 3 ? `/og/topic-${slug}.png` : "/og-default.png";
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "CollectionPage",
+  name: `${entity.name} news`,
+  description,
+  about: { "@type": entity.kind === "people" ? "Person" : entity.kind === "companies" ? "Organization" : "Thing", name: entity.name },
+  hasPart: list.slice(0, 20).map((s) => ({ "@type": "NewsArticle", headline: s.headline, url: `https://digestai.news/story/${s.slug}`, datePublished: s.firstPublishedAt })),
+};
 ---
 
-<Base title={`${entity.name} news`} description={`Every Digest AI story about ${entity.name}: ${list.length} stories, newest first.`}>
+<Base title={`${entity.name} news`} description={description} image={`https://digestai.news${ogImage}`} jsonLd={jsonLd}>
   <div class="grid">
     <div>
       <header class="page-head">

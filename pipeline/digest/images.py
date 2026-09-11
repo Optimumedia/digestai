@@ -89,8 +89,35 @@ def render(story: dict, path: Path) -> None:
     img.save(path, optimize=True)
 
 
+def render_card(kind: str, title: str, subtitle: str, footer: str, color: str, path: Path) -> None:
+    """Card for a thread or topic page: eyebrow, big title, a line of context."""
+    img = Image.new("RGB", (W, H), "#0e1116")
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, 16, H], fill=color)
+    mono = _font("JetBrainsMono.ttf", 24, 500)
+    brand_serif = _font("Newsreader.ttf", 44, 600, 72)
+    body = _font("SourceSans3.ttf", 30, 400)
+    d.text((80, 62), kind.upper(), font=mono, fill=color)
+    d.text((W - 80 - d.textlength("Digest AI", font=brand_serif), 48), "Digest", font=brand_serif, fill="#e6eaf0")
+    d.text((W - 80 - d.textlength(" AI", font=brand_serif), 48), " AI", font=brand_serif, fill="#8397ff")
+    for size in (72, 64, 56, 48):
+        font = _font("Newsreader.ttf", size, 500, 72)
+        lines = textwrap.wrap(title, width=int((W - 160) / (size * 0.42)))
+        if len(lines) <= 3:
+            break
+    y = 150
+    for line in lines[:3]:
+        d.text((80, y), line, font=font, fill="#f2f4f7")
+        y += int(size * 1.15)
+    for line in textwrap.wrap(subtitle, width=72)[:2]:
+        d.text((80, y + 14), line, font=body, fill="#aab3bf")
+        y += 40
+    d.text((80, H - 70), footer, font=mono, fill="#78828f")
+    img.save(path, optimize=True)
+
+
 def run() -> dict:
-    stats = {"rendered": 0, "skipped": 0}
+    stats = {"rendered": 0, "skipped": 0, "cards": 0}
     data = config.SITE_DATA_DIR / "stories.json"
     if not data.exists():
         return stats
@@ -108,4 +135,44 @@ def run() -> dict:
             stats["rendered"] += 1
         except Exception as exc:  # noqa: BLE001
             log.warning("share image failed for %s: %s", story["slug"], exc)
+
+    # Thread cards are re-rendered when the episode count changes; topic cards when stories are added.
+    threads_file = config.SITE_DATA_DIR / "threads.json"
+    if threads_file.exists():
+        for t in json.loads(threads_file.read_text(encoding="utf-8")):
+            path = OUT / f"thread-{t['slug']}.png"
+            stamp = OUT / f"thread-{t['slug']}.{t['storyCount']}.stamp"
+            if stamp.exists():
+                continue
+            try:
+                render_card("Developing story", t["title"], t.get("summary") or "", f"{t['storyCount']} episodes  ·  {(t.get('firstAt') or '')[:10]} to {(t.get('updatedAt') or '')[:10]}",
+                            CATEGORY_COLORS.get(t.get("category") or "", "#4f6cf0"), path)
+                for old in OUT.glob(f"thread-{t['slug']}.*.stamp"):
+                    old.unlink()
+                stamp.touch()
+                stats["cards"] += 1
+            except Exception as exc:  # noqa: BLE001
+                log.warning("thread card failed for %s: %s", t["slug"], exc)
+    entities_file = config.SITE_DATA_DIR / "entities.json"
+    if entities_file.exists():
+        from .textutil import slugify
+
+        for e in json.loads(entities_file.read_text(encoding="utf-8")):
+            if len(e.get("storyIds") or []) < 3:
+                continue
+            slug = slugify(e["name"])
+            n = len(e["storyIds"])
+            path = OUT / f"topic-{slug}.png"
+            stamp = OUT / f"topic-{slug}.{n}.stamp"
+            if stamp.exists():
+                continue
+            try:
+                kind = {"companies": "Company", "models": "Model", "people": "Person"}.get(e.get("kind"), "Topic")
+                render_card(kind, e["name"], f"Every story about {e['name']} on Digest AI, with sources and discussion.", f"{n} stories  ·  digestai.news/topic/{slug}", "#4f6cf0", path)
+                for old in OUT.glob(f"topic-{slug}.*.stamp"):
+                    old.unlink()
+                stamp.touch()
+                stats["cards"] += 1
+            except Exception as exc:  # noqa: BLE001
+                log.warning("topic card failed for %s: %s", e["name"], exc)
     return stats

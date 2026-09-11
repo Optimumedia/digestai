@@ -38,6 +38,65 @@ def _names(entities: dict | None) -> set[str]:
     return out
 
 
+NAME_PROMPT = """These headlines are episodes of one developing news story about artificial intelligence, oldest first:
+
+{episodes}
+
+Return ONLY JSON: {{"title": "<a 5-10 word name for the whole saga, like a newspaper series title, no colon, no date>",
+"summary": "<two sentences: what the saga is about and where it stands after the latest episode>"}}"""
+
+NAME_AT = (2, 4, 7, 12)  # story counts at which a thread gets (re)named
+MAX_NAMES_PER_RUN = 4
+
+
+def name_threads(eng) -> int:
+    """Give multi-episode threads a proper name and summary with the LLM, budgeted."""
+    from . import enrich
+
+    if not (config.GROQ_API_KEY or config.GEMINI_API_KEY):
+        return 0
+    named = 0
+    with eng.connect() as conn:
+        candidates = conn.execute(
+            select(db.threads).where(db.threads.c.story_count >= 2, db.threads.c.status == "published")
+            .order_by(db.threads.c.updated_at.desc()).limit(40)
+        ).all()
+        allowance = enrich.allowance(conn, "groq") if config.GROQ_API_KEY else enrich.allowance(conn, "gemini")
+    budget = min(MAX_NAMES_PER_RUN, allowance)
+    for t in candidates:
+        if named >= budget:
+            break
+        due = any(t.story_count >= n > t.named_count for n in NAME_AT)
+        if not due:
+            continue
+        with eng.connect() as conn:
+            eps = conn.execute(
+                select(db.stories.c.headline, db.stories.c.first_published_at)
+                .where(db.stories.c.thread_id == t.id, db.stories.c.status == "published")
+                .order_by(db.stories.c.first_published_at.asc())
+            ).all()
+        prompt = NAME_PROMPT.format(episodes="\n".join(f"- {e.headline}" for e in eps))
+        try:
+            if config.GROQ_API_KEY:
+                result = enrich.call_groq(prompt)
+                enrich.record_usage(eng, "groq", 1)
+            else:
+                result = enrich.call_gemini(prompt)
+                enrich.record_usage(eng, "gemini", 1)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("thread naming failed for %s: %s", t.slug, exc)
+            continue
+        title = str(result.get("title") or "").strip().rstrip(".")[:120]
+        summary = str(result.get("summary") or "").strip()[:600]
+        if len(title) < 8:
+            continue
+        with eng.begin() as conn:
+            conn.execute(update(db.threads).where(db.threads.c.id == t.id)
+                         .values(title=title, summary=summary or t.summary, named_count=t.story_count))
+        named += 1
+    return named
+
+
 def run() -> dict:
     stats = {"assigned": 0, "new_threads": 0}
     eng = db.engine()
@@ -50,6 +109,7 @@ def run() -> dict:
             .order_by(db.stories.c.first_published_at.asc())
         ).all()
         if not stories:
+            stats["named"] = name_threads(eng)
             return stats
         threads = conn.execute(select(db.threads).where(db.threads.c.updated_at >= since)).all()
         vecs = {t.id: np.asarray(t.embedding, dtype=np.float32) for t in threads}
@@ -110,4 +170,5 @@ def run() -> dict:
                 meta[tid] = {"names": set(names_all), "count": 1, "ents": dict(s.entities or {})}
                 conn.execute(update(db.stories).where(db.stories.c.id == s.id).values(thread_id=tid))
                 stats["new_threads"] += 1
+    stats["named"] = name_threads(eng)
     return stats

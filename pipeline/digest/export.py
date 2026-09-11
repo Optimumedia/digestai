@@ -229,11 +229,14 @@ def run() -> dict:
         if len(members) < 2:
             continue
         lead_story = max(members, key=lambda x: (x["importance"], x["score"]))
+        named = (t.named_count or 0) >= 2
         threads_out.append({
             "id": t.id,
             "slug": t.slug,
-            "title": lead_story["headline"],
-            "summary": lead_story.get("whyItMatters") or t.summary,
+            "title": t.title if named else lead_story["headline"],
+            "summary": t.summary if named else (lead_story.get("whyItMatters") or t.summary),
+            "named": named,
+            "ogImage": f"/og/thread-{t.slug}.png",
             "category": t.category,
             "categoryName": config.CATEGORIES.get(t.category or "", "AI"),
             "entities": t.entities or {},

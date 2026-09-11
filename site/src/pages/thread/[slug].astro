@@ -16,7 +16,7 @@ const entityList = Object.values(thread.entities || {}).flat().slice(0, 12);
 const follow = JSON.stringify({ kind: "thread", slug: thread.slug, name: thread.title.slice(0, 60) });
 ---
 
-<Base title={thread.title} description={description} currentCategory={thread.category} image={latest ? `${meta.siteUrl}${latest.ogImage}` : null}>
+<Base title={thread.title} description={description} currentCategory={thread.category} image={`${meta.siteUrl}${thread.ogImage || (latest ? latest.ogImage : "/og-default.png")}`}>
   <div class="grid">
     <div>
       <header class="page-head">

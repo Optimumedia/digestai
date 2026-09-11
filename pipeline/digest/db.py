@@ -83,6 +83,7 @@ threads = Table(
     Column("entities", JSON),
     Column("embedding", JSON),
     Column("story_count", Integer, nullable=False, default=1),
+    Column("named_count", Integer, nullable=False, default=0),  # story_count when the model last named it
     Column("first_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     Column("status", String(20), nullable=False, default="published"),
