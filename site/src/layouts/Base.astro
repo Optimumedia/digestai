@@ -1,6 +1,6 @@
 ---
 import "../styles/global.css";
-import { categories, meta, byScore } from "../lib/data";
+import { categories, meta, byScore, byRecency } from "../lib/data";
 
 interface Props {
   title: string;
@@ -36,7 +36,14 @@ const site = (Astro.site?.toString() || meta.siteUrl).replace(/\/$/, "");
 const url = canonical || new URL(Astro.url.pathname, site).toString();
 const ogImage = image || `${site}/og-default.png`;
 const fullTitle = title === "Digest AI" ? "Digest AI — AI news, digested" : `${title} — Digest AI`;
-const ticker = byScore.slice(0, 8);
+// Broadcast-style ticker: the hottest stories interleaved with the newest, no repeats.
+const hot = byScore.slice(0, 8);
+const fresh = byRecency.filter((s) => !hot.some((h) => h.id === s.id)).slice(0, 8);
+const ticker: { s: (typeof byScore)[number]; tag: string }[] = [];
+for (let i = 0; i < Math.max(hot.length, fresh.length); i++) {
+  if (hot[i]) ticker.push({ s: hot[i], tag: "hot" });
+  if (fresh[i]) ticker.push({ s: fresh[i], tag: "new" });
+}
 const clientConfig = {
   supabaseUrl: import.meta.env.PUBLIC_SUPABASE_URL || "",
   supabaseKey: import.meta.env.PUBLIC_SUPABASE_ANON_KEY || "",
@@ -109,11 +116,20 @@ const clientConfig = {
       </div>
     </header>
     {ticker.length > 0 && (
-      <div class="ticker" aria-label="Top stories">
+      <div class="ticker" aria-label="Latest and hottest stories">
         <div class="wrap">
-          {ticker.map((s) => (
-            <a href={`/story/${s.slug}`}><span class="dot">●</span> {s.headline} <span class="muted"><time datetime={s.firstPublishedAt || s.updatedAt || undefined}></time></span></a>
-          ))}
+          <span class="live" aria-hidden="true">Live</span>
+          <div class="ticker-viewport">
+            <div class="ticker-track">
+              {[0, 1].map((copy) => (
+                <div class="ticker-run" aria-hidden={copy === 1 ? "true" : undefined}>
+                  {ticker.map(({ s, tag }) => (
+                    <a href={`/story/${s.slug}`} tabindex={copy === 1 ? -1 : undefined}><span class:list={["tag", tag]}>{tag}</span> {s.headline} <span class="muted"><time datetime={s.firstPublishedAt || s.updatedAt || undefined}></time></span></a>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     )}
