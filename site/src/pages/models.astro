@@ -1,6 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
-import { trackers, formatDate } from "../lib/data";
+import { trackers, formatDate, entitySlug, topicSlugs } from "../lib/data";
 
 const rows = trackers.models;
 const labels: Record<string, string> = { api: "API", open_weights: "Open weights", consumer: "Consumer app", research: "Research", unknown: "" };
@@ -28,8 +28,8 @@ const jsonLd = {
         {rows.map((r) => (
           <tr>
             <td class="num">{formatDate(r.date, { day: "numeric", month: "short", year: "numeric" })}</td>
-            <td><b>{r.link ? <a href={r.link} rel="noopener nofollow" target="_blank">{r.name}</a> : r.name}</b></td>
-            <td>{r.lab || ""}</td>
+            <td><b>{topicSlugs.has(entitySlug(r.name)) ? <a href={`/topic/${entitySlug(r.name)}`}>{r.name}</a> : r.name}</b>{r.link && <a class="mono muted" href={r.link} rel="noopener nofollow" target="_blank" title="Official page"> ↗</a>}</td>
+            <td>{r.lab && topicSlugs.has(entitySlug(r.lab)) ? <a href={`/topic/${entitySlug(r.lab)}`}>{r.lab}</a> : (r.lab || "")}</td>
             <td>{kinds[r.kind] || r.kind}</td>
             <td>{labels[r.availability] ?? r.availability}</td>
             <td>{r.license || ""}</td>

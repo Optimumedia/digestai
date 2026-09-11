@@ -212,10 +212,6 @@ def run() -> dict:
                 ent = entity_index.setdefault(key, {"name": key, "kind": kind, "storyIds": []})
                 ent["storyIds"].append(s.id)
 
-    entities_out = sorted(
-        (e for e in entity_index.values() if len(e["storyIds"]) >= 2),
-        key=lambda e: len(e["storyIds"]), reverse=True,
-    )
     briefing = build_briefing(stories_out, now)
 
     # Threads: only those with 2+ stories are worth a page; singletons stay invisible.
@@ -275,6 +271,13 @@ def run() -> dict:
         "models": sorted(models.values(), key=lambda r: r["date"] or "", reverse=True),
         "funding": sorted(funding.values(), key=lambda r: r["date"] or "", reverse=True),
     }
+    # Hub pages: every entity with two or more stories, plus any model or company that has a
+    # tracker row (a fact box makes a page worthwhile even with one story).
+    tracked = {r["name"].strip().lower() for r in trackers["models"]} | {r["company"].strip().lower() for r in trackers["funding"]}
+    entities_out = sorted(
+        (e for e in entity_index.values() if len(e["storyIds"]) >= 2 or e["name"].strip().lower() in tracked),
+        key=lambda e: len(e["storyIds"]), reverse=True,
+    )
 
     (out_dir / "threads.json").write_text(json.dumps(threads_out, ensure_ascii=False), encoding="utf-8")
     (out_dir / "trackers.json").write_text(json.dumps(trackers, ensure_ascii=False), encoding="utf-8")

@@ -230,6 +230,22 @@ export function money(n: number | null | undefined): string {
   return `$${Math.round(n / 1e3)}K`;
 }
 
+/** Tracker facts attached to a hub: model releases whose name matches, funding rounds whose company matches. */
+export function modelFacts(name: string): ModelRelease[] {
+  const s = entitySlug(name);
+  return trackers.models.filter((m) => entitySlug(m.name) === s).sort((a, b) => (a.date || "") < (b.date || "") ? 1 : -1);
+}
+export function companyFunding(name: string): Funding[] {
+  const s = entitySlug(name);
+  return trackers.funding.filter((f) => entitySlug(f.company) === s).sort((a, b) => (a.date || "") < (b.date || "") ? 1 : -1);
+}
+export function modelsByLab(lab: string | null | undefined, excludeName?: string): ModelRelease[] {
+  if (!lab) return [];
+  const l = lab.toLowerCase();
+  const seen = new Set<string>();
+  return trackers.models.filter((m) => (m.lab || "").toLowerCase() === l && m.name !== excludeName && !seen.has(m.name) && seen.add(m.name)).slice(0, 8);
+}
+
 export function sourceLeaderboard(days = 7): { name: string; stories: number; articles: number }[] {
   const since = Date.now() - days * 864e5;
   const map = new Map<string, { name: string; stories: number; articles: number }>();

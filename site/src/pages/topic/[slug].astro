@@ -3,7 +3,7 @@ import Base from "../../layouts/Base.astro";
 import StoryRow from "../../components/StoryRow.astro";
 import Rail from "../../components/Rail.astro";
 import Breadcrumbs from "../../components/Breadcrumbs.astro";
-import { topicPages, storiesForEntity, meta, topicInfo, type Entity } from "../../lib/data";
+import { topicPages, storiesForEntity, meta, topicInfo, modelFacts, companyFunding, modelsByLab, entitySlug, topicSlugs, formatDate, money } from "../../lib/data";
 
 export function getStaticPaths() {
   return topicPages().map(({ slug, entity }) => ({ params: { slug }, props: { entity } }));
@@ -16,32 +16,107 @@ const kindLabel = { companies: "Company", models: "Model", people: "Person" }[en
 const follow = JSON.stringify({ kind: "topic", slug, name: entity.name });
 const latestHeads = list.slice(0, 3).map((s) => s.headline).join("; ");
 const intro = topicInfo[slug!]?.description || "";
+const facts = modelFacts(entity.name);
+const fact = facts[0];
+const siblings = fact ? modelsByLab(fact.lab, fact.name) : [];
+const rounds = companyFunding(entity.name);
+const raised = rounds.reduce((n, r) => n + (r.amount_usd || 0), 0);
 const description = (intro ? `${intro} ${list.length} stories with sources.` : `${entity.name} in the AI news, ${list.length} ${list.length === 1 ? "story" : "stories"} with sources and discussion. Latest: ${latestHeads}`).slice(0, 300);
 const ogImage = list.length >= 3 ? `/og/topic-${slug}.png` : "/og-default.png";
-const jsonLd = {
+const availability: Record<string, string> = { api: "through an API", open_weights: "as open weights you can download and run", consumer: "in a consumer product", research: "as a research release", unknown: "" };
+const kinds: Record<string, string> = { llm: "language model", multimodal: "multimodal model", image: "image model", video: "video model", audio: "audio model", code: "coding model", embedding: "embedding model", robotics: "robotics model", other: "AI model" };
+const roundName: Record<string, string> = { seed: "seed round", series_a: "Series A", series_b: "Series B", series_c: "Series C", series_d_plus: "late-stage round", acquisition: "acquisition", ipo: "IPO", debt: "debt financing", other: "financing" };
+const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+// Question-and-answer block: only questions the data can actually answer.
+const faq: { q: string; a: string }[] = [];
+if (intro) faq.push({ q: `What is ${entity.name}?`, a: intro });
+if (fact) {
+  if (fact.lab) faq.push({ q: `Who makes ${fact.name}?`, a: `${fact.name} is made by ${fact.lab}.` });
+  if (fact.date) faq.push({ q: `When was ${fact.name} released?`, a: `${fact.name} was announced on ${formatDate(fact.date)}, according to ${plural(fact.sources || 1, "source")} covered by Digest AI.` });
+  if (fact.availability && fact.availability !== "unknown") faq.push({ q: `Is ${fact.name} open source, and how can I use it?`, a: `${fact.name} is available ${availability[fact.availability] || fact.availability}${fact.license ? ` under the ${fact.license} license` : ""}${fact.context ? `, with a context window of ${fact.context}` : ""}.` });
+}
+if (rounds.length) faq.push({ q: `How much funding has ${entity.name} raised?`, a: `${entity.name} has ${money(raised)} in reported deals covered by Digest AI: ${rounds.slice(0, 4).map((r) => `${money(r.amount_usd)} ${roundName[r.round] || r.round}${r.date ? ` in ${formatDate(r.date, { month: "long", year: "numeric" })}` : ""}`).join("; ")}.` });
+if (list[0]) faq.push({ q: `What is the latest news about ${entity.name}?`, a: `${list[0].headline}${list[0].firstPublishedAt ? ` (${formatDate(list[0].firstPublishedAt)})` : ""}.` });
+
+const about = fact
+  ? { "@type": "SoftwareApplication", name: fact.name, applicationCategory: "AI model", ...(fact.lab ? { author: { "@type": "Organization", name: fact.lab } } : {}), ...(fact.date ? { datePublished: fact.date } : {}), ...(fact.link ? { url: fact.link } : {}) }
+  : { "@type": entity.kind === "people" ? "Person" : entity.kind === "companies" ? "Organization" : "Thing", name: entity.name };
+const jsonLd: any[] = [{
   "@context": "https://schema.org",
   "@type": "CollectionPage",
   name: `${entity.name} news`,
   description,
-  about: { "@type": entity.kind === "people" ? "Person" : entity.kind === "companies" ? "Organization" : "Thing", name: entity.name },
-  hasPart: list.slice(0, 20).map((s) => ({ "@type": "NewsArticle", headline: s.headline, url: `https://digestai.news/story/${s.slug}`, datePublished: s.firstPublishedAt })),
-};
+  url: `${meta.siteUrl}/topic/${slug}`,
+  about,
+  hasPart: list.slice(0, 20).map((s) => ({ "@type": "NewsArticle", headline: s.headline, url: `${meta.siteUrl}/story/${s.slug}`, datePublished: s.firstPublishedAt })),
+}];
+if (faq.length) jsonLd.push({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faq.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) });
+const crumb = fact ? { name: "Models", href: "/models" } : rounds.length ? { name: "Companies", href: "/funding" } : { name: "Topics" };
+const title = fact ? `${entity.name}: release date, access and news` : rounds.length ? `${entity.name}: funding and news` : `${entity.name} news`;
 ---
 
-<Base title={`${entity.name} news`} description={description} image={`https://digestai.news${ogImage}`} jsonLd={jsonLd}>
+<Base title={title} description={description} image={`${meta.siteUrl}${ogImage}`} jsonLd={jsonLd}>
   <div class="grid">
     <div>
-      <Breadcrumbs items={[{ name: "Topics" }, { name: entity.name }]} />
+      <Breadcrumbs items={[crumb, { name: entity.name }]} />
       <header class="page-head">
-        <div class="eyebrow">{kindLabel}</div>
+        <div class="eyebrow">{kindLabel}{fact?.kind ? ` · ${kinds[fact.kind] || fact.kind}` : ""}</div>
         <div class="head-row">
           <h1>{entity.name}</h1>
           <button class="follow" data-follow={follow} aria-pressed="false">Follow</button>
         </div>
         {intro && <p class="intro">{intro}</p>}
-        <p>{list.length} {list.length === 1 ? "story" : "stories"} mentioning {entity.name}, newest first, each with its sources and discussion. Follow to see new ones on your front page.</p>
+        <p>{plural(list.length, "story").replace("storys", "stories")} mentioning {entity.name}, newest first, each with its sources and discussion. Follow to see new ones on your front page.</p>
       </header>
+
+      {fact && (
+        <section class="factbox">
+          <h2>At a glance</h2>
+          <dl>
+            {fact.lab && <div><dt>Made by</dt><dd>{topicSlugs.has(entitySlug(fact.lab)) ? <a href={`/topic/${entitySlug(fact.lab)}`}>{fact.lab}</a> : fact.lab}</dd></div>}
+            {fact.date && <div><dt>Announced</dt><dd>{formatDate(fact.date)}</dd></div>}
+            {fact.kind && <div><dt>Type</dt><dd>{kinds[fact.kind] || fact.kind}</dd></div>}
+            {fact.availability && fact.availability !== "unknown" && <div><dt>Availability</dt><dd>{availability[fact.availability] || fact.availability}</dd></div>}
+            {fact.license && <div><dt>License</dt><dd>{fact.license}</dd></div>}
+            {fact.context && <div><dt>Context window</dt><dd>{fact.context}</dd></div>}
+            {fact.link && <div><dt>Official page</dt><dd><a href={fact.link} rel="noopener nofollow" target="_blank">{fact.link.replace(/^https?:\/\//, "").slice(0, 50)} ↗</a></dd></div>}
+            {fact.storySlug && <div><dt>Covered in</dt><dd><a href={`/story/${fact.storySlug}`}>{fact.storyHeadline}</a></dd></div>}
+          </dl>
+          <p class="muted">{facts.length > 1 ? `${facts.length} releases or versions tracked; the newest is shown. ` : "Extracted from the coverage; corrections welcome. "}<a href="/models">Full model tracker →</a></p>
+        </section>
+      )}
+
+      {rounds.length > 0 && (
+        <section class="factbox">
+          <h2>Funding and deals <span class="muted">{money(raised)} reported</span></h2>
+          <ul class="coverage">
+            {rounds.map((r) => (
+              <li>
+                <a class="t" href={`/story/${r.storySlug}`}>{money(r.amount_usd)} {roundName[r.round] || r.round}{r.valuation_usd ? ` at a ${money(r.valuation_usd)} valuation` : ""}</a>
+                <span class="mono muted">{formatDate(r.date, { month: "short", year: "numeric" })}{(r.investors || []).length ? ` · ${r.investors.slice(0, 3).join(", ")}` : ""}</span>
+              </li>
+            ))}
+          </ul>
+          <p class="muted"><a href="/funding">Full funding tracker →</a></p>
+        </section>
+      )}
+
       <ol class="river">{list.map((s) => <StoryRow story={s} />)}</ol>
+
+      {faq.length > 0 && (
+        <section class="faq">
+          <div class="dayhead"><h2>Questions about {entity.name}</h2></div>
+          {faq.map((f) => (<details open><summary>{f.q}</summary><p>{f.a}</p></details>))}
+        </section>
+      )}
+
+      {siblings.length > 0 && (
+        <section style="margin-top: 28px">
+          <div class="eyebrow" style="margin-bottom: 8px">Other models from {fact!.lab}</div>
+          <div class="taglist">{siblings.map((m) => topicSlugs.has(entitySlug(m.name)) ? <a href={`/topic/${entitySlug(m.name)}`}>{m.name}</a> : <span>{m.name}</span>)}</div>
+        </section>
+      )}
     </div>
     <Rail />
   </div>

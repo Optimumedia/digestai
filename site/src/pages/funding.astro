@@ -1,6 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
-import { trackers, formatDate, money } from "../lib/data";
+import { trackers, formatDate, money, entitySlug, topicSlugs } from "../lib/data";
 
 const rows = trackers.funding;
 const rounds: Record<string, string> = { seed: "Seed", series_a: "Series A", series_b: "Series B", series_c: "Series C", series_d_plus: "Series D+", acquisition: "Acquisition", ipo: "IPO", debt: "Debt", other: "" };
@@ -28,7 +28,7 @@ const jsonLd = {
         {rows.map((r) => (
           <tr>
             <td class="num">{formatDate(r.date, { day: "numeric", month: "short", year: "numeric" })}</td>
-            <td><b>{r.company}</b></td>
+            <td><b>{topicSlugs.has(entitySlug(r.company)) ? <a href={`/topic/${entitySlug(r.company)}`}>{r.company}</a> : r.company}</b></td>
             <td class="num">{money(r.amount_usd)}</td>
             <td>{rounds[r.round] ?? r.round}</td>
             <td class="num">{r.valuation_usd ? money(r.valuation_usd) : ""}</td>
