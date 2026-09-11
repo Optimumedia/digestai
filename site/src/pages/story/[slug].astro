@@ -2,7 +2,7 @@
 import Base from "../../layouts/Base.astro";
 import Rail from "../../components/Rail.astro";
 import Coverage from "../../components/Coverage.astro";
-import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, readingMinutes, related, entitySlug, meta } from "../../lib/data";
+import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, readingMinutes, related, entitySlug, meta, threadFor, threadStories } from "../../lib/data";
 
 export function getStaticPaths() {
   return stories.map((story) => ({ params: { slug: story.slug }, props: { story } }));
@@ -18,6 +18,9 @@ const site = meta.siteUrl;
 const entityList = Object.entries(story.entities || {}).flatMap(([kind, names]) => names.map((n) => ({ kind, n })));
 const rel = related(story, 5);
 const discussions = story.discussions || [];
+const thread = threadFor(story.threadId);
+const earlier = thread ? threadStories(thread).filter((s) => s.id !== story.id && (s.firstPublishedAt || "") <= (story.firstPublishedAt || "")).reverse() : [];
+const laterEpisodes = thread ? threadStories(thread).filter((s) => s.id !== story.id && (s.firstPublishedAt || "") > (story.firstPublishedAt || "")).reverse() : [];
 const giscus = {
   repo: import.meta.env.PUBLIC_GISCUS_REPO || "",
   repoId: import.meta.env.PUBLIC_GISCUS_REPO_ID || "",
@@ -94,6 +97,23 @@ const jsonLd = {
       )}
 
       {story.whyItMatters && <aside class="why"><b>Why it matters</b>{story.whyItMatters}</aside>}
+
+      {story.pulse && <aside class="pulse"><b>What practitioners are saying</b>{story.pulse}{discussions[0] && <a href={discussions[0].url} target="_blank" rel="noopener" data-source-link> Read the thread ↗</a>}</aside>}
+
+      {thread && (earlier.length > 0 || laterEpisodes.length > 0) && (
+        <section class="sofar">
+          <div class="fulltext-head"><h2>The story so far</h2><a class="eyebrow" href={`/thread/${thread.slug}`}>{thread.storyCount} episodes →</a></div>
+          <ol class="timeline compact">
+            {laterEpisodes.map((s) => (
+              <li><time datetime={s.firstPublishedAt || undefined} data-static>{formatDate(s.firstPublishedAt, { day: "numeric", month: "short" })}</time><div><a href={`/story/${s.slug}`}>{s.headline}</a> <span class="mono muted">later</span></div></li>
+            ))}
+            <li class="current"><time datetime={story.firstPublishedAt || undefined} data-static>{formatDate(story.firstPublishedAt, { day: "numeric", month: "short" })}</time><div><b>{story.headline}</b> <span class="mono muted">this story</span></div></li>
+            {earlier.map((s) => (
+              <li><time datetime={s.firstPublishedAt || undefined} data-static>{formatDate(s.firstPublishedAt, { day: "numeric", month: "short" })}</time><div><a href={`/story/${s.slug}`}>{s.headline}</a></div></li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       <div class="source-box">
         <span>

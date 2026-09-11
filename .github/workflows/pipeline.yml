@@ -36,7 +36,7 @@ jobs:
       CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'qwen2.5:3b' }}
       GEMINI_DAILY_BUDGET: ${{ vars.GEMINI_DAILY_BUDGET || '1200' }}
-      MAX_ENRICH_PER_RUN: ${{ vars.MAX_ENRICH_PER_RUN || '30' }}
+      MAX_ENRICH_PER_RUN: ${{ vars.MAX_ENRICH_PER_RUN || '20' }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4

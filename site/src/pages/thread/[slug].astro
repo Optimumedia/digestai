@@ -1,0 +1,54 @@
+---
+import Base from "../../layouts/Base.astro";
+import Rail from "../../components/Rail.astro";
+import Coverage from "../../components/Coverage.astro";
+import { threads, threadStories, categories, plain, formatDate, entitySlug, meta } from "../../lib/data";
+
+export function getStaticPaths() {
+  return threads.map((thread) => ({ params: { slug: thread.slug }, props: { thread } }));
+}
+
+const { thread } = Astro.props;
+const list = threadStories(thread);
+const latest = list[list.length - 1];
+const description = `${thread.storyCount} stories since ${formatDate(thread.firstAt, { day: "numeric", month: "short" })}: ${thread.summary || plain(latest?.summaryMd, 140)}`;
+const entityList = Object.values(thread.entities || {}).flat().slice(0, 12);
+const follow = JSON.stringify({ kind: "thread", slug: thread.slug, name: thread.title.slice(0, 60) });
+---
+
+<Base title={thread.title} description={description} currentCategory={thread.category} image={latest ? `${meta.siteUrl}${latest.ogImage}` : null}>
+  <div class="grid">
+    <div>
+      <header class="page-head">
+        <div class="eyebrow">Developing story · {thread.storyCount} episodes · {formatDate(thread.firstAt, { day: "numeric", month: "short" })} to {formatDate(thread.updatedAt, { day: "numeric", month: "short" })}</div>
+        <div class="head-row">
+          <h1>{thread.title}</h1>
+          <button class="follow" data-follow={follow} aria-pressed="false">Follow</button>
+        </div>
+        {thread.summary && <p>{thread.summary}</p>}
+      </header>
+
+      <ol class="timeline">
+        {[...list].reverse().map((s) => (
+          <li data-published={s.updatedAt}>
+            <time datetime={s.firstPublishedAt || undefined} data-static>{formatDate(s.firstPublishedAt, { weekday: "short", day: "numeric", month: "short" })}</time>
+            <div>
+              <div class="meta-row"><a class="chip" href={`/category/${s.category}`}>{categories[s.category || ""] || "AI"}</a><span class="new-badge">new</span></div>
+              <h3><a href={`/story/${s.slug}`}>{s.headline}</a></h3>
+              <p>{plain(s.summaryMd || s.keyPoints[0], 200)}</p>
+              <Coverage story={s} compact={true} />
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      {entityList.length > 0 && (
+        <section style="margin-top: 28px">
+          <div class="eyebrow" style="margin-bottom: 8px">Who and what</div>
+          <div class="taglist">{entityList.map((n) => <a href={`/topic/${entitySlug(n)}`}>{n}</a>)}</div>
+        </section>
+      )}
+    </div>
+    <Rail />
+  </div>
+</Base>

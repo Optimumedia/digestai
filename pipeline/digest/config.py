@@ -40,7 +40,9 @@ BROWSER_AGENT = (
 )
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+# Verified 2026-09-11: the 2.5 generation is closed to new accounts; these three accept requests.
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-3.8-flash"
+GEMINI_FALLBACK_MODELS = [m.strip() for m in (os.environ.get("GEMINI_FALLBACK_MODELS") or "gemini-3.5-flash,gemini-flash-latest").split(",") if m.strip()]
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 
@@ -52,7 +54,8 @@ NEWSLETTER_HOUR_UTC = int(os.environ.get("NEWSLETTER_HOUR_UTC", "5"))
 # Free tier: Gemini Flash allows 1,500 requests/day and 15/min. The daily budget stays under
 # that with room for retries; it is spread over the day's runs and unused allowance rolls
 # forward within the day. Groq's free tier is 14,400/day, so its budget is generous.
-MAX_ENRICH_PER_RUN = int(os.environ.get("MAX_ENRICH_PER_RUN") or "30")
+# ~30 s per Gemini call on long articles: 20 per run keeps the job well inside the 30-minute cadence.
+MAX_ENRICH_PER_RUN = int(os.environ.get("MAX_ENRICH_PER_RUN") or "20")
 RUNS_PER_DAY = int(os.environ.get("RUNS_PER_DAY") or "48")
 DAILY_BUDGET = {
     "gemini": int(os.environ.get("GEMINI_DAILY_BUDGET") or "1200"),

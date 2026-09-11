@@ -1,5 +1,5 @@
 ---
-import { byScore, byRecency, entities, entitySlug, categories, relativeTime } from "../lib/data";
+import { byScore, byRecency, entities, entitySlug, categories, threads, trackers } from "../lib/data";
 
 interface Props { exclude?: number }
 const { exclude } = Astro.props;
@@ -25,6 +25,30 @@ const topics = entities.slice(0, 18);
         </li>
       ))}
     </ol>
+  </section>
+  {threads.length > 0 && (
+    <section>
+      <h2>Developing</h2>
+      <ol>
+        {threads.slice(0, 5).map((t) => (
+          <li>
+            <div>
+              <a href={`/thread/${t.slug}`}>{t.title}</a>
+              <span class="meta mono muted">{t.storyCount} episodes · <time datetime={t.updatedAt || undefined}></time></span>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  )}
+  <section>
+    <h2>Trackers</h2>
+    <div class="taglist">
+      <a href="/models">Model releases <span class="muted">{trackers.models.length}</span></a>
+      <a href="/funding">Funding <span class="muted">{trackers.funding.length}</span></a>
+      <a href="/week">Weekly recaps</a>
+      <a href="/river">River</a>
+    </div>
   </section>
   <section>
     <h2>Just in</h2>

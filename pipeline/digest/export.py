@@ -115,6 +115,7 @@ def run() -> dict:
                 .order_by(db.articles.c.published_at.desc())
             ).all())
         sent = {n.date: {"publicUrl": n.public_url, "subject": n.subject} for n in conn.execute(select(db.newsletters)).all()}
+        thread_rows = conn.execute(select(db.threads).where(db.threads.c.status == "published")).all()
 
     by_story: dict[int, list] = {}
     for a in art_rows:
@@ -159,6 +160,8 @@ def run() -> dict:
                 "importance": m.importance,
                 "predictedScore": m.predicted_score,
                 "isLead": m.id == lead.id,
+                "modelRelease": m.model_release,
+                "funding": m.funding,
                 "discussion": (
                     {"site": m.discussion_site, "url": m.discussion_url, "points": m.discussion_points}
                     if m.discussion_url else None
@@ -190,6 +193,8 @@ def run() -> dict:
             "coverage": coverage,
             "hasPrimary": coverage["primary"] > 0,
             "discussions": discussions,
+            "threadId": s.thread_id,
+            "pulse": s.pulse or None,
             "firstPublishedAt": _iso(s.first_published_at),
             "updatedAt": _iso(s.updated_at),
             "imageUrl": lead.image_url or next((a["imageUrl"] for a in articles if a["imageUrl"]), None),
@@ -212,6 +217,63 @@ def run() -> dict:
     )
     briefing = build_briefing(stories_out, now)
 
+    # Threads: only those with 2+ stories are worth a page; singletons stay invisible.
+    by_thread: dict[int, list[dict]] = {}
+    for st in stories_out:
+        if st["threadId"]:
+            by_thread.setdefault(st["threadId"], []).append(st)
+    threads_out = []
+    for t in thread_rows:
+        members = sorted(by_thread.get(t.id, []), key=lambda x: x["firstPublishedAt"] or "")
+        if len(members) < 2:
+            continue
+        lead_story = max(members, key=lambda x: (x["importance"], x["score"]))
+        threads_out.append({
+            "id": t.id,
+            "slug": t.slug,
+            "title": lead_story["headline"],
+            "summary": lead_story.get("whyItMatters") or t.summary,
+            "category": t.category,
+            "categoryName": config.CATEGORIES.get(t.category or "", "AI"),
+            "entities": t.entities or {},
+            "storyCount": len(members),
+            "firstAt": members[0]["firstPublishedAt"],
+            "updatedAt": members[-1]["updatedAt"],
+            "storyIds": [m["id"] for m in members],
+        })
+    threads_out.sort(key=lambda x: x["updatedAt"] or "", reverse=True)
+
+    # Trackers: one row per model / funding event, deduplicated across articles.
+    models: dict[str, dict] = {}
+    funding: dict[str, dict] = {}
+    for st in stories_out:
+        for a in st["articles"]:
+            r = a.get("modelRelease")
+            if r and r.get("name"):
+                k = f"{r['name'].lower()}|{(r.get('lab') or '').lower()}"
+                row = models.setdefault(k, {**r, "date": a["publishedAt"], "storySlug": st["slug"], "storyHeadline": st["headline"], "sources": 0})
+                row["sources"] += 1
+                if (a["publishedAt"] or "") < (row["date"] or ""):
+                    row["date"] = a["publishedAt"]
+                for f in ("license", "context", "link", "lab"):
+                    if not row.get(f) and r.get(f):
+                        row[f] = r[f]
+            f = a.get("funding")
+            if f and f.get("company"):
+                k = f"{f['company'].lower()}|{f.get('round')}|{int(f['amount_usd']) if f.get('amount_usd') else ''}"
+                row = funding.setdefault(k, {**f, "date": a["publishedAt"], "storySlug": st["slug"], "storyHeadline": st["headline"], "sources": 0})
+                row["sources"] += 1
+                if not row.get("valuation_usd") and f.get("valuation_usd"):
+                    row["valuation_usd"] = f["valuation_usd"]
+                if len(f.get("investors") or []) > len(row.get("investors") or []):
+                    row["investors"] = f["investors"]
+    trackers = {
+        "models": sorted(models.values(), key=lambda r: r["date"] or "", reverse=True),
+        "funding": sorted(funding.values(), key=lambda r: r["date"] or "", reverse=True),
+    }
+
+    (out_dir / "threads.json").write_text(json.dumps(threads_out, ensure_ascii=False), encoding="utf-8")
+    (out_dir / "trackers.json").write_text(json.dumps(trackers, ensure_ascii=False), encoding="utf-8")
     (out_dir / "stories.json").write_text(json.dumps(stories_out, ensure_ascii=False), encoding="utf-8")
     (out_dir / "entities.json").write_text(json.dumps(entities_out, ensure_ascii=False), encoding="utf-8")
     (out_dir / "briefing.json").write_text(json.dumps(briefing, ensure_ascii=False), encoding="utf-8")
@@ -226,6 +288,7 @@ def run() -> dict:
         "articleCount": sum(s["articleCount"] for s in stories_out),
     }), encoding="utf-8")
     return {"stories": len(stories_out), "entities": len(entities_out), "briefing": len(briefing["storyIds"]),
+            "threads": len(threads_out), "models": len(trackers["models"]), "funding": len(trackers["funding"]),
             "moderation": moderation, "dir": str(out_dir)}
 
 

@@ -1,0 +1,42 @@
+---
+import Base from "../layouts/Base.astro";
+import { trackers, formatDate, money } from "../lib/data";
+
+const rows = trackers.funding;
+const rounds: Record<string, string> = { seed: "Seed", series_a: "Series A", series_b: "Series B", series_c: "Series C", series_d_plus: "Series D+", acquisition: "Acquisition", ipo: "IPO", debt: "Debt", other: "" };
+const total = rows.reduce((n, r) => n + (r.amount_usd || 0), 0);
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Dataset",
+  name: "AI funding tracker",
+  description: "Funding rounds, acquisitions and valuations of AI companies as reported in the news, with amounts, investors and sources.",
+  url: "https://digestai.news/funding",
+};
+---
+
+<Base title="AI funding tracker" description={`${rows.length} AI funding rounds and deals totalling ${money(total)}, with amounts, investors and the stories behind them.`} jsonLd={jsonLd}>
+  <header class="page-head">
+    <div class="eyebrow">Tracker</div>
+    <h1>AI funding and deals</h1>
+    <p>Rounds, acquisitions and valuations as reported, newest first. Amounts are as stated by the sources; each row links to the story. {rows.length > 0 && <span>{rows.length} deals, {money(total)} in total.</span>}</p>
+  </header>
+  {rows.length === 0 && <p class="muted" style="padding: 24px 0">No deals recorded yet. Rows appear as funding stories are published.</p>}
+  <div class="tablewrap">
+    <table class="tracker">
+      <thead><tr><th>Date</th><th>Company</th><th>Amount</th><th>Round</th><th>Valuation</th><th>Investors</th><th>Story</th></tr></thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr>
+            <td class="num">{formatDate(r.date, { day: "numeric", month: "short", year: "numeric" })}</td>
+            <td><b>{r.company}</b></td>
+            <td class="num">{money(r.amount_usd)}</td>
+            <td>{rounds[r.round] ?? r.round}</td>
+            <td class="num">{r.valuation_usd ? money(r.valuation_usd) : ""}</td>
+            <td>{(r.investors || []).slice(0, 4).join(", ")}{(r.investors || []).length > 4 ? ` +${r.investors.length - 4}` : ""}</td>
+            <td><a href={`/story/${r.storySlug}`}>{r.storyHeadline}</a></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</Base>

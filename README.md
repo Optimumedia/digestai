@@ -18,6 +18,8 @@ supabase/   SQL to run once in the Supabase project (indexes, row security, edit
 | gate    | English only, AI relevance score, spam and press-release filters, date sanity, duplicate titles |
 | enrich  | one Gemini Flash call per article (Groq fallback): headline, digest, key points, why it matters, category, entities, importance |
 | cluster | local sentence embeddings group articles covering the same event into one story |
+| threads | groups stories about the same saga over 14 days into developing threads ("the story so far") |
+| pulse   | summarises the top Hacker News comments on well-discussed stories (LLM, budgeted) |
 | discuss | finds the Hacker News thread for articles that arrived via feeds (Algolia API) |
 | rank    | learns from reader events which articles perform, predicts for new ones, scores stories, adjusts source weights, spins up discovery feeds for hot topics |
 | export  | writes `site/src/data/*.json` for the site build, including the daily briefing selection |
@@ -55,9 +57,16 @@ npm run build        # reads site/src/data/*.json written by the pipeline's expo
 npm run preview      # http://localhost:4321
 ```
 
-Pages: front page, `/story/<slug>` (digest, key points, why it matters, credited full text, other coverage),
-`/category/<key>`, `/topic/<entity>`, `/daily/<date>`, `/search` (Pagefind, static), `/rss.xml`,
+Pages: front page, `/today`, `/story/<slug>` (digest, key points, why it matters, community pulse,
+the story so far, credited full text, coverage and discussion), `/thread/<slug>` and `/threads`
+(developing stories with timelines), `/models` and `/funding` (trackers extracted from the news),
+`/week/<iso-week>` (weekly recap), `/river` (five days of headlines), `/category/<key>`,
+`/topic/<entity>`, `/daily/<date>`, `/saved`, `/search` (Pagefind, static), `/rss.xml`,
 `/news-sitemap.xml` (Google News, last 48 h), `/sitemap-index.xml`, `/about`, `/sources`.
+
+LLM usage is paced: a daily budget per provider (`GEMINI_DAILY_BUDGET`, default 1,200 of the
+1,500 free requests) is spread over the day's runs; unused allowance rolls forward within the
+day, and a quota error stops calls until the next day.
 
 Reader events (view, dwell, click to source, share, save, follow) are posted to the Supabase `events` table when
 `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_ANON_KEY` are set at build time; `rank.py` learns from them.

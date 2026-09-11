@@ -65,8 +65,27 @@ stories = Table(
     Column("embedding", JSON),
     Column("status", String(20), nullable=False, default="published"),  # published | unpublished
     Column("pinned", Boolean, nullable=False, default=False),
+    Column("thread_id", Integer),
+    Column("pulse", Text),  # what practitioners are saying, from the HN thread
+    Column("pulse_at", DateTime(timezone=True)),
     Column("first_published_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+threads = Table(
+    "threads",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("slug", String(140), unique=True, nullable=False),
+    Column("title", Text, nullable=False),
+    Column("summary", Text),
+    Column("category", String(40)),
+    Column("entities", JSON),
+    Column("embedding", JSON),
+    Column("story_count", Integer, nullable=False, default=1),
+    Column("first_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("status", String(20), nullable=False, default="published"),
 )
 
 articles = Table(
@@ -109,6 +128,8 @@ articles = Table(
     Column("embedding", JSON),
     Column("predicted_score", Float),
     Column("engagement", Float, nullable=False, default=0.0),
+    Column("model_release", JSON),  # {name, lab, kind, availability, license, context, link}
+    Column("funding", JSON),  # {company, amount_usd, round, investors, valuation_usd}
     Column("discussion_site", String(20)),  # hn | reddit
     Column("discussion_url", Text),
     Column("discussion_points", Integer),

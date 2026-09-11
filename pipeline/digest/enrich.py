@@ -27,6 +27,8 @@ Read the article below and return ONLY a JSON object with these fields:
 - "content_type": one of "news", "analysis", "research", "tutorial", "opinion", "press_release", "listicle", "product".
 - "importance": integer 1-10. 10 = a frontier model release, major regulation, or a deal above $1B. 5 = routine industry news. 2 = a minor product update or a tutorial.
 - "is_ai_news": true if the article is substantially about artificial intelligence, machine learning, robotics, or AI hardware; false otherwise.
+- "model_release": null unless the article announces a new AI model or a new model version. Then: {{"name": exact model name, "lab": organisation, "kind": one of "llm", "multimodal", "image", "video", "audio", "code", "embedding", "robotics", "other", "availability": one of "api", "open_weights", "consumer", "research", "unknown", "license": license name or null, "context": context window such as "1M tokens" or null, "link": official URL mentioned or null}}.
+- "funding": null unless the article reports a funding round, acquisition, or valuation for an AI company. Then: {{"company": name, "amount_usd": number in US dollars or null, "round": one of "seed", "series_a", "series_b", "series_c", "series_d_plus", "acquisition", "ipo", "debt", "other", "investors": [names], "valuation_usd": number or null}}.
 
 Article title: {title}
 Source: {source}
@@ -106,19 +108,43 @@ def allowance(conn, provider: str) -> int:
     return max(0, min(config.MAX_ENRICH_PER_RUN, -(-remaining // runs_left)))
 
 
+_gemini_dead: set[str] = set()  # models that answered 404/429 in this run
+
+
 def call_gemini(prompt: str) -> dict:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{config.GEMINI_MODEL}:generateContent"
-    body = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.3, "responseMimeType": "application/json", "maxOutputTokens": 2048},
-    }
-    resp = requests.post(url, params={"key": config.GEMINI_API_KEY}, json=body, timeout=60)
-    if resp.status_code == 429:
-        raise QuotaExhausted("gemini 429")
-    resp.raise_for_status()
-    data = resp.json()
-    text = data["candidates"][0]["content"]["parts"][0]["text"]
-    return _parse_json(text)
+    """Try the primary model, then the fallbacks; each model has its own free-tier quota."""
+    last: Exception | None = None
+    for model in [config.GEMINI_MODEL, *config.GEMINI_FALLBACK_MODELS]:
+        if model in _gemini_dead:
+            continue
+        # Gemini 3 models think before answering and the thoughts count against maxOutputTokens,
+        # so keep the ceiling high and the thinking short; summarising does not need deliberation.
+        gen: dict = {"temperature": 0.3, "responseMimeType": "application/json", "maxOutputTokens": 8192}
+        if model.startswith("gemini-3"):
+            gen["thinkingConfig"] = {"thinkingLevel": "low"}
+        body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen}
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        # The key travels in a header, never in the URL, so it can never appear in an error message.
+        resp = requests.post(url, headers={"x-goog-api-key": config.GEMINI_API_KEY}, json=body, timeout=90)
+        if resp.status_code in (404, 429):
+            _gemini_dead.add(model)
+            last = QuotaExhausted(f"gemini {model} {resp.status_code}")
+            log.warning("gemini %s unavailable (%s); trying next model", model, resp.status_code)
+            continue
+        if resp.status_code >= 500:
+            # Overloaded: try the next model this time, keep this one for later articles.
+            last = RuntimeError(f"gemini {model} http {resp.status_code}")
+            continue
+        if resp.status_code >= 400:
+            raise RuntimeError(f"gemini {model} http {resp.status_code}: {resp.text[:160]}")
+        data = resp.json()
+        cand = (data.get("candidates") or [{}])[0]
+        parts = (cand.get("content") or {}).get("parts") or []
+        text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+        if not text.strip():
+            raise RuntimeError(f"gemini {model} returned no text (finish={cand.get('finishReason')})")
+        return _parse_json(text)
+    raise last or QuotaExhausted("gemini: no model available")
 
 
 def call_groq(prompt: str) -> dict:
@@ -136,7 +162,8 @@ def call_groq(prompt: str) -> dict:
     )
     if resp.status_code == 429:
         raise QuotaExhausted("groq 429")
-    resp.raise_for_status()
+    if resp.status_code >= 400:
+        raise RuntimeError(f"groq http {resp.status_code}: {resp.text[:160]}")
     return _parse_json(resp.json()["choices"][0]["message"]["content"])
 
 
@@ -180,6 +207,8 @@ def heuristic(row, category_hint: str | None) -> dict:
         "content_type": "news",
         "importance": 5,
         "is_ai_news": True,
+        "model_release": None,
+        "funding": None,
     }
 
 
@@ -202,7 +231,40 @@ def _clean(result: dict, row, category_hint: str | None) -> dict:
     ctype = str(result.get("content_type", "news")).strip().lower()
     if ctype not in {"news", "analysis", "research", "tutorial", "opinion", "press_release", "listicle", "product"}:
         ctype = "news"
+
+    def _num(v):
+        try:
+            return float(v) if v not in (None, "", "null") else None
+        except (TypeError, ValueError):
+            return None
+
+    release = result.get("model_release")
+    if isinstance(release, dict) and release.get("name"):
+        release = {
+            "name": str(release.get("name")).strip()[:120],
+            "lab": str(release.get("lab") or "").strip()[:120] or None,
+            "kind": str(release.get("kind") or "other").strip().lower(),
+            "availability": str(release.get("availability") or "unknown").strip().lower(),
+            "license": (str(release.get("license")).strip()[:80] if release.get("license") else None),
+            "context": (str(release.get("context")).strip()[:40] if release.get("context") else None),
+            "link": (str(release.get("link")).strip()[:500] if release.get("link") else None),
+        }
+    else:
+        release = None
+    funding = result.get("funding")
+    if isinstance(funding, dict) and funding.get("company"):
+        funding = {
+            "company": str(funding.get("company")).strip()[:120],
+            "amount_usd": _num(funding.get("amount_usd")),
+            "round": str(funding.get("round") or "other").strip().lower(),
+            "investors": [str(i).strip()[:80] for i in (funding.get("investors") or []) if str(i).strip()][:10],
+            "valuation_usd": _num(funding.get("valuation_usd")),
+        }
+    else:
+        funding = None
     return {
+        "model_release": release,
+        "funding": funding,
         "headline": headline,
         "summary_md": str(result.get("summary_md") or "").strip(),
         "key_points": key_points,
@@ -309,6 +371,8 @@ def run() -> dict:
                 entities=clean["entities"],
                 content_type=clean["content_type"],
                 importance=clean["importance"],
+                model_release=clean["model_release"],
+                funding=clean["funding"],
                 enrich_model=model_used,
                 status="enriched",
             ))

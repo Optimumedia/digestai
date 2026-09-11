@@ -1,0 +1,39 @@
+---
+import Base from "../layouts/Base.astro";
+import Rail from "../components/Rail.astro";
+import { threads, threadStories, formatDate, categories } from "../lib/data";
+---
+
+<Base title="Developing stories" description="The AI sagas still unfolding: every thread with its episodes in order.">
+  <div class="grid">
+    <div>
+      <header class="page-head">
+        <div class="eyebrow">Threads</div>
+        <h1>Developing stories</h1>
+        <p>Stories that keep producing news. Each thread is the episodes in order, so you can catch up from the start.</p>
+      </header>
+      {threads.length === 0 && <p class="muted" style="padding: 24px 0">No multi-episode stories yet. Threads form as coverage accumulates over days.</p>}
+      <ol class="river">
+        {threads.map((t) => {
+          const eps = threadStories(t);
+          return (
+            <li class="no-img" data-published={t.updatedAt}>
+              <div>
+                <div class="meta-row">
+                  <a class="chip" href={`/category/${t.category}`}>{categories[t.category || ""] || "AI"}</a>
+                  <span>{t.storyCount} episodes</span>
+                  <span>{formatDate(t.firstAt, { day: "numeric", month: "short" })} → <time datetime={t.updatedAt || undefined}></time></span>
+                  <span class="new-badge">new</span>
+                </div>
+                <h3><a href={`/thread/${t.slug}`}>{t.title}</a></h3>
+                <p>{t.summary}</p>
+                <ul class="episodes">{eps.slice(-3).reverse().map((s) => <li><a href={`/story/${s.slug}`}>{s.headline}</a></li>)}</ul>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+    <Rail />
+  </div>
+</Base>

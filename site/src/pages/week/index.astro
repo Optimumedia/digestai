@@ -1,0 +1,29 @@
+---
+import Base from "../../layouts/Base.astro";
+import Rail from "../../components/Rail.astro";
+import { storiesByWeek, weekMonday, formatDate } from "../../lib/data";
+
+const weeks = [...storiesByWeek().entries()];
+---
+
+<Base title="Weekly recaps" description="What changed in AI, week by week.">
+  <div class="grid">
+    <div>
+      <header class="page-head">
+        <div class="eyebrow">Archive</div>
+        <h1>Week by week</h1>
+      </header>
+      <ol class="river">
+        {weeks.map(([week, list]) => (
+          <li class="no-img">
+            <div>
+              <h3><a href={`/week/${week}`}>Week of {formatDate(weekMonday(week).toISOString(), { day: "numeric", month: "long", year: "numeric" })}</a></h3>
+              <p>{list.length} stories · top: {list[0]?.headline}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
+    <Rail />
+  </div>
+</Base>

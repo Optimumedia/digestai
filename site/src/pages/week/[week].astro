@@ -1,0 +1,55 @@
+---
+import Base from "../../layouts/Base.astro";
+import StoryRow from "../../components/StoryRow.astro";
+import Rail from "../../components/Rail.astro";
+import { storiesByWeek, weekMonday, formatDate, trackers, money, weekKey, sourceLeaderboard } from "../../lib/data";
+
+export function getStaticPaths() {
+  return [...storiesByWeek().entries()].map(([week, list]) => ({ params: { week }, props: { list } }));
+}
+
+const { week } = Astro.params;
+const { list } = Astro.props;
+const monday = weekMonday(week!);
+const sunday = new Date(monday.getTime() + 6 * 864e5);
+const range = `${formatDate(monday.toISOString(), { day: "numeric", month: "short" })} to ${formatDate(sunday.toISOString(), { day: "numeric", month: "long", year: "numeric" })}`;
+const top = list.slice(0, 10);
+const models = trackers.models.filter((m) => weekKey(m.date) === week);
+const deals = trackers.funding.filter((f) => weekKey(f.date) === week);
+const weeks = [...storiesByWeek().keys()];
+const idx = weeks.indexOf(week!);
+const description = `What changed in AI in the week of ${range}: ${top.slice(0, 3).map((s) => s.headline).join("; ")}.`;
+---
+
+<Base title={`AI news, week of ${formatDate(monday.toISOString(), { day: "numeric", month: "long", year: "numeric" })}`} description={description}>
+  <div class="grid">
+    <div>
+      <header class="page-head">
+        <div class="eyebrow">Weekly recap · {week}</div>
+        <h1>What changed in AI, {range}</h1>
+        <p>{list.length} stories this week. The ten that mattered most, then every model release and deal.</p>
+      </header>
+      <div class="dayhead"><h2>The ten that mattered</h2></div>
+      <ol class="river">{top.map((s) => <StoryRow story={s} showImage={false} />)}</ol>
+
+      {models.length > 0 && (
+        <section>
+          <div class="dayhead"><h2>Models released</h2><a class="eyebrow" href="/models">Full tracker →</a></div>
+          <ul class="coverage">{models.map((m) => <li><a class="t" href={`/story/${m.storySlug}`}>{m.name}</a><span class="mono muted">{m.lab} · {m.availability.replace("_", " ")}</span></li>)}</ul>
+        </section>
+      )}
+      {deals.length > 0 && (
+        <section>
+          <div class="dayhead"><h2>Money</h2><a class="eyebrow" href="/funding">Full tracker →</a></div>
+          <ul class="coverage">{deals.map((d) => <li><a class="t" href={`/story/${d.storySlug}`}>{d.company}: {money(d.amount_usd)}</a><span class="mono muted">{d.round.replace("_", " ")}</span></li>)}</ul>
+        </section>
+      )}
+      <nav class="meta-row" style="padding: 24px 0" aria-label="Week navigation">
+        {idx < weeks.length - 1 && <a href={`/week/${weeks[idx + 1]}`}>← {weeks[idx + 1]}</a>}
+        <a href="/week" style="margin-left:auto">All weeks</a>
+        {idx > 0 && <a href={`/week/${weeks[idx - 1]}`}>{weeks[idx - 1]} →</a>}
+      </nav>
+    </div>
+    <Rail />
+  </div>
+</Base>

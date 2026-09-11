@@ -35,6 +35,48 @@ export interface Article {
   predictedScore: number | null;
   isLead: boolean;
   discussion: Discussion | null;
+  modelRelease: ModelRelease | null;
+  funding: Funding | null;
+}
+
+export interface ModelRelease {
+  name: string;
+  lab: string | null;
+  kind: string;
+  availability: string;
+  license: string | null;
+  context: string | null;
+  link: string | null;
+  date?: string | null;
+  storySlug?: string;
+  storyHeadline?: string;
+  sources?: number;
+}
+
+export interface Funding {
+  company: string;
+  amount_usd: number | null;
+  round: string;
+  investors: string[];
+  valuation_usd: number | null;
+  date?: string | null;
+  storySlug?: string;
+  storyHeadline?: string;
+  sources?: number;
+}
+
+export interface Thread {
+  id: number;
+  slug: string;
+  title: string;
+  summary: string | null;
+  category: string | null;
+  categoryName: string;
+  entities: Record<string, string[]>;
+  storyCount: number;
+  firstAt: string | null;
+  updatedAt: string | null;
+  storyIds: number[];
 }
 
 export interface Coverage {
@@ -61,6 +103,8 @@ export interface Story {
   coverage: Coverage;
   hasPrimary: boolean;
   discussions: Discussion[];
+  threadId: number | null;
+  pulse: string | null;
   firstPublishedAt: string | null;
   updatedAt: string | null;
   imageUrl: string | null;
@@ -136,9 +180,69 @@ export const briefing: Briefing = readJson<Briefing>("briefing.json", {
   stats: { stories: 0, articles: 0, minutes: 0 },
 });
 export const newsletters: Record<string, { publicUrl: string | null; subject: string | null }> = readJson("newsletters.json", {});
+export const threads: Thread[] = readJson<Thread[]>("threads.json", []);
+export const trackers: { models: ModelRelease[]; funding: Funding[] } = readJson("trackers.json", { models: [], funding: [] });
 
 const storyById = new Map(stories.map((s) => [s.id, s]));
 export const storyFor = (id: number): Story | undefined => storyById.get(id);
+const threadById = new Map(threads.map((t) => [t.id, t]));
+export const threadFor = (id: number | null | undefined): Thread | undefined => (id ? threadById.get(id) : undefined);
+
+export function threadStories(t: Thread): Story[] {
+  return t.storyIds.map(storyFor).filter((s): s is Story => Boolean(s));
+}
+
+/** ISO week key like 2026-W37 and its Monday. */
+export function weekKey(iso: string | null | undefined): string {
+  const d = new Date(iso || Date.now());
+  const day = (d.getUTCDay() + 6) % 7;
+  const thursday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day + 3));
+  const jan4 = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 4));
+  const week = 1 + Math.round(((thursday.getTime() - jan4.getTime()) / 864e5 - 3 + ((jan4.getUTCDay() + 6) % 7)) / 7);
+  return `${thursday.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+
+export function weekMonday(key: string): Date {
+  const [y, w] = key.split("-W").map(Number);
+  const jan4 = new Date(Date.UTC(y, 0, 4));
+  const monday = new Date(jan4.getTime() - ((jan4.getUTCDay() + 6) % 7) * 864e5 + (w - 1) * 7 * 864e5);
+  return monday;
+}
+
+export function storiesByWeek(): Map<string, Story[]> {
+  const map = new Map<string, Story[]>();
+  for (const s of byRecency) {
+    const key = weekKey(s.firstPublishedAt || s.updatedAt);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(s);
+  }
+  for (const list of map.values()) list.sort((a, b) => b.importance - a.importance || b.score - a.score);
+  return new Map([...map.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)));
+}
+
+export function money(n: number | null | undefined): string {
+  if (!n) return "undisclosed";
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(n >= 1e10 ? 0 : 1)}B`;
+  if (n >= 1e6) return `$${Math.round(n / 1e6)}M`;
+  return `$${Math.round(n / 1e3)}K`;
+}
+
+export function sourceLeaderboard(days = 7): { name: string; stories: number; articles: number }[] {
+  const since = Date.now() - days * 864e5;
+  const map = new Map<string, { name: string; stories: number; articles: number }>();
+  for (const s of stories) {
+    if (Date.parse(s.updatedAt || "0") < since) continue;
+    const seen = new Set<string>();
+    for (const a of s.articles) {
+      const name = a.source || a.domain;
+      const row = map.get(name) || { name, stories: 0, articles: 0 };
+      row.articles += 1;
+      if (!seen.has(name)) { row.stories += 1; seen.add(name); }
+      map.set(name, row);
+    }
+  }
+  return [...map.values()].sort((a, b) => b.stories - a.stories || b.articles - a.articles).slice(0, 25);
+}
 
 export const byScore: Story[] = [...stories].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.score - a.score);
 export const byRecency: Story[] = [...stories].sort(

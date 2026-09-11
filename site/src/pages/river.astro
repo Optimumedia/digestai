@@ -1,0 +1,36 @@
+---
+import Base from "../layouts/Base.astro";
+import { byRecency, categories, formatDate, dateKey } from "../lib/data";
+
+const cutoff = Date.now() - 5 * 864e5;
+const list = byRecency.filter((s) => Date.parse(s.firstPublishedAt || s.updatedAt || "0") > cutoff);
+const groups = new Map<string, typeof list>();
+for (const s of list) {
+  const k = dateKey(s.firstPublishedAt || s.updatedAt);
+  if (!groups.has(k)) groups.set(k, []);
+  groups.get(k)!.push(s);
+}
+---
+
+<Base title="River" description="Five days of AI headlines on one screen, newest first." noindex={true}>
+  <header class="page-head">
+    <div class="eyebrow">River</div>
+    <h1>Every headline, five days</h1>
+    <p>Compact and chronological, for people who scan. {list.length} stories.</p>
+  </header>
+  {[...groups.entries()].map(([day, items]) => (
+    <section class="river-day">
+      <h2 class="eyebrow">{formatDate(day + "T00:00:00Z", { weekday: "long", day: "numeric", month: "long" })}</h2>
+      <ul class="river-list">
+        {items.map((s) => (
+          <li data-published={s.updatedAt}>
+            <time datetime={s.firstPublishedAt || undefined} data-static>{(s.firstPublishedAt || "").slice(11, 16)}</time>
+            <a href={`/story/${s.slug}`}>{s.headline}</a>
+            <span class="mono muted">{categories[s.category || ""]?.split(" & ")[0] || "AI"} · {s.articleCount}{s.hasPrimary ? " · primary" : ""}</span>
+            <span class="new-badge">new</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  ))}
+</Base>

@@ -1,0 +1,43 @@
+---
+import Base from "../layouts/Base.astro";
+import { trackers, formatDate } from "../lib/data";
+
+const rows = trackers.models;
+const labels: Record<string, string> = { api: "API", open_weights: "Open weights", consumer: "Consumer app", research: "Research", unknown: "" };
+const kinds: Record<string, string> = { llm: "Language", multimodal: "Multimodal", image: "Image", video: "Video", audio: "Audio", code: "Code", embedding: "Embedding", robotics: "Robotics", other: "" };
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Dataset",
+  name: "AI model release tracker",
+  description: "Every AI model release covered by Digest AI, with lab, availability, license and context window.",
+  url: "https://digestai.news/models",
+};
+---
+
+<Base title="AI model release tracker" description={`${rows.length} model releases with lab, availability, license and context window, updated every 30 minutes from the news.`} jsonLd={jsonLd}>
+  <header class="page-head">
+    <div class="eyebrow">Tracker</div>
+    <h1>AI model releases</h1>
+    <p>Every model launch or new version the news desk covered, newest first. Each row links to the story and its sources. Extracted automatically; corrections welcome.</p>
+  </header>
+  {rows.length === 0 && <p class="muted" style="padding: 24px 0">No releases recorded yet. Rows appear as stories about new models are published.</p>}
+  <div class="tablewrap">
+    <table class="tracker">
+      <thead><tr><th>Date</th><th>Model</th><th>Lab</th><th>Type</th><th>Availability</th><th>License</th><th>Context</th><th>Story</th></tr></thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr>
+            <td class="num">{formatDate(r.date, { day: "numeric", month: "short", year: "numeric" })}</td>
+            <td><b>{r.link ? <a href={r.link} rel="noopener nofollow" target="_blank">{r.name}</a> : r.name}</b></td>
+            <td>{r.lab || ""}</td>
+            <td>{kinds[r.kind] || r.kind}</td>
+            <td>{labels[r.availability] ?? r.availability}</td>
+            <td>{r.license || ""}</td>
+            <td class="num">{r.context || ""}</td>
+            <td><a href={`/story/${r.storySlug}`}>{r.storyHeadline}</a></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</Base>
