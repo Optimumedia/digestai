@@ -372,3 +372,4 @@ table.sortable th:hover { color: var(--ink); }
 .ranked li a { font-weight: 600; display: block; }
 .ranked li a:hover { color: var(--accent); }
 .ranked .mono { display: block; margin-top: 1px; }
+.ranked li .mono { grid-column: 2; }
