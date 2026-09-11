@@ -36,6 +36,7 @@ def main() -> int:
 
     applied = 0
     with eng.begin() as conn:
+        conn.execute(text("SET LOCAL lock_timeout = '5s'"))  # never queue behind a running pipeline
         for body in statements:
             if not body:
                 continue

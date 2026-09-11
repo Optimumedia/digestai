@@ -256,6 +256,9 @@ def _harden_postgres(eng: Engine) -> None:
     insert grant (the site's reader beacon); supabase/schema.sql adds its policy and guard."""
     try:
         with eng.begin() as conn:
+            # ALTER TABLE takes an exclusive lock; give up quickly rather than queue behind a
+            # running pipeline (a local run and the CI run once deadlocked each other here).
+            conn.execute(text("SET LOCAL lock_timeout = '3s'"))
             for table in metadata.sorted_tables:
                 conn.execute(text(f'ALTER TABLE "{table.name}" ENABLE ROW LEVEL SECURITY'))
                 conn.execute(text(f'REVOKE ALL ON "{table.name}" FROM anon, authenticated'))

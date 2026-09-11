@@ -74,7 +74,9 @@ Write-Host "Variables:"; Report "variable" $variables
 if ($Check) { exit 0 }
 
 foreach ($k in $secrets) {
-  if ($vals[$k]) { $vals[$k] | & $gh.Source secret set $k --repo $repo | Out-Null; Write-Host "  pushed secret   $k" }
+  # --body rather than a pipe: Windows PowerShell 5.1 writes a UTF-8 byte-order mark in front of
+  # piped text, which silently corrupts the secret (DATABASE_URL then fails to parse in CI).
+  if ($vals[$k]) { & $gh.Source secret set $k --repo $repo --body $vals[$k] | Out-Null; Write-Host "  pushed secret   $k" }
 }
 foreach ($k in $variables) {
   if ($vals[$k]) { & $gh.Source variable set $k --repo $repo --body $vals[$k] | Out-Null; Write-Host "  pushed variable $k" }
