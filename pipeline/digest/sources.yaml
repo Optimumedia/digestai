@@ -223,6 +223,7 @@ sources:
     url: https://artificialintelligenceact.substack.com/feed
     category: policy
     weight: 1.0
+    agent: browser
   - key: tomshardware
     name: Tom's Hardware
     url: https://www.tomshardware.com/feeds/all
@@ -242,6 +243,7 @@ sources:
     url: https://importai.substack.com/feed
     category: research
     weight: 1.2
+    agent: browser
   - key: interconnects
     name: Interconnects
     url: https://www.interconnects.ai/feed
