@@ -26,8 +26,9 @@ def _load_dotenv() -> None:
 _load_dotenv()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{(DATA_DIR / 'digest.db').as_posix()}")
-SITE_URL = os.environ.get("SITE_URL", "https://digestai.news").rstrip("/")
+# GitHub Actions passes unset secrets as empty strings, so "" must mean "use the default".
+DATABASE_URL = os.environ.get("DATABASE_URL") or f"sqlite:///{(DATA_DIR / 'digest.db').as_posix()}"
+SITE_URL = (os.environ.get("SITE_URL") or "https://digestai.news").rstrip("/")
 USER_AGENT = os.environ.get(
     "USER_AGENT",
     "Mozilla/5.0 (compatible; DigestAIBot/2.0; +https://digestai.news/about)",
