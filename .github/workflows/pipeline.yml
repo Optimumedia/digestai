@@ -72,20 +72,6 @@ jobs:
           key: audio-${{ github.run_id }}
           restore-keys: audio-
 
-      - name: Cache voice model
-        id: voice
-        uses: actions/cache@v4
-        with:
-          path: pipeline/data/voices
-          key: piper-voice-${{ vars.AUDIO_VOICE || 'en_US-lessac-medium' }}
-
-      - name: Download voice model
-        if: steps.voice.outputs.cache-hit != 'true'
-        run: python -m piper.download_voices "${AUDIO_VOICE:-en_US-lessac-medium}" --download-dir pipeline/data/voices
-
-      # Without a Supabase DATABASE_URL the SQLite database persists between runs through the
-      # Actions cache, with a daily artifact as backup. The cache is restored from the most
-      # recent run; if it is missing, the last backup artifact is used.
       - name: Restore database
         id: dbcache
         if: env.DATABASE_URL == ''
@@ -105,6 +91,21 @@ jobs:
 
       - name: Install pipeline
         run: pip install -q -r pipeline/requirements.txt
+
+      - name: Cache voice model
+        id: voice
+        uses: actions/cache@v4
+        with:
+          path: pipeline/data/voices
+          key: piper-voice-${{ vars.AUDIO_VOICE || 'en_US-lessac-medium' }}
+
+      - name: Download voice model
+        if: steps.voice.outputs.cache-hit != 'true'
+        run: python -m piper.download_voices "${AUDIO_VOICE:-en_US-lessac-medium}" --download-dir pipeline/data/voices
+
+      # Without a Supabase DATABASE_URL the SQLite database persists between runs through the
+      # Actions cache, with a daily artifact as backup. The cache is restored from the most
+      # recent run; if it is missing, the last backup artifact is used.
 
       # Local model: the only summariser when no API key exists, and the safety net when the
       # keyed providers run out of quota. Cached after the first run, so it costs ~30 s to start.
