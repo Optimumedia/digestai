@@ -374,7 +374,9 @@ def run() -> dict:
             return stats
         log.warning("no LLM key configured and no local model; using heuristic enrichment")
     keyed_share = sum(v for k, v in budgets.items() if k != "ollama")
-    limit = keyed_share + budgets.get("ollama", 0) if providers else config.MAX_ENRICH_PER_RUN
+    # The local model only takes what the API providers cannot: the run's size is the larger of
+    # the two shares, not their sum, so a run with a healthy Groq budget finishes in ~10 minutes.
+    limit = max(keyed_share, budgets.get("ollama", 0)) if providers else config.MAX_ENRICH_PER_RUN
     input_words = config.LOCAL_INPUT_WORDS if local_only else config.LLM_INPUT_WORDS
     spent: dict[str, int] = {}
 
