@@ -2,7 +2,8 @@
 import Base from "../../layouts/Base.astro";
 import StoryRow from "../../components/StoryRow.astro";
 import Rail from "../../components/Rail.astro";
-import { topicPages, storiesForEntity } from "../../lib/data";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
+import { topicPages, storiesForEntity, meta, topicInfo, type Entity } from "../../lib/data";
 
 export function getStaticPaths() {
   return topicPages().map(({ slug, entity }) => ({ params: { slug }, props: { entity } }));
@@ -14,7 +15,8 @@ const list = storiesForEntity(entity);
 const kindLabel = { companies: "Company", models: "Model", people: "Person" }[entity.kind] || "Topic";
 const follow = JSON.stringify({ kind: "topic", slug, name: entity.name });
 const latestHeads = list.slice(0, 3).map((s) => s.headline).join("; ");
-const description = `${entity.name} in the AI news, ${list.length} ${list.length === 1 ? "story" : "stories"} with sources and discussion. Latest: ${latestHeads}`.slice(0, 300);
+const intro = topicInfo[slug!]?.description || "";
+const description = (intro ? `${intro} ${list.length} stories with sources.` : `${entity.name} in the AI news, ${list.length} ${list.length === 1 ? "story" : "stories"} with sources and discussion. Latest: ${latestHeads}`).slice(0, 300);
 const ogImage = list.length >= 3 ? `/og/topic-${slug}.png` : "/og-default.png";
 const jsonLd = {
   "@context": "https://schema.org",
@@ -29,13 +31,15 @@ const jsonLd = {
 <Base title={`${entity.name} news`} description={description} image={`https://digestai.news${ogImage}`} jsonLd={jsonLd}>
   <div class="grid">
     <div>
+      <Breadcrumbs items={[{ name: "Topics" }, { name: entity.name }]} />
       <header class="page-head">
         <div class="eyebrow">{kindLabel}</div>
         <div class="head-row">
           <h1>{entity.name}</h1>
           <button class="follow" data-follow={follow} aria-pressed="false">Follow</button>
         </div>
-        <p>{list.length} {list.length === 1 ? "story" : "stories"} mentioning {entity.name}, newest first. Follow to see new ones on your front page.</p>
+        {intro && <p class="intro">{intro}</p>}
+        <p>{list.length} {list.length === 1 ? "story" : "stories"} mentioning {entity.name}, newest first, each with its sources and discussion. Follow to see new ones on your front page.</p>
       </header>
       <ol class="river">{list.map((s) => <StoryRow story={s} />)}</ol>
     </div>

@@ -82,6 +82,26 @@ Comments use the default **Announcements** category, so only the site creates th
 3. My Profile → API Tokens → Create Token → template **Edit Cloudflare Workers** (it covers Pages) →
    `CLOUDFLARE_API_TOKEN`. Account ID is on the Workers & Pages overview page → `CLOUDFLARE_ACCOUNT_ID`.
 
+## Search Console data in the dashboard (10 min)
+
+Gives the admin "Search" tab clicks, impressions, position, indexed pages and top queries.
+
+1. https://console.cloud.google.com → create a project (any name) → APIs & Services → Library →
+   enable **Google Search Console API**.
+2. APIs & Services → Credentials → Create credentials → **Service account** → any name → Done.
+   Open it → Keys → Add key → JSON. A file downloads.
+3. https://search.google.com/search-console → digestai.news property → Settings → Users and
+   permissions → Add user → paste the service account's email (ends in `iam.gserviceaccount.com`),
+   permission **Full**.
+4. Put the whole JSON file's content on one line in `.env` as `GSC_SERVICE_ACCOUNT_JSON=` (or add it
+   as a repository secret with that name), run `scripts\push-config.ps1`.
+
+## Bing Webmaster Tools (3 min)
+
+https://www.bing.com/webmasters → Sign in → **Import from Google Search Console**. Bing then
+mirrors the verified property and sitemaps. IndexNow submissions from the pipeline are already
+accepted by Bing; this adds the reporting.
+
 ## 6. Push the configuration and run
 
 ```powershell

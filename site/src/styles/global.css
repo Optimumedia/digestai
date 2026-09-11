@@ -378,3 +378,4 @@ table.sortable th:hover { color: var(--ink); }
 .crumbs li + li::before { content: "/"; margin-right: 6px; color: var(--line); }
 .crumbs a { color: var(--ink-2); } .crumbs a:hover { color: var(--accent); }
 .crumbs span { color: var(--ink-3); max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+.page-head .intro { font-size: 17px; color: var(--ink); max-width: 66ch; margin: 10px 0 4px; }

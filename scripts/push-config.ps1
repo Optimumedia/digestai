@@ -39,7 +39,8 @@ foreach ($line in Get-Content $envFile) {
 # (harmless) except the ones that are convenient to edit in the GitHub UI, which go to variables.
 $secrets   = @("DATABASE_URL", "GEMINI_API_KEY", "GROQ_API_KEY", "KIT_API_KEY",
                "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID",
-               "PUBLIC_SUPABASE_URL", "PUBLIC_SUPABASE_ANON_KEY")
+               "PUBLIC_SUPABASE_URL", "PUBLIC_SUPABASE_ANON_KEY", "GSC_SERVICE_ACCOUNT_JSON",
+               "BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHANNEL")
 $variables = @("PUBLIC_KIT_FORM_URL", "NEWSLETTER_HOUR_UTC",
                "PUBLIC_GISCUS_REPO", "PUBLIC_GISCUS_REPO_ID", "PUBLIC_GISCUS_CATEGORY", "PUBLIC_GISCUS_CATEGORY_ID")
 

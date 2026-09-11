@@ -183,6 +183,7 @@ export const briefing: Briefing = readJson<Briefing>("briefing.json", {
 });
 export const newsletters: Record<string, { publicUrl: string | null; subject: string | null }> = readJson("newsletters.json", {});
 export const threads: Thread[] = readJson<Thread[]>("threads.json", []);
+export const topicInfo: Record<string, { name: string; kind: string; description: string }> = readJson("topics.json", {});
 export const trackers: { models: ModelRelease[]; funding: Funding[] } = readJson("trackers.json", { models: [], funding: [] });
 
 const storyById = new Map(stories.map((s) => [s.id, s]));
