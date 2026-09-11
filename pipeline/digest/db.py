@@ -133,6 +133,7 @@ articles = Table(
     Column("discussion_site", String(20)),  # hn | reddit
     Column("discussion_url", Text),
     Column("discussion_points", Integer),
+    Column("trend_score", Integer),  # web popularity outside HN: Mastodon shares, Reddit score
     Column("discussion_checked_at", DateTime(timezone=True)),
     Column("created_at", DateTime(timezone=True), nullable=False),
 )

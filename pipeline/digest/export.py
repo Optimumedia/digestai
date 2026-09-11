@@ -166,6 +166,7 @@ def run() -> dict:
                     {"site": m.discussion_site, "url": m.discussion_url, "points": m.discussion_points}
                     if m.discussion_url else None
                 ),
+                "trendScore": m.trend_score,
             })
         # A primary source is one the story is *about*: the lab's own post counts even when it arrived via HN.
         for a in articles:

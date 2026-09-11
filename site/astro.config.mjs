@@ -8,7 +8,7 @@ export default defineConfig({
   build: { format: "file" },
   integrations: [
     sitemap({
-      filter: (page) => !page.includes("/search"),
+      filter: (page) => !page.includes("/search") && !page.includes("/admin") && !page.includes("/saved") && !page.includes("/river"),
     }),
   ],
 });

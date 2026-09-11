@@ -1,6 +1,7 @@
 User-agent: *
 Allow: /
 Disallow: /search
+Disallow: /admin
 
 Sitemap: https://digestai.news/sitemap-index.xml
 Sitemap: https://digestai.news/news-sitemap.xml

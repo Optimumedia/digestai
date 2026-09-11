@@ -41,7 +41,7 @@ def sync_sources(conn) -> None:
             "name": item["name"],
             "url": item["url"],
             "kind": item.get("kind", "rss"),
-            "source_type": item.get("type") or type_of.get(key) or ("community" if item.get("kind") in ("hn", "reddit") else "press"),
+            "source_type": item.get("type") or type_of.get(key) or ("community" if item.get("kind") in ("hn", "reddit", "mastodon") else "press"),
             "category_hint": item.get("category"),
             "weight": float(item.get("weight", 1.0)),
             "fulltext": bool(item.get("fulltext", True)),
@@ -208,7 +208,33 @@ def _reddit_items(source) -> list[dict]:
     return items
 
 
-FETCHERS = {"rss": _rss_items, "hn": _hn_items, "reddit": _reddit_items}
+def _mastodon_items(source) -> list[dict]:
+    """Mastodon's public trending-links API: what the fediverse is sharing right now.
+    No account needed. `history` carries daily share counts; the AI gate filters the rest."""
+    resp = SESSION.get(source.url, timeout=config.FETCH_TIMEOUT, params={"limit": 40})
+    resp.raise_for_status()
+    items = []
+    for card in resp.json():
+        url = card.get("url")
+        if not url or not card.get("title"):
+            continue
+        hist = card.get("history") or []
+        shares = sum(int(h.get("uses", 0)) for h in hist[:2])
+        published = card.get("published_at")
+        items.append({
+            "url": url,
+            "title": card.get("title") or "",
+            "published_at": dateparser.parse(published) if published else None,
+            "description": (card.get("description") or "")[:2000] or None,
+            "feed_content": None,
+            "image_url": card.get("image"),
+            "author": (card.get("author_name") or "")[:300] or None,
+            "trend_score": shares,
+        })
+    return items
+
+
+FETCHERS = {"rss": _rss_items, "hn": _hn_items, "reddit": _reddit_items, "mastodon": _mastodon_items}
 
 
 def run() -> dict:
@@ -266,6 +292,7 @@ def run() -> dict:
                     discussion_site=disc[0],
                     discussion_url=disc[1],
                     discussion_points=disc[2],
+                    trend_score=item.get("trend_score"),
                     discussion_checked_at=db.utcnow() if disc[0] else None,
                     url=url,
                     source_id=source.id,

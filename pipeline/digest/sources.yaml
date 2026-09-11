@@ -15,7 +15,7 @@ types:
             arxiv-cs-ai, arxiv-cs-cl, nature-ml]
   newsletter: [import-ai, interconnects, latent-space, simon-willison, one-useful-thing, ai-snake-oil,
                raschka, last-week-in-ai, rundown, bens-bites, towards-ds, eu-ai-act, semianalysis]
-  community: [hn, reddit-ml, reddit-localllama, reddit-artificial, reddit-singularity, producthunt-ai]
+  community: [hn, reddit-ml, reddit-localllama, reddit-artificial, reddit-singularity, producthunt-ai, mastodon-trends]
 
 sources:
   # ---- Labs and companies -------------------------------------------------
@@ -328,6 +328,12 @@ sources:
     kind: reddit
     category: models
     weight: 0.6
+  - key: mastodon-trends
+    name: Mastodon trending links
+    url: https://mastodon.social/api/v1/trends/links
+    kind: mastodon
+    category: society
+    weight: 0.9
   - key: producthunt-ai
     name: Product Hunt AI
     url: https://www.producthunt.com/feed?category=artificial-intelligence

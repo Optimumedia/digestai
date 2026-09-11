@@ -292,3 +292,48 @@ table.tracker td a:hover { color: var(--accent); }
 .river-list time { font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); }
 .river-list a:hover { color: var(--accent); }
 @media (max-width: 640px) { .river-list li { grid-template-columns: 48px minmax(0, 1fr); } .river-list .mono { display: none; } }
+
+/* ---- admin dashboard ---- */
+:root { --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100; --series-neutral: #9aa3ad; --status-good: #0ca30c; --status-critical: #d03b3b; --status-warning: #fab219; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; --series-neutral: #6b7480; } }
+:root[data-theme="dark"] { --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; --series-neutral: #6b7480; }
+.admin { padding: 24px 0 64px; }
+.admin-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; padding-bottom: 14px; border-bottom: 2px solid var(--ink); margin-bottom: 18px; }
+.admin-head h1 { font-size: 30px; margin-top: 6px; }
+.admin-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.tb.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.tb.danger { color: var(--status-critical); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; border-top: 3px solid var(--line); }
+.tile .label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.tile .value { font-family: var(--font-body); font-weight: 600; font-size: 28px; line-height: 1.1; }
+.tile .sub { font-size: 12.5px; color: var(--ink-2); }
+.tile.bad { border-top-color: var(--status-critical); }
+.tile.warn { border-top-color: var(--status-warning); }
+.tile.off { opacity: 0.7; }
+.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+@media (max-width: 900px) { .cards { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 14px 16px 10px; margin-bottom: 12px; }
+.card.wide { grid-column: 1 / -1; }
+.card h2 { font-family: var(--font-body); font-weight: 700; font-size: 15px; margin-bottom: 8px; }
+.card h2 .muted { font-weight: 400; font-size: 13px; color: var(--ink-3); margin-left: 6px; }
+.card .tablewrap { margin: 8px 0 4px; border: 0; }
+.card table.tracker { min-width: 640px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--ink-2); margin-bottom: 4px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.chart { width: 100%; height: auto; display: block; font-family: var(--font-body); }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .axis { stroke: var(--ink-3); stroke-width: 1; }
+.chart .tick, .chart .ylabel, .chart .value, .chart .endlabel { fill: var(--ink-2); font-size: 11px; }
+.chart .endlabel { font-weight: 600; fill: var(--ink); }
+.chart .line { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chart .dot { stroke: var(--surface); stroke-width: 2; }
+.chart .hit { fill: transparent; }
+.chart .mark:hover { opacity: 0.8; }
+.st { font-family: var(--font-mono); font-size: 12px; white-space: nowrap; }
+.st.good { color: var(--status-good); } .st.bad { color: var(--status-critical); } .st.off { color: var(--ink-3); }
+.acts { white-space: nowrap; } .acts .tb { padding: 3px 8px; font-size: 12px; margin-right: 4px; }
+.tokenrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.tokenrow input { flex: 1; min-width: 240px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; }
+table.sortable th { cursor: pointer; user-select: none; }
+table.sortable th:hover { color: var(--ink); }
