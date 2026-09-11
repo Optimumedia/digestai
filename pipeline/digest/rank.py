@@ -46,21 +46,19 @@ def _engagement(conn) -> dict[int, float]:
     # Prune old events first: nothing past 90 days is used anywhere.
     conn.execute(db.events.delete().where(db.events.c.created_at < db.utcnow() - timedelta(days=90)))
     day = func.date(db.events.c.created_at)
-    dedup = (
+    # One row per article, type, session and day. Dwell adds up across the visits of a session
+    # (the browser sends one increment per visible stretch); other types count once.
+    rows = conn.execute(
         select(db.events.c.article_id, db.events.c.type, db.events.c.session, day.label("d"),
-               func.max(db.events.c.value).label("v"))
+               func.sum(db.events.c.value).label("total"), func.max(db.events.c.value).label("mx"))
         .where(db.events.c.created_at >= since, db.events.c.article_id.isnot(None))
         .group_by(db.events.c.article_id, db.events.c.type, db.events.c.session, day)
-    ).subquery()
-    rows = conn.execute(
-        select(dedup.c.article_id, dedup.c.type, func.sum(dedup.c.v)).group_by(dedup.c.article_id, dedup.c.type)
     ).all()
     raw: dict[int, float] = {}
-    for article_id, etype, total in rows:
+    for article_id, etype, _session, _d, total, mx in rows:
         w = EVENT_WEIGHTS.get(etype, 0.0)
-        val = float(total or 0)
-        if etype == "dwell":
-            val = min(val, 600.0)
+        # Ten minutes of reading is the most one visit may count for; other events count once.
+        val = min(float(total or 0), 600.0) if etype == "dwell" else min(float(mx or 0), 1.0)
         raw[article_id] = raw.get(article_id, 0.0) + w * val
     return raw
 

@@ -22,24 +22,30 @@
   const articleId = Number(document.body.dataset.articleId) || null;
   let sid = session.get("s");
   if (!sid) { sid = Math.random().toString(36).slice(2, 12); session.set("s", sid); }
-  function send(type, value, useBeacon) {
+  function send(type, value) {
     if (!cfg.supabaseUrl || !cfg.supabaseKey || noTrack) return;
     const body = JSON.stringify({ story_id: storyId, article_id: articleId, type, value: value ?? 1, session: sid, path: location.pathname, created_at: new Date().toISOString() });
-    const url = `${cfg.supabaseUrl}/rest/v1/events`;
-    if (useBeacon && navigator.sendBeacon) {
-      navigator.sendBeacon(`${url}?apikey=${encodeURIComponent(cfg.supabaseKey)}`, new Blob([body], { type: "application/json" }));
-      return;
-    }
-    fetch(url, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey, Authorization: `Bearer ${cfg.supabaseKey}`, Prefer: "return=minimal" }, body }).catch(() => {});
+    // keepalive lets the request finish after the page is gone (unlike sendBeacon, it can carry
+    // the JSON content type and the API headers Supabase requires).
+    fetch(`${cfg.supabaseUrl}/rest/v1/events`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey, Authorization: `Bearer ${cfg.supabaseKey}`, Prefer: "return=minimal" }, body }).catch(() => {});
   }
   if (storyId) {
-    send("view", 1, false);
-    const start = Date.now();
-    let dwellSent = false;
-    const dwell = () => { if (dwellSent) return; dwellSent = true; send("dwell", Math.round((Date.now() - start) / 1000), true); };
-    addEventListener("pagehide", dwell);
-    addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") dwell(); });
-    document.querySelectorAll("a[data-source-link]").forEach((a) => a.addEventListener("click", () => send("click_source", 1, true)));
+    send("view", 1);
+    // Time on story = time the tab was actually visible. Each time the page is hidden or left,
+    // the seconds since it became visible are sent; the server adds them up.
+    let visibleSince = document.visibilityState === "visible" ? Date.now() : null;
+    const flush = () => {
+      if (visibleSince == null) return;
+      const secs = Math.round((Date.now() - visibleSince) / 1000);
+      visibleSince = null;
+      if (secs >= 1) send("dwell", Math.min(secs, 3600));
+    };
+    addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") flush();
+      else if (visibleSince == null) visibleSince = Date.now();
+    });
+    addEventListener("pagehide", flush);
+    document.querySelectorAll("a[data-source-link]").forEach((a) => a.addEventListener("click", () => send("click_source", 1)));
   }
 
   /* ---------- theme ---------- */
@@ -107,7 +113,7 @@
     const f = JSON.parse(btn.dataset.follow);
     const list = follows();
     const idx = list.findIndex((x) => followKey(x) === followKey(f));
-    if (idx >= 0) list.splice(idx, 1); else { list.push(f); send("follow", 1, false); }
+    if (idx >= 0) list.splice(idx, 1); else { list.push(f); send("follow", 1); }
     store.set("follows", list);
     renderFollowButtons();
   }));
@@ -164,7 +170,7 @@
     const list = saves();
     const idx = list.findIndex((s) => s.slug === btn.dataset.slug);
     if (idx >= 0) list.splice(idx, 1);
-    else { list.unshift({ slug: btn.dataset.slug, headline: btn.dataset.headline, category: btn.dataset.category, savedAt: new Date().toISOString() }); send("save", 1, false); }
+    else { list.unshift({ slug: btn.dataset.slug, headline: btn.dataset.headline, category: btn.dataset.category, savedAt: new Date().toISOString() }); send("save", 1); }
     store.set("saved", list);
     renderSaveButtons();
   }));
@@ -212,7 +218,7 @@
     } else if (targets[kind]) {
       open(targets[kind], "_blank", "noopener,width=640,height=560");
     }
-    send("share", 1, false);
+    send("share", 1);
   }));
 
   function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }

@@ -44,7 +44,9 @@ const views7 = week(eng.perDay, "views"), viewsPrev = prevWeek(eng.perDay, "view
 const sessions7 = week(eng.perDay, "sessions");
 const clicks7 = week(eng.perDay, "clicks"), saves7 = week(eng.perDay, "saves"), follows7 = week(eng.perDay, "follows"), shares7 = week(eng.perDay, "shares");
 const dwell7 = week(eng.perDay, "dwellSeconds");
-const avgDwell = views7 ? Math.round(dwell7 / views7) : null;
+const reads7 = week(eng.perDay, "dwellReads");
+// Average over reading sessions that reported time, so a lost signal does not drag it to zero.
+const avgDwell = reads7 ? Math.round(dwell7 / reads7) : null;
 const engagedActions7 = clicks7 + saves7 + follows7 + shares7;
 
 const usageToday = (admin?.llm?.usage || []).filter((u: any) => u.day === today);
@@ -114,7 +116,7 @@ const statusKind = critical.length || (lastRun && !lastRun.ok) ? "bad" : alerts.
           <div class="tiles">
             <div class="tile"><span class="label">Stories published today</span><span class="value">{storiesPerDay[today] ?? 0}</span><span class="sub">yesterday {storiesPerDay[yesterday] ?? 0}</span></div>
             <div class:list={["tile", { off: !eng.available }]}><span class="label">Readers, 7 days</span><span class="value">{eng.available ? views7 : "—"}</span><span class="sub">{eng.available ? (viewsPrev ? delta(views7, viewsPrev) : `${sessions7} sessions`) : "no reader data yet"}</span></div>
-            <div class:list={["tile", { off: !eng.available }]}><span class="label">Time on story</span><span class="value">{avgDwell != null ? `${avgDwell}s` : "—"}</span><span class="sub">average per view, 7 days</span></div>
+            <div class:list={["tile", { off: !eng.available }]}><span class="label">Time on story</span><span class="value">{avgDwell != null ? `${avgDwell}s` : "—"}</span><span class="sub">average per reading session, 7 days</span></div>
             <div class:list={["tile", { warn: failing.length > 0 }]}><span class="label">Sources fetching</span><span class="value">{healthy}/{curatedSources.length}</span><span class="sub">{failing.length ? `${failing.length} failing` : "all fetching"}</span></div>
             <div class:list={["tile", { bad: lastRun && !lastRun.ok }]}><span class="label">Last run</span><span class="value">{lastRun ? (lastRun.ok ? "OK" : "Failed") : "—"}</span><span class="sub">{lastRun ? `${rel(lastRun.startedAt)} · ${Math.round(lastRun.seconds / 60)} min` : ""}</span></div>
           </div>
@@ -142,7 +144,7 @@ const statusKind = critical.length || (lastRun && !lastRun.ok) ? "bad" : alerts.
           <div class="tiles">
             <div class="tile"><span class="label">Views, 7 days</span><span class="value">{views7}</span><span class="sub">{delta(views7, viewsPrev) || "first week"}</span></div>
             <div class="tile"><span class="label">Sessions, 7 days</span><span class="value">{sessions7}</span><span class="sub">{sessions7 ? `${(views7 / sessions7).toFixed(1)} views per session` : ""}</span></div>
-            <div class="tile"><span class="label">Time on story</span><span class="value">{avgDwell != null ? `${avgDwell}s` : "—"}</span><span class="sub">average per view</span></div>
+            <div class="tile"><span class="label">Time on story</span><span class="value">{avgDwell != null ? `${avgDwell}s` : "—"}</span><span class="sub">average per reading session</span></div>
             <div class="tile"><span class="label">Actions, 7 days</span><span class="value">{engagedActions7}</span><span class="sub">{clicks7} to source · {saves7} saved · {follows7} follows · {shares7} shares</span></div>
           </div>
           <div class="cards">

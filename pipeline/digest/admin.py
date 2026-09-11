@@ -129,7 +129,7 @@ def run() -> dict:
             .where(db.events.c.created_at >= since)
             .group_by(func.date(db.events.c.created_at), db.events.c.type)
         ).all()
-        per_day_ev: dict[str, dict] = {d: {"day": d, "views": 0, "sessions": 0, "clicks": 0, "saves": 0, "follows": 0, "shares": 0, "dwellSeconds": 0} for d in days}
+        per_day_ev: dict[str, dict] = {d: {"day": d, "views": 0, "sessions": 0, "clicks": 0, "saves": 0, "follows": 0, "shares": 0, "dwellSeconds": 0, "dwellReads": 0} for d in days}
         for day, etype, n, total, sessions in ev:
             d = str(day)[:10]
             if d not in per_day_ev:
@@ -147,6 +147,15 @@ def run() -> dict:
                 row["shares"] += int(n)
             elif etype == "dwell":
                 row["dwellSeconds"] += int(total or 0)
+        # Reading sessions: distinct (session, story) pairs that reported any time on page.
+        for day, n in conn.execute(
+            select(func.date(db.events.c.created_at), func.count(func.distinct(db.events.c.session + "|" + func.cast(db.events.c.story_id, db.String))))
+            .where(db.events.c.created_at >= since, db.events.c.type == "dwell")
+            .group_by(func.date(db.events.c.created_at))
+        ).all():
+            d = str(day)[:10]
+            if d in per_day_ev:
+                per_day_ev[d]["dwellReads"] = int(n or 0)
         has_events = any(r["views"] for r in per_day_ev.values())
         top_engaged = []
         if has_events:
