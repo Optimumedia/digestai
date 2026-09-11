@@ -43,14 +43,14 @@ Public is what makes GitHub Actions free without limits. Secrets are never in th
 3. Settings → Developer → **API Keys (v4)** → Create → `KIT_API_KEY`.
 4. Optional: `NEWSLETTER_HOUR_UTC=5` sends at 07:00 Central European winter time; change if you like.
 
-## 4. Giscus comments (5 min)
+## 4. Giscus comments (2 min)
 
-1. On GitHub: repo → Settings → General → Features → tick **Discussions**.
-2. Discussions tab → Categories (pencil icon) → New category → name **Stories**, format
-   **Announcements** (so only the site creates threads).
-3. https://github.com/apps/giscus → Install → choose the `digestai` repo.
+Discussions are already enabled and the IDs are already set as repository variables. The one
+remaining step is installing the giscus GitHub app, which only the repo owner can do:
 
-That is all; the script fetches the two IDs itself.
+https://github.com/apps/giscus → Install → choose the `digestai` repository.
+
+Comments use the default **Announcements** category, so only the site creates threads.
 
 ## 5. Cloudflare Pages (7 min)
 

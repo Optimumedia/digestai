@@ -45,7 +45,7 @@ $variables = @("PUBLIC_KIT_FORM_URL", "NEWSLETTER_HOUR_UTC",
 
 # Giscus: fill the IDs from GitHub itself when Discussions are enabled.
 if (-not $vals["PUBLIC_GISCUS_REPO"]) { $vals["PUBLIC_GISCUS_REPO"] = $repo }
-if (-not $vals["PUBLIC_GISCUS_CATEGORY"]) { $vals["PUBLIC_GISCUS_CATEGORY"] = "Stories" }
+if (-not $vals["PUBLIC_GISCUS_CATEGORY"]) { $vals["PUBLIC_GISCUS_CATEGORY"] = "Announcements" }
 $owner, $name = $repo.Split("/")
 $query = 'query($o:String!,$n:String!){ repository(owner:$o,name:$n){ id hasDiscussionsEnabled discussionCategories(first:25){ nodes{ id name } } } }'
 $json = & $gh.Source api graphql -f query=$query -f o=$owner -f n=$name 2>$null | ConvertFrom-Json
