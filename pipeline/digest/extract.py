@@ -203,7 +203,9 @@ def scrub(markdown: str) -> tuple[str, list[str]]:
     kept: list[str] = []
     for idx, p in enumerate(paras):
         plain = p.lstrip("#>*- ").strip()
-        if idx > total * 0.4 and CUT_PATTERNS.match(plain):
+        # Recirculation headings ("Related articles", "More for you") are a few words long;
+        # a sentence that merely starts with "Related ..." is content.
+        if idx > total * 0.4 and word_count(plain) <= 6 and CUT_PATTERNS.match(plain):
             notes.append(f"cut at '{plain[:40]}'")
             break
         if DROP_PATTERNS.match(plain) and word_count(plain) < 40:
@@ -221,6 +223,18 @@ def scrub(markdown: str) -> tuple[str, list[str]]:
     while kept and word_count(kept[-1].lstrip("#>*- ")) <= 4:
         kept.pop()
     return "\n\n".join(kept), notes
+
+
+def _truncate_markdown(markdown: str, max_words: int) -> str:
+    """Cut at a paragraph boundary near max_words and say so."""
+    out, total = [], 0
+    for p in markdown.split("\n\n"):
+        n = word_count(p)
+        if total + n > max_words and out:
+            break
+        out.append(p)
+        total += n
+    return "\n\n".join(out) + "\n\n*This document continues at the source.*"
 
 
 def to_text(markdown: str) -> str:
@@ -338,8 +352,12 @@ def extract(url: str, html: str | None, title: str, feed_content: str | None = N
     short_best: tuple[str, str, str, list[str]] | None = None
     for method, raw in candidates:
         cleaned, notes = scrub(raw)
+        if word_count(cleaned) > config.MAX_WORDS:
+            # A long report is still the article: keep its opening rather than reject it.
+            cleaned = _truncate_markdown(cleaned, config.MAX_WORDS)
+            notes.append("truncated")
         text = to_text(cleaned)
-        err = validate(text, title, min_words, config.MAX_WORDS, page_title=result.title)
+        err = validate(text, title, min_words, config.MAX_WORDS + 50, page_title=result.title)
         if err and "mismatch" in err and result.title and not _same_title(result.title, title):
             # The feed title and the page title differ (edited headline): judge by the page's own title.
             err = validate(text, result.title, min_words, config.MAX_WORDS, page_title=result.title)
