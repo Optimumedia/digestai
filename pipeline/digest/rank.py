@@ -137,7 +137,9 @@ def score_stories(conn) -> int:
     for s in stories_rows:
         members = conn.execute(
             select(db.articles.c.predicted_score, db.articles.c.engagement, db.articles.c.published_at,
-                   db.articles.c.discussion_points, db.articles.c.trend_score)
+                   db.articles.c.discussion_points, db.articles.c.trend_score, db.articles.c.content_type,
+                   db.sources.c.source_type)
+            .join(db.sources, db.articles.c.source_id == db.sources.c.id, isouter=True)
             .where(db.articles.c.story_id == s.id, db.articles.c.status == "published")
         ).all()
         if not members:
@@ -145,6 +147,10 @@ def score_stories(conn) -> int:
         predicted = max((m.predicted_score or 0.0) for m in members)
         engagement = sum((m.engagement or 0.0) for m in members)
         latest = max((db.as_utc(m.published_at) or now) for m in members)
+        # Breaking news earns its freshness; a daily digest or a tutorial published this morning
+        # is not "new" in the same sense, so its recency counts for less.
+        breaking = any((m.content_type in (None, "news", "product", "research")) and m.source_type != "newsletter" for m in members)
+        recency_weight = 1.0 if breaking else 0.55
         breadth = min(1.0, math.log1p(len(members)) / math.log(6))
         pop = max(popularity(m.discussion_points, m.trend_score) for m in members)
         age_h = max(1.0, (now - latest).total_seconds() / 3600)
@@ -152,7 +158,7 @@ def score_stories(conn) -> int:
         score = (
             0.30 * predicted
             + 0.20 * (s.importance or 5) / 10.0
-            + 0.22 * _recency(latest, now)
+            + 0.22 * _recency(latest, now) * recency_weight
             + 0.10 * breadth
             + 0.10 * velocity
             + 0.08 * min(1.0, math.log1p(engagement) / 6.0)

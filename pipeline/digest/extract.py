@@ -44,7 +44,15 @@ DROP_PATTERNS = re.compile(
     r")\b.*$",
     re.IGNORECASE,
 )
-INBOX_PROMO = re.compile(r"\b(straight to your inbox|in your inbox|add us as a preferred source|preferred source)\b", re.IGNORECASE)
+INBOX_PROMO = re.compile(
+    r"\b(straight to your inbox|in your inbox|add us as a preferred source|preferred source|"
+    r"curated by|if you would like to submit a response|this is an edition of|"
+    r"sign up (for|to) (the|our) newsletter|subscribe to (the|our) newsletter|"
+    r"do you have information about this story|contact (us|the author)|"
+    r"this story (was|has been) updated|have a tip\??|reach (me|us) (at|on)|"
+    r"listen to (our|the) podcast|watch (our|the) video)\b",
+    re.IGNORECASE,
+)
 # Bare metadata lines such as "Published", "Updated on 3 May", "- Published".
 META_LINE = re.compile(r"^(published|updated|last updated|posted)(\s+(on|at|by|in)\b.*)?$", re.IGNORECASE)
 # A heading after which everything is navigation or recirculation.

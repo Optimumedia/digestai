@@ -1,5 +1,14 @@
 # Going live
 
+## To do (Martin)
+
+- [ ] **Kit** newsletter account, form and v4 API key → `.env` → `scripts\push-config.ps1` (section 3). Turns on the 07:00 daily email; everything else is wired.
+- [ ] **Bluesky** (optional): create an account for Digest AI, Settings → App passwords → create one; put `BLUESKY_HANDLE` and `BLUESKY_APP_PASSWORD` in `.env`. Then ask for the auto-poster to be built. Telegram channel is the alternative: create a bot with @BotFather, put `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHANNEL` in `.env`.
+- [ ] **Google News Publisher Center**: https://publishercenter.google.com → add digestai.news as a publication (uses the Search Console verification already in place).
+- [x] Search Console sitemaps submitted (11 Sep).
+- [x] giscus installed (11 Sep).
+- [x] Supabase connected (11 Sep).
+
 ## The site already runs with no accounts at all
 
 The repository is public at https://github.com/Optimumedia/digestai and the workflow runs every

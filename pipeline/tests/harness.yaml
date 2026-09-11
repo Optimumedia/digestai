@@ -1,6 +1,1205 @@
-# Extraction regression harness. Each case is a live URL with a fragment that must appear
-# in the extracted text, a fragment that must NOT appear (sidebar or recirculation noise),
-# and a word-count range. Run: python tests/run_harness.py
-#
-# Add a case whenever a publisher misbehaves; the pipeline's first runs seed this list.
-cases: []
+# Extraction regression harness, seeded from real published articles on 2026-09-11.
+# Each case: live URL, fragments that must appear (first and a mid-article sentence at seeding time),
+# fragments that must not (recirculation and newsletter noise), and a word range. Run: python tests/run_harness.py
+cases:
+- url: https://theguardian.com/commentisfree/2026/sep/11/the-guardian-view-on-controlling-ai-humanity-cannot-outsource-its-survival
+  title: 'The Guardian view on controlling AI: humanity cannot outsource its survival'
+  must_contain:
+  - If there were a 10% chance that AI
+  - But Sir Nigel also said that a “Hippocratic
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 308
+  max_words: 9000
+- url: https://404media.co/we-did-not-invite-you-citizens-rage-at-town-hall-over-proposed-nuclear-ai-data-center
+  title: ‘We Did Not Invite You.’ Citizens Rage at Town Hall Over Proposed Nuclear AI Data Center
+  must_contain:
+  - Representatives from the University of Michigan faced tough
+  - But LANL also conceded that the data center
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 779
+  max_words: 9000
+- url: https://spectrum.ieee.org/video-friday-disaster-response-robots
+  title: 'Video Friday: Humanoid Robot Takes On Monkey Bars'
+  must_contain:
+  - Video Friday is your weekly selection of awesome
+  - In this work, we show how a multilined
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 298
+  max_words: 9000
+- url: https://bbc.co.uk/news/articles/c3eq7kl5l00o?at_medium=RSS&at_campaign=rss
+  title: UK government rejects 'kill switch' idea for dangerous AI
+  must_contain:
+  - The UK government has rejected the idea of
+  - The idea follows reports of AI models from
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 317
+  max_words: 9000
+- url: https://wired.com/story/one-of-ais-fiercest-critics-says-all-the-doom-talk-is-meant-to-distract-us
+  title: One of AI’s Fiercest Critics Says All the Doom Talk Is ‘Meant to Distract Us’
+  must_contain:
+  - The internet erupted into a debate about whether
+  - We wrote our stochastic parrot paper in 2021
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 530
+  max_words: 9000
+- url: https://the-decoder.com/how-hackers-used-claude-for-missiles-drone-swarms-and-surveillance-while-chinese-labs-mined-it-for-training-data
+  title: How hackers used Claude for missiles, drone swarms, and surveillance, while Chinese labs mined it for training data
+  must_contain:
+  - Hackers had the AI rewrite malware automatically, while
+  - DeepSeek (GTG-16001) used strings to detect when requests
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 755
+  max_words: 9000
+- url: https://news.mit.edu/2026/lifesaving-lincoln-laboratory-technology-wins-tech-transfer-award-0911
+  title: Lifesaving Lincoln Laboratory device wins 2026 Excellence in Technology Transfer Award
+  must_contain:
+  - The Federal Laboratory Consortium (FLC) selected AI-GUIDE, a
+  - The AI-GUIDE project has served as a framework
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 309
+  max_words: 9000
+- url: https://machinelearning.apple.com/research/simpledesign-protein-codesign
+  title: 'SimpleDesign: A Joint Model for Protein Sequence and Structure Codesign'
+  must_contain:
+  - 'SimpleDesign: A Joint Model for Protein Sequence and'
+  - We hypothesize that this multi-stage training is not
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 187
+  max_words: 9000
+- url: https://machinelearning.apple.com/research/video-caption-quality
+  title: 'Putting Captions to the Test: Evaluating Video Caption Quality through Multiple-Choice Question Answering'
+  must_contain:
+  - Existing metrics primarily rely on matching generated text
+  - We further formulate CapF1, a composite metric that
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 181
+  max_words: 9000
+- url: https://machinelearning.apple.com/research/discosign-gloss-translation
+  title: 'DiscoSign: Discourse-Aware Text to Sign Language Gloss Translation'
+  must_contain:
+  - We introduce DiscoSign, a computational approach for discourse-aware
+  - Our work establishes the first systematic framework for
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 181
+  max_words: 9000
+- url: https://cnbc.com/2026/09/11/ai-regulation-anthropic-researcher-extinction-warning.html
+  title: AI regulation calls grow in D.C. after researcher's extinction warning
+  must_contain:
+  - More than 20 members of Congress have called
+  - Ted Lieu, D-Calif., introduced a bill called the
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 383
+  max_words: 9000
+- url: https://cnbc.com/2026/09/11/5-things-to-know-before-the-stock-market-opens.html
+  title: CPI report, Oracle earnings, Trump’s cash promises and more in Morning Squawk
+  must_contain:
+  - President Donald Trump weighed in on the artificial
+  - Overall revenue grew nearly 30% to $19.35 billion,
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 401
+  max_words: 9000
+- url: https://quesma.com/blog/does-rtk-make-ai-coding-cheaper
+  title: RTK reports token savings, but our cost benchmarks disagree
+  must_contain:
+  - RTK (Rust Token Killer) filters and compresses terminal
+  - Those two calls accounted for 69% of the
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 573
+  max_words: 9000
+- url: https://bensbites.com/p/telling-ai-to-design-is-hard
+  title: Telling AI to design is hard
+  must_contain:
+  - Hello again :) I actually built a tool
+  - So obviously there’s editorial, geo tone, brutalist, swiss,
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 1123
+  max_words: 9000
+- url: https://arstechnica.com/ai/2026/09/claude-users-found-ways-around-safeguards-for-bioweapons-research
+  title: Claude users found ways around safeguards for bioweapons research
+  must_contain:
+  - Anthropic said it stopped multiple attempts by scientists
+  - Anthropic said it had banned the accounts mentioned
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 251
+  max_words: 9000
+- url: https://interconnects.ai/p/open-source-ai-reading-list
+  title: Open-Source AI & Open Models Reading List
+  must_contain:
+  - 2026 This is my list of the best
+  - '- Why Chinese labs are so good at'
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 803
+  max_words: 9000
+- url: https://therundown.ai/articles/tesla-cybercab-is-already-getting-weird
+  title: Tesla’s Cybercab is already getting weird
+  must_contain:
+  - Tesla built its slick Cybercab without a steering
+  - XPeng is targeting mass production by the end
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 501
+  max_words: 9000
+- url: https://therundown.ai/articles/anthropic-opens-the-files-on-global-claude-misuse
+  title: Anthropic opens the files on global Claude misuse
+  must_contain:
+  - Good morning, AI enthusiasts, and welcome to our
+  - If I can't find a piece online, I
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 657
+  max_words: 9000
+- url: https://unite.ai/what-is-tokenization-how-ai-turns-text-into-tokens
+  title: What Is Tokenization? How AI Turns Text Into Tokens
+  must_contain:
+  - Tokenization converts raw text or other inputs into
+  - Change one assumption in the Tokenization example and
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 1152
+  max_words: 9000
+- url: https://artificialintelligence-news.com/news/palantir-foundry-cuopt-nvidia-supply-chain-allocation
+  title: Palantir Foundry and cuOpt drive NVIDIA supply chain allocation
+  must_contain:
+  - NVIDIA is using Palantir Foundry and cuOpt to
+  - Formulating distribution as a mixed-integer linear program designed
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 270
+  max_words: 9000
+- url: https://researchagenda.news/articles/the-waymo-effect.html
+  title: 'The Waymo effect: how AI is quietly making research less collaborative'
+  must_contain:
+  - 'The Waymo effect: how AI is quietly making'
+  - They whisper that the literature review can be
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 1279
+  max_words: 9000
+- url: https://unite.ai/scaling-enterprise-agentic-ai-data-governance
+  title: Turning AI Experiments into Enterprise Intelligence & Value
+  must_contain:
+  - Companies can run test pilot programs, execute common
+  - Instead, focus on connecting agents, human oversight, and
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 476
+  max_words: 9000
+- url: https://cnbc.com/2026/09/11/anthropic-openai-ai-existential-concerns.html
+  title: Why fears of AI self-improvement are causing ‘existential’ concerns at Anthropic and OpenAI
+  must_contain:
+  - Fears over the safety of AI systems —
+  - Anthropic finished its RSI blog post by laying
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 431
+  max_words: 9000
+- url: https://towardsdatascience.com/demystifying-anthropics-j-space-a-mathematical-primer
+  title: 'Demystifying Anthropic''s J-Space: A Mathematical Primer'
+  must_contain:
+  - The authors present extensive empirical evidence validating this
+  - Empirically, this excess variance plateaus beyond k =
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 644
+  max_words: 9000
+- url: https://unite.ai/ai-playbook-workplace-investigations-human-oversight
+  title: AI Still Needs a Coach and Human Oversight Needs a Playbook
+  must_contain:
+  - AI is everywhere you look, and professional football
+  - The Handoff Matters as Much as the Model
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 586
+  max_words: 9000
+- url: https://securityweek.com/microsoft-patches-record-974-vulnerabilities-including-two-exploited-zero-days
+  title: Microsoft's monthly patch has 974 security fixes, including 2 exploited privilege-escalation zero-days and 20 potentially wormable vulnerabilities - almost all of them found by AI systems
+  must_contain:
+  - Microsoft on Tuesday rolled out a record number
+  - Multiple security issues were also addressed in SQL
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 260
+  max_words: 9000
+- url: https://chessbench-ai.github.io/
+  title: 'GPT-6 Astra 2,340 Elo on ChessBench - Ranked #11'
+  must_contain:
+  - Leaderboard No models found Try a different model
+  - ACPL and cost are also available in model
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 334
+  max_words: 9000
+- url: https://anthropic.com/institute/econ-scenarios
+  title: What will our economic future look like?
+  must_contain:
+  - We don’t know yet how AI will reshape
+  - '- Adjustment How long does it take people'
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 1351
+  max_words: 9000
+- url: https://prospect.org/2026/09/09/anthropic-artificial-intelligence-surveillance-system-monitor-activists
+  title: Anthropic Is Building a Predictive Surveillance System to Monitor Activists
+  must_contain:
+  - In some cases, that also means reporting suspects
+  - “Samdesk gave us about 60 minutes of advanced
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 573
+  max_words: 9000
+- url: https://developers.openai.com/api/docs/guides/agents-api/overview
+  title: OpenAI Agents API
+  must_contain:
+  - The Agents API gives your application access to
+  - A session from start to finish Start with
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 309
+  max_words: 9000
+- url: https://johndcook.com/blog/2026/09/09/formal-method-revolution
+  title: OpenAI’s Navier-Stokes release included a Lean 4 formal proof
+  must_contain:
+  - Yesterday OpenAI announced a proof that settled a
+  - Then formalizing the 166-page paper from OpenAI would
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 178
+  max_words: 9000
+- url: https://arxiv.org/abs/2609.09153
+  title: 'Procedural Graphs: Self-Evolving Execution Structures for LLM Agents'
+  must_contain:
+  - Most agents select actions through unconstrained generation over
+  - Across multiple datasets, task types, and LLMs, the
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 164
+  max_words: 9000
+- url: https://hugovergnes.github.io/little-lm-3-8b
+  title: Training a 3.8B LLM to 0.384 CORE for $998
+  must_contain:
+  - Somewhere between “nanoGPT toy” and “you need a
+  - RoPE was 2.2× faster in a microbenchmark and
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 1645
+  max_words: 9000
+- url: https://cbsnews.com/news/ai-kill-humans-anthropic-researcher-more-than-ten-percent-chance
+  title: Anthropic researcher says more than 10% chance AI "could kill all humans"
+  must_contain:
+  - London — A lead researcher at Anthropic, one
+  - CBS News has asked the AISI for comment
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 337
+  max_words: 9000
+- url: https://entropicthoughts.com/better-ai-comment-classifier
+  title: Better AI code comment detector
+  must_contain:
+  - When I trained the previous ai comment classifier,
+  - '- A blue arrow means at least two'
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 1842
+  max_words: 9000
+- url: https://jeffs.blog/p/defining-ai-psychosis-part-2-prolific
+  title: 'Defining AI Psychosis. Part 2: "Prolific AI Psychosis"'
+  must_contain:
+  - I’m calling this “prolific AI psychosis.” 3) Maladaptive
+  - You can’t sleep at night because you’re so
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 970
+  max_words: 9000
+- url: https://the-independent.com/arts-entertainment/music/news/muse-band-meta-ai-tool-handle-b3047291.html
+  title: Rock band Muse lose social media handles to Meta’s new AI tool
+  must_contain:
+  - The rock band Muse appear to have handed
+  - “WHAAAAT thats insane that MUSE THE BAND got
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 234
+  max_words: 9000
+- url: https://engadget.com/2254419/muse-the-band-lost-its-social-media-handles-to-muse-meta-s-new-ai-agent
+  title: Muse, the band, lost its social media handles to Muse, Meta's new AI agent
+  must_contain:
+  - Muse, the band, lost its social media handles
+  - The account was instead used by a small
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 327
+  max_words: 9000
+- url: https://blog.genesmindsmachines.com/p/im-sorry-youre-not-going-to-die-from
+  title: I'm sorry, you're not going to die from an AI-engineered supervirus
+  must_contain:
+  - Opinion writer and economist Noah Smith just dropped
+  - Consider the common flu (H3N2 influenza) and avian
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 1130
+  max_words: 9000
+- url: https://slimemoldtimemold.com/2026/08/05/a-stupid-idea-for-ai-alignment-we-came-up-with-by-looking-at-the-list-of-specification-gaming-behaviours
+  title: A Stupid Idea for AI Alignment We Came with by Looking at Specification Gaming
+  must_contain:
+  - Creatures bred for speed grow really tall and
+  - And it’s very hard to tell if you’ve
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 920
+  max_words: 9000
+- url: https://terriblesoftware.org/2026/09/10/ai-is-breaking-this-thing-we-call-trust
+  title: AI Is Breaking This Thing We Call Trust
+  must_contain:
+  - I want you to picture yourself in the
+  - Yes, I merged an AI-written fix without understanding
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 469
+  max_words: 9000
+- url: https://tokenstead.ai/models/swe-2
+  title: Cognition's SWE-2 achieves 92.8 on Terminal-Bench 2.1
+  must_contain:
+  - 2.8T total params, 104B active per token (MoE)
+  - Terminal-Bench 2.1 is the highest number in the
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 204
+  max_words: 9000
+- url: https://anthropic.com/threat-intelligence-report-september-2026
+  title: 'Detecting and countering misuse of AI: September 2026'
+  must_contain:
+  - The actors included suspected state-sponsored groups, financially motivated
+  - We identified and investigated a sustained espionage operation,
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 3806
+  max_words: 9000
+- url: https://system76.com/workstations/thelio-mira-ai
+  title: 'Thelio Mira AI Linux Workstation: 192 GB GPU Memory'
+  must_contain:
+  - International Orders To ensure your order arrives smoothly,
+  - System76 does not cover shipping costs related to
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 220
+  max_words: 9000
+- url: https://lastweekin.ai/p/last-week-in-ai-343-gpt-6-openais
+  title: 'Last Week in AI #343 - GPT-6, OpenAI’s agents chatted on a wiki, Fable 5.1'
+  must_contain:
+  - President Greg Brockman told reporters he believes “we
+  - Clearing out what the agents left takes the
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 618
+  max_words: 9000
+- url: https://magazine.sebastianraschka.com/p/gpt-6-astra-looped-transformers-and
+  title: GPT-6 Astra, Looped Transformers, and Hidden Reasoning
+  must_contain:
+  - I am sure that OpenAI’s GPT-6 Astra is
+  - Another may go through three or four loops,
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 2359
+  max_words: 9000
+- url: https://simonwillison.net/2026/Sep/8/on-navier-stokes
+  title: Some thoughts on the Navier–Stokes Millennium Prize Problem
+  must_contain:
+  - Tristan’s complaint accompanied a hastily published version of
+  - Lean formalization and verification took an additional 17
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 495
+  max_words: 9000
+- url: https://latent.space/p/ainews-collusionwiki-a-second-undisclosed
+  title: '[AINews] Collusion.wiki: A second undisclosed OpenAI agent swarm incident'
+  must_contain:
+  - We checked 12 subreddits, 544 Twitters and no
+  - Others also noted interest in the smaller3.7B and
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 1488
+  max_words: 9000
+- url: https://latent.space/p/grok-bot
+  title: 'OpenClaw Power, MacBook Simplicity: Five Days With Grok Bot'
+  must_contain:
+  - You open the plugin catalog in Grok Bot
+  - I’ve had a Gmail account for 20 years,
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 1136
+  max_words: 9000
+- url: https://latent.space/p/aeo
+  title: 'The Frontier AEO Tracker: What Astra Chooses (and every other frontier model, and what you can do about it)'
+  must_contain:
+  - Naive autoresearch investment in our AEO have yielded
+  - Astra seems to be just generally a lot
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 338
+  max_words: 9000
+- url: https://interconnects.ai/p/latest-open-artifacts-24-motif-3
+  title: 'Latest open artifacts (#24): Motif-3, GLM-5.3, Hy4-preview and open model licenses'
+  must_contain:
+  - Avid Artifacts readers know that we have been
+  - dots3 was also able to win the IMO
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 403
+  max_words: 9000
+- url: https://interconnects.ai/p/when-will-average-people-feel-ais
+  title: When will average people feel AI’s impact?
+  must_contain:
+  - Many AI optimists tend to compare what is
+  - This will take a long, long time to
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 726
+  max_words: 9000
+- url: https://tomshardware.com/tech-industry/artificial-intelligence/anthropic-says-claude-thwarted-bioweapon-research-from-state-sponsored-actors-covert-accounts-used-u-s-proxies-to-attempt-to-engineer-deadlier-viruses-tried-to-evade-identification-and-regional-blocks
+  title: Anthropic says Claude thwarted bioweapon research from state-sponsored actors — covert accounts used U.S. proxies to attempt to engineer deadlier viruses, tried to evade identification and regional
+    blocks
+  must_contain:
+  - These days, AI companies directly or indirectly announcing
+  - The story with the third case bears a
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 409
+  max_words: 9000
+- url: https://therobotreport.com/eric-sivertson-discusses-fpgas-robot-security
+  title: Eric Sivertson discusses FPGAs and robot security
+  must_contain:
+  - Eric Sivertson recently discussed field-programmable gate arrays, or
+  - So you need to do that process, and
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 771
+  max_words: 9000
+- url: https://therobotreport.com/massrobotics-shares-member-survey-results-around-fcc-restrictions
+  title: MassRobotics shares member survey results around FCC restrictions
+  must_contain:
+  - It banned new models of such devices, with
+  - MassRobotics finds an even split among member organizations
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 315
+  max_words: 9000
+- url: https://therobotreport.com/agility-robotics-reports-18m-revenue-ahead-of-humanoid-spac
+  title: Agility Robotics reports $1.8M revenue ahead of humanoid SPAC
+  must_contain:
+  - Agility Robotics said it has deployed its Digit
+  - Those deployments and orders have not yet turned
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 325
+  max_words: 9000
+- url: https://spectrum.ieee.org/video-friday-agility-robotics-digit
+  title: 'Video Friday: Digit Redecorates'
+  must_contain:
+  - Video Friday is your weekly selection of awesome
+  - The robots are made of a liquid-crystal elastomer
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 339
+  max_words: 9000
+- url: https://spectrum.ieee.org/blood-draw-robot-vitestro-aletta
+  title: This Robot Will Draw Your Blood Now
+  must_contain:
+  - A near-infrared light sweeps your inner elbow, hunting
+  - But a more significant obstacle could be skin
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 634
+  max_words: 9000
+- url: https://the-decoder.com/new-deepseek-model-v4-1-flash-cuts-memory-needs-for-ai-agents
+  title: New Deepseek model V4.1-Flash cuts memory needs for AI agents
+  must_contain:
+  - New Deepseek model V4.1-Flash cuts memory needs for
+  - The model was trained from scratch on a
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 407
+  max_words: 9000
+- url: https://the-decoder.com/gpt-6-astra-gives-mathematicians-a-breather-and-openai-says-thats-by-design
+  title: GPT-6 Astra gives mathematicians a breather, and OpenAI says that's by design
+  must_contain:
+  - That says something about where "AGI" actually stands.
+  - That reminded me of a visualization by Cambridge
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 366
+  max_words: 9000
+- url: https://theregister.com/software/2026/09/09/another-microsoft-team-admits-its-struggling-to-handle-flood-of-ai-generated-code/5295185
+  title: Another Microsoft team admits it’s struggling to handle flood of AI-generated code
+  must_contain:
+  - And on Tuesday, the Microsoft Edge team revealed
+  - The Edge team says its increased use of
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 233
+  max_words: 9000
+- url: https://theregister.com/software/2026/09/10/microsoft-goes-after-salesforce-and-erp-users-with-ai-powered-converter/5295428
+  title: Microsoft goes after Salesforce and ERP users with AI-powered converter
+  must_contain:
+  - “Partners can use these insights to assess Salesforce
+  - It’s thought that Microsoft has earned about 25
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 230
+  max_words: 9000
+- url: https://theregister.com/software/2026/09/11/oracle-says-ai-will-save-it-from-the-saaspocalypse-not-bring-it-on/5295736
+  title: Oracle says AI will save it from the SaaSpocalypse, not bring it on
+  must_contain:
+  - Co-CEO Mike Sicilia decided to defend applications in
+  - SaaS is also a solid performer, growing ten
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 346
+  max_words: 9000
+- url: https://bbc.co.uk/news/articles/cwyzrrd0kp7o?at_medium=RSS&at_campaign=rss
+  title: OpenAI chief scientist warns no-one is prepared for consequences of AI
+  must_contain:
+  - OpenAI's chief scientist Jakub Pachocki has called for
+  - He said OpenAI would continue to "build defensive
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 296
+  max_words: 9000
+- url: https://bbc.co.uk/news/articles/cy7zygy3rl2o?at_medium=RSS&at_campaign=rss
+  title: OpenAI says it cracked 90-year-old maths problem in 88 hours
+  must_contain:
+  - OpenAI says it has found a solution to
+  - He included text from emails exchanged with OpenAI
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 364
+  max_words: 9000
+- url: https://theguardian.com/business/2026/sep/08/ai-cure-cancer-arm-holdings-rene-haas
+  title: AI will help find cure for cancer ‘within our lifetimes’, says Arm Holdings chief
+  must_contain:
+  - The boss of one of the UK’s biggest
+  - Haas added that AI would also pave the
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 208
+  max_words: 9000
+- url: https://theguardian.com/film/2026/sep/08/andrew-garfield-sam-altman-artificial-movie-openai
+  title: Andrew Garfield takes on Sam Altman in creepy first teaser for Artificial
+  must_contain:
+  - The first teaser trailer of Luca Guadagnino’s Artificial
+  - The film follows the abrupt firing and reinstatement
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 219
+  max_words: 9000
+- url: https://technologyreview.com/2026/09/04/1140872/architecting-memory-and-storage-in-the-ai-era
+  title: Architecting memory and storage in the AI era
+  must_contain:
+  - In partnership withMicron The era of AI inference
+  - Inference depends heavily on memory bandwidth, caching, storage
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 695
+  max_words: 9000
+- url: https://technologyreview.com/2026/09/08/1142088/danijar-hafner-developing-plan-ahead-agents
+  title: This AI entrepreneur is developing agents that can plan ahead for the unexpected
+  must_contain:
+  - Danijar Hafner’s office in San Francisco’s SoMa district
+  - He learned programming from a neighbor, and in
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 393
+  max_words: 9000
+- url: https://technologyreview.com/2026/09/08/1143747/what-openais-latest-controversy-tells-us-about-the-future-of-math
+  title: What OpenAI’s latest controversy tells us about the future of math
+  must_contain:
+  - OpenAI’s latest mathematical milestone has quickly become mired
+  - MIT Technology Review reached out to Buckmaster for
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 678
+  max_words: 9000
+- url: https://wired.com/story/meta-releases-muse-a-personal-ai-agent-with-privacy-built-into-it
+  title: Muse, Meta’s New Personal AI Agent, Needs You to Trust It
+  must_contain:
+  - Meta says Muse is rolling out today for
+  - A personal AI agent requires a lot of
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 441
+  max_words: 9000
+- url: https://wired.com/story/i-used-ai-to-hack-my-home-network
+  title: I Let an AI Agent Hack All My Gadgets—and I’d Do It Again
+  must_contain:
+  - You’re probably aware that frontier AI models have
+  - Hardly surprising for a bunch of casually vibe-coded
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 737
+  max_words: 9000
+- url: https://arstechnica.com/ai/2026/09/anthropics-2-trillion-ipo-puts-powerful-external-trustees-in-spotlight
+  title: Anthropic’s $2 trillion IPO puts powerful external trustees in spotlight
+  must_contain:
+  - The company’s Long-Term Benefit Trust (LTBT) is a
+  - Anthropic is attempting to establish a template for
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 165
+  max_words: 9000
+- url: https://arstechnica.com/security/2026/09/once-popular-for-attacking-ai-ascii-smuggling-is-embraced-by-spammers
+  title: Once popular for attacking AI, ASCII smuggling is embraced by spammers
+  must_contain:
+  - A clever technique used to hide malicious prompts
+  - By expressing the malicious prompts in these tags,
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 152
+  max_words: 9000
+- url: https://theverge.com/ai-artificial-intelligence/992953/openai-math-millennium-prize-navier-stokes
+  title: OpenAI’s sly mathematical breakthrough sends a chill through academia
+  must_contain:
+  - OpenAI’s announcement Tuesday that it has solved one
+  - Why don’t we try to solve also a
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 735
+  max_words: 9000
+- url: https://theverge.com/ai-artificial-intelligence/991977/suno-releases-its-first-ai-music-model-made-with-record-industry-help
+  title: Suno releases its first AI music model made with record industry help
+  must_contain:
+  - Suno’s new v6 AI music model is its
+  - Tell it you want “monotone vocals” and “no
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 228
+  max_words: 9000
+- url: https://theverge.com/ai-artificial-intelligence/993263/where-does-openai-get-mathematics-training-data
+  title: Mathematicians want proof OpenAI didn’t use their work
+  must_contain:
+  - Another researcher is challenging OpenAI about the data
+  - “De-identification may remove a name; it does not
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 397
+  max_words: 9000
+- url: https://techcrunch.com/2026/09/09/apple-ceo-john-ternus-says-the-best-ai-device-is-still-the-iphone
+  title: Apple CEO John Ternus says the best AI device is still the iPhone
+  must_contain:
+  - The comments come as Ternus takes the reins
+  - Plus, “you’d want it to be super easy
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 163
+  max_words: 9000
+- url: https://techcrunch.com/2026/09/09/apple-has-a-new-way-prove-your-iphone-photos-arent-ai-slop
+  title: Apple has a new way to prove your iPhone photos aren’t AI slop
+  must_contain:
+  - In a world awash in AI slop, Apple
+  - Apple Reference Image is one of several new
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 162
+  max_words: 9000
+- url: https://techcrunch.com/2026/09/09/apple-watchs-new-ai-features-are-normalizing-the-idea-that-technology-is-always-listening
+  title: Apple Watch’s new AI features are normalizing the idea that technology is always listening
+  must_contain:
+  - Apple is trying to get consumers to accept,
+  - Since Apple isn’t saving audio, it’s unclear how
+  must_not_contain:
+  - More for You
+  - Sponsored
+  - Curated by
+  - If you would like to submit a response
+  - This is an edition of
+  - Read next
+  - Related articles
+  min_words: 474
+  max_words: 9000
