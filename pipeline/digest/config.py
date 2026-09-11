@@ -49,8 +49,15 @@ GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 KIT_API_KEY = os.environ.get("KIT_API_KEY", "")
 NEWSLETTER_HOUR_UTC = int(os.environ.get("NEWSLETTER_HOUR_UTC", "5"))
 
-# Free tier: Gemini Flash allows 1,500 requests/day and 15/min. 48 runs/day x 30 = 1,440.
+# Free tier: Gemini Flash allows 1,500 requests/day and 15/min. The daily budget stays under
+# that with room for retries; it is spread over the day's runs and unused allowance rolls
+# forward within the day. Groq's free tier is 14,400/day, so its budget is generous.
 MAX_ENRICH_PER_RUN = int(os.environ.get("MAX_ENRICH_PER_RUN") or "30")
+RUNS_PER_DAY = int(os.environ.get("RUNS_PER_DAY") or "48")
+DAILY_BUDGET = {
+    "gemini": int(os.environ.get("GEMINI_DAILY_BUDGET") or "1200"),
+    "groq": int(os.environ.get("GROQ_DAILY_BUDGET") or "1000"),
+}
 
 # Local model through Ollama (used when no API key is configured, e.g. on the GitHub runner).
 # A 3B model on a 4-core runner takes ~40 s per article, so the per-run cap is lower.

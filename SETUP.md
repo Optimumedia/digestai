@@ -1,23 +1,34 @@
-# Going live: the parts only you can do
+# Going live
 
-Everything below is a one-time setup. Each step ends with a value that goes into the `.env`
-file at the repo root (copy `.env.example` first). When the file is filled in, one script pushes
-all of it to GitHub; you never paste a key anywhere else.
+## The site already runs with no accounts at all
 
-Time needed: about 40 minutes. Cost: nothing.
+The repository is public at https://github.com/Optimumedia/digestai and the workflow runs every
+30 minutes. Without any secret it uses free, sign-up-free substitutes:
 
-## 0. Put the code on GitHub (5 min)
+| Need | Zero-signup mode (now) | Upgrade (when you add the account) |
+|---|---|---|
+| Hosting | GitHub Pages, deployed by the workflow | Cloudflare Pages (unmetered bandwidth) |
+| Database | SQLite kept in the Actions cache, daily backup artifact | Supabase Postgres + reader events |
+| Summaries | Qwen 2.5 3B running on the runner (10 articles per run) | Gemini Flash (30 per run, better prose) |
+| Unpublish | edit `pipeline/digest/moderation.yaml` on GitHub | Supabase Studio |
+| Newsletter | none (the `/today` page and RSS exist) | Kit |
+| Comments | none | giscus app install (one click) |
 
-Open a terminal in this folder:
+## The one step to make digestai.news show the new site (5 min)
 
-```powershell
-git add -A
-git commit -m "Digest AI v2: pipeline, site, tier 1 retention features"
-gh auth login            # browser login, choose HTTPS
-gh repo create digestai --public --source . --push
-```
+Your DNS is already on Cloudflare. In the Cloudflare dashboard → digestai.news → DNS:
 
-Public is what makes GitHub Actions free without limits. Secrets are never in the code.
+1. Delete the current records for `digestai.news` (`@`) and `www` that point at the old site.
+2. Add `CNAME` `@` → `optimumedia.github.io`, proxy status **DNS only** (grey cloud).
+3. Add `CNAME` `www` → `optimumedia.github.io`, **DNS only**.
+
+Within an hour GitHub issues the certificate and https://digestai.news serves the new site.
+(The old site disappears at that moment, so do this when you are ready.)
+
+## Upgrades: each is a sign-up plus one value in `.env`
+
+Copy `.env.example` to `.env` at the repo root, fill in what you have, then run
+`.\scripts\push-config.ps1`. Do them in any order; each one switches on by itself.
 
 ## 1. Supabase (10 min)
 
@@ -69,8 +80,12 @@ gh workflow run "Ingest and publish"
 gh run watch
 ```
 
-After the first run, open Supabase → SQL Editor and run the contents of `supabase/schema.sql`
-once (indexes, event permissions, the editor view). Then run the workflow again.
+After the first run with Supabase, open Supabase → SQL Editor and run the contents of
+`supabase/schema.sql` once (indexes, event permissions, the editor view). The stories gathered
+in zero-signup mode are not migrated; the pipeline refills within a day.
+
+When Cloudflare Pages takes over hosting, change the two DNS records to what Cloudflare Pages
+shows under Custom domains; GitHub Pages then simply stops being used.
 
 ## Checks when it is live
 

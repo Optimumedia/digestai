@@ -57,6 +57,55 @@ class QuotaExhausted(Exception):
     pass
 
 
+# ----------------------------------------------------------------- budget
+
+def _today() -> str:
+    return db.utcnow().date().isoformat()
+
+
+def usage_today(conn, provider: str) -> tuple[int, bool]:
+    row = conn.execute(
+        select(db.llm_usage.c.requests, db.llm_usage.c.exhausted)
+        .where(db.llm_usage.c.day == _today(), db.llm_usage.c.provider == provider)
+    ).first()
+    return (row.requests, row.exhausted) if row else (0, False)
+
+
+def record_usage(eng, provider: str, n: int = 1, exhausted: bool = False) -> None:
+    from sqlalchemy import insert, update
+
+    with eng.begin() as conn:
+        row = conn.execute(
+            select(db.llm_usage.c.id).where(db.llm_usage.c.day == _today(), db.llm_usage.c.provider == provider)
+        ).first()
+        if row:
+            values = {"requests": db.llm_usage.c.requests + n}
+            if exhausted:
+                values["exhausted"] = True
+            conn.execute(update(db.llm_usage).where(db.llm_usage.c.id == row.id).values(**values))
+        else:
+            conn.execute(insert(db.llm_usage).values(day=_today(), provider=provider, requests=n, exhausted=exhausted))
+
+
+def allowance(conn, provider: str) -> int:
+    """Requests this run may spend: the day's remaining budget spread over the runs still to come.
+
+    A run that finds fewer articles leaves its share for later runs, so a busy news afternoon
+    can use what a quiet morning did not, and the daily cap is never crossed.
+    """
+    budget = config.DAILY_BUDGET.get(provider)
+    if budget is None:
+        return config.MAX_ENRICH_PER_RUN
+    used, exhausted = usage_today(conn, provider)
+    if exhausted:
+        return 0
+    remaining = max(0, budget - used)
+    now = db.utcnow()
+    minutes_left = 24 * 60 - (now.hour * 60 + now.minute)
+    runs_left = max(1, -(-minutes_left * config.RUNS_PER_DAY // (24 * 60)))  # ceil
+    return max(0, min(config.MAX_ENRICH_PER_RUN, -(-remaining // runs_left)))
+
+
 def call_gemini(prompt: str) -> dict:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{config.GEMINI_MODEL}:generateContent"
     body = {
@@ -171,17 +220,30 @@ def run() -> dict:
     eng = db.engine()
 
     providers: list[tuple[str, object]] = []
-    if config.GEMINI_API_KEY:
-        providers.append((f"gemini:{config.GEMINI_MODEL}", call_gemini))
-    if config.GROQ_API_KEY:
-        providers.append((f"groq:{config.GROQ_MODEL}", call_groq))
-    local_only = not providers and ollama_available()
+    budgets: dict[str, int] = {}
+    with eng.connect() as conn:
+        if config.GEMINI_API_KEY:
+            budgets["gemini"] = allowance(conn, "gemini")
+            if budgets["gemini"] > 0:
+                providers.append((f"gemini:{config.GEMINI_MODEL}", call_gemini))
+        if config.GROQ_API_KEY:
+            budgets["groq"] = allowance(conn, "groq")
+            if budgets["groq"] > 0:
+                providers.append((f"groq:{config.GROQ_MODEL}", call_groq))
+    keyed = bool(config.GEMINI_API_KEY or config.GROQ_API_KEY)
+    local_only = not providers and not keyed and ollama_available()
     if local_only:
         providers.append((f"ollama:{config.OLLAMA_MODEL}", call_ollama))
+    stats["budget"] = budgets
+    if keyed and not providers:
+        # Daily budget spent: leave the articles gated for tomorrow rather than degrade them.
+        log.info("LLM daily budget exhausted; deferring enrichment to the next run")
+        return stats
     if not providers:
         log.warning("no LLM key configured and no local model; using heuristic enrichment")
-    limit = config.MAX_ENRICH_LOCAL_PER_RUN if local_only else config.MAX_ENRICH_PER_RUN
+    limit = config.MAX_ENRICH_LOCAL_PER_RUN if local_only else max(budgets.values(), default=config.MAX_ENRICH_PER_RUN)
     input_words = config.LOCAL_INPUT_WORDS if local_only else config.LLM_INPUT_WORDS
+    spent: dict[str, int] = {}
 
     with eng.connect() as conn:
         rows = conn.execute(
@@ -204,20 +266,30 @@ def run() -> dict:
         )
         result, model_used = None, "heuristic"
         for name, fn in list(providers):
+            provider = name.split(":")[0]
+            if provider in budgets and spent.get(provider, 0) >= budgets[provider]:
+                continue  # this provider's share for the run is spent; try the next one
             try:
                 result = fn(prompt)
                 model_used = name
+                spent[provider] = spent.get(provider, 0) + 1
+                if provider in budgets:
+                    record_usage(eng, provider, 1)
                 break
             except QuotaExhausted as exc:
                 log.warning("%s quota exhausted (%s); switching provider", name, exc)
+                if provider in budgets:
+                    record_usage(eng, provider, 0, exhausted=True)
                 providers = [p for p in providers if p[0] != name]
             except Exception as exc:  # noqa: BLE001
                 stats["errors"] += 1
                 log.warning("%s failed on #%s: %s", name, row.id, exc)
         if result is None:
-            if providers:
+            if providers and any(spent.get(p[0].split(":")[0], 0) < budgets.get(p[0].split(":")[0], 10**9) for p in providers):
                 # A transient error: leave the row for the next run rather than degrade it.
                 continue
+            if keyed:
+                break  # budget for this run is spent; the rest waits for the next run
             result = heuristic(row, row.category_hint)
         stats["model"] = model_used
         clean = _clean(result, row, row.category_hint)

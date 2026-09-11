@@ -142,6 +142,16 @@ events = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
 
+llm_usage = Table(
+    "llm_usage",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("day", String(10), nullable=False),  # UTC date
+    Column("provider", String(20), nullable=False),  # gemini | groq | ollama
+    Column("requests", Integer, nullable=False, default=0),
+    Column("exhausted", Boolean, nullable=False, default=False),
+)
+
 runs = Table(
     "runs",
     metadata,
