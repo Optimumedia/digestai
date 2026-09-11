@@ -38,6 +38,7 @@ jobs:
       GSC_SERVICE_ACCOUNT_JSON: ${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
       VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
       PUBLIC_VAPID_KEY: ${{ vars.PUBLIC_VAPID_KEY }}
+      AUDIO_VOICE: ${{ vars.AUDIO_VOICE || 'en_US-lessac-medium' }}
       OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'qwen2.5:3b' }}
       GEMINI_DAILY_BUDGET: ${{ vars.GEMINI_DAILY_BUDGET || '54' }}
       MAX_ENRICH_PER_RUN: ${{ vars.MAX_ENRICH_PER_RUN || '20' }}
@@ -63,6 +64,24 @@ jobs:
           path: site/public/og
           key: og-images-${{ github.run_id }}
           restore-keys: og-images-
+
+      - name: Cache spoken briefings
+        uses: actions/cache@v4
+        with:
+          path: site/public/audio
+          key: audio-${{ github.run_id }}
+          restore-keys: audio-
+
+      - name: Cache voice model
+        id: voice
+        uses: actions/cache@v4
+        with:
+          path: pipeline/data/voices
+          key: piper-voice-${{ vars.AUDIO_VOICE || 'en_US-lessac-medium' }}
+
+      - name: Download voice model
+        if: steps.voice.outputs.cache-hit != 'true'
+        run: python -m piper.download_voices "${AUDIO_VOICE:-en_US-lessac-medium}" --download-dir pipeline/data/voices
 
       # Without a Supabase DATABASE_URL the SQLite database persists between runs through the
       # Actions cache, with a daily artifact as backup. The cache is restored from the most

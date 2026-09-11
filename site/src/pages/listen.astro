@@ -1,0 +1,67 @@
+---
+import Base from "../layouts/Base.astro";
+import Rail from "../components/Rail.astro";
+import Breadcrumbs from "../components/Breadcrumbs.astro";
+import { episodes, meta, formatDate } from "../lib/data";
+
+const latest = episodes[0];
+const mins = (s: number) => `${Math.max(1, Math.round(s / 60))} min`;
+const feed = `${meta.siteUrl}/podcast.xml`;
+const description = latest
+  ? `The Digest AI briefing as a ${mins(latest.seconds)} podcast every morning: ${latest.description.slice(0, 160)}`
+  : "The Digest AI briefing as a short podcast every morning: the five AI stories that matter, read aloud, with sources on the site.";
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "PodcastSeries",
+  name: "Digest AI briefing",
+  url: `${meta.siteUrl}/listen`,
+  webFeed: feed,
+  image: `${meta.siteUrl}/podcast-cover.png`,
+  description: "The five AI stories that matter today, read in about five minutes every morning.",
+  publisher: { "@type": "Organization", name: "Digest AI", url: meta.siteUrl },
+};
+---
+
+<Base title="Listen: the daily AI briefing" description={description} jsonLd={jsonLd}>
+  <div class="grid">
+    <div>
+      <Breadcrumbs items={[{ name: "Listen" }]} />
+      <header class="page-head">
+        <div class="eyebrow">Podcast</div>
+        <h1>The briefing, read aloud</h1>
+        <p>The same five stories as the morning briefing, in about five minutes, every day. Play it here or add the feed to your podcast app.</p>
+      </header>
+
+      <section class="podbox">
+        <div class="eyebrow">Subscribe in a podcast app</div>
+        <p>Paste this feed address into Apple Podcasts, Pocket Casts, Overcast, AntennaPod or any other app ("Add show by URL"):</p>
+        <p><code class="feedurl">{feed}</code></p>
+        <div class="taglist">
+          <a href={`podcast://${feed.replace(/^https?:\/\//, "")}`}>Apple Podcasts</a>
+          <a href={`pktc://subscribe/${feed.replace(/^https?:\/\//, "")}`}>Pocket Casts</a>
+          <a href={`overcast://x-callback-url/add?url=${encodeURIComponent(feed)}`}>Overcast</a>
+          <a href={feed}>Raw feed</a>
+        </div>
+      </section>
+
+      {episodes.length === 0 ? (
+        <p class="muted" style="padding: 24px 0">The first episode is produced with tomorrow morning's briefing. Meanwhile, <a href="/today">read today's</a>.</p>
+      ) : (
+        <ol class="episodes">
+          {episodes.map((e) => (
+            <li id={e.date}>
+              <div class="eyebrow">{formatDate(e.date + "T00:00:00Z", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} · {mins(e.seconds)}</div>
+              <h2>{e.title.replace(/^AI briefing, [^:]+: /, "")}</h2>
+              <audio controls preload="none" src={`/audio/${e.file}`} data-episode={e.date}></audio>
+              <ul class="coverage">
+                {e.stories.map((s) => <li><a class="t" href={`/story/${s.slug}`}>{s.headline}</a></li>)}
+              </ul>
+              <details><summary class="muted">Transcript</summary>{e.transcript.split("\n\n").map((p) => <p>{p}</p>)}</details>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+    <Rail />
+  </div>
+</Base>

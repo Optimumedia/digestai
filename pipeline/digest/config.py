@@ -56,6 +56,10 @@ KIT_API_KEY = os.environ.get("KIT_API_KEY", "")
 VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
 PUBLIC_VAPID_KEY = os.environ.get("PUBLIC_VAPID_KEY", "")
 PUSH_MAX_PER_DAY = int(os.environ.get("PUSH_MAX_PER_DAY") or 3)
+
+# Spoken briefing (Piper voice on the runner, MP3 via LAME). Generated once a day at/after this hour.
+AUDIO_VOICE = os.environ.get("AUDIO_VOICE") or "en_US-lessac-medium"
+AUDIO_HOUR_UTC = int(os.environ.get("AUDIO_HOUR_UTC") or os.environ.get("NEWSLETTER_HOUR_UTC") or 5)
 NEWSLETTER_HOUR_UTC = int(os.environ.get("NEWSLETTER_HOUR_UTC", "5"))
 
 # Free tiers, measured 2026-09-11: Gemini 3.x Flash models allow only 20 requests per day per

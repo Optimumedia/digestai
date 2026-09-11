@@ -2,6 +2,7 @@
 
 ## To do (Martin)
 
+- [ ] **Podcast directories** (free, 10 min each): submit `https://digestai.news/podcast.xml` at podcastsconnect.apple.com and podcasters.spotify.com (both need an Apple ID / Spotify login); Pocket Casts and Overcast pick it up from Apple. The feed, artwork and daily episodes are already live.
 - [ ] **Kit** newsletter account, form and v4 API key → `.env` → `scripts\push-config.ps1` (section 3). Turns on the 07:00 daily email; everything else is wired.
 - [ ] **Bluesky** (optional): create an account for Digest AI, Settings → App passwords → create one; put `BLUESKY_HANDLE` and `BLUESKY_APP_PASSWORD` in `.env`. Then ask for the auto-poster to be built. Telegram channel is the alternative: create a bot with @BotFather, put `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHANNEL` in `.env`.
 - [ ] **Google News Publisher Center**: https://publishercenter.google.com → add digestai.news as a publication (uses the Search Console verification already in place).

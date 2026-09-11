@@ -2,8 +2,9 @@
 import Base from "../layouts/Base.astro";
 import Coverage from "../components/Coverage.astro";
 import Rail from "../components/Rail.astro";
-import { briefing, briefingStories, briefingAlso, newsletters, renderMarkdown, categories, formatDate, sourceNames, meta } from "../lib/data";
+import { briefing, briefingStories, briefingAlso, newsletters, renderMarkdown, categories, formatDate, sourceNames, meta, episodes } from "../lib/data";
 
+const episode = episodes.find((e) => e.date === briefing.date) || episodes[0];
 const pretty = formatDate(briefing.date + "T00:00:00Z", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 const description = `${briefing.stats.stories} AI stories from ${briefing.stats.articles} articles in a ${briefing.stats.minutes} minute read: ${briefingStories.map((s) => s.headline).slice(0, 3).join("; ")}`;
 const archive = Object.entries(newsletters).filter(([, n]) => n.publicUrl).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 7);
@@ -18,6 +19,14 @@ const kitForm = import.meta.env.PUBLIC_KIT_FORM_URL || "";
         <h1>The AI stories that matter today</h1>
         <p>{briefing.stats.stories} stories from {briefing.stats.articles} articles, the five below in about {briefing.stats.minutes} minutes. Same as the email, on the web.</p>
       </header>
+
+      {episode && (
+        <section class="player">
+          <div class="eyebrow">Listen · {Math.max(1, Math.round(episode.seconds / 60))} min{episode.date !== briefing.date ? ` · ${formatDate(episode.date + "T00:00:00Z", { day: "numeric", month: "short" })} edition` : ""}</div>
+          <audio controls preload="none" src={`/audio/${episode.file}`} data-episode={episode.date}></audio>
+          <a class="eyebrow more" href="/listen">All episodes and the podcast feed →</a>
+        </section>
+      )}
 
       <ol class="today-list">
         {briefingStories.map((s) => {

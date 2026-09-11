@@ -37,7 +37,7 @@ drop policy if exists "public can log events" on events;
 create policy "public can log events" on events
   for insert to anon
   with check (
-    type in ('view', 'click_source', 'dwell', 'share', 'newsletter_click', 'save', 'follow', 'comment', 'push_on')
+    type in ('view', 'click_source', 'dwell', 'share', 'newsletter_click', 'save', 'follow', 'comment', 'push_on', 'listen')
     and value >= 0 and value <= 3600
   );
 

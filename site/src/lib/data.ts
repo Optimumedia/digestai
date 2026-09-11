@@ -173,6 +173,19 @@ export const categories: Record<string, string> = meta.categories || DEFAULT_CAT
 export const stories: Story[] = readJson<Story[]>("stories.json", []).filter((s) => s.articles?.length);
 export const entities: Entity[] = readJson<Entity[]>("entities.json", []);
 export const sources: { key: string; name: string; url: string; kind: string; type: string }[] = readJson("sources.json", []);
+export interface Episode {
+  date: string;
+  title: string;
+  file: string;
+  url: string;
+  bytes: number;
+  seconds: number;
+  publishedAt: string;
+  description: string;
+  stories: { slug: string; headline: string }[];
+  transcript: string;
+}
+export const episodes: Episode[] = readJson<Episode[]>("episodes.json", []);
 export const briefing: Briefing = readJson<Briefing>("briefing.json", {
   date: new Date().toISOString().slice(0, 10),
   generatedAt: meta.generatedAt,

@@ -3,7 +3,7 @@ import Base from "../layouts/Base.astro";
 import StoryRow from "../components/StoryRow.astro";
 import Coverage from "../components/Coverage.astro";
 import Rail from "../components/Rail.astro";
-import { briefing, briefingStories, storiesByDay, plain, firstSentence, categories, meta, formatDate } from "../lib/data";
+import { briefing, briefingStories, storiesByDay, plain, firstSentence, categories, meta, formatDate, episodes } from "../lib/data";
 
 const lead = briefingStories[0];
 const rest = briefingStories.slice(1);
@@ -28,6 +28,7 @@ const jsonLd = {
             <h2 id="briefing-h">Today's briefing</h2>
             <span class="eyebrow">{briefing.stats.stories} stories · {briefing.stats.articles} articles · {briefing.stats.minutes} min read</span>
             <span class="eyebrow new-count" id="new-count" hidden></span>
+            {episodes[0] && <a class="eyebrow more" href="/listen">Listen ({Math.max(1, Math.round(episodes[0].seconds / 60))} min)</a>}
             <a class="eyebrow more" href="/today">Read the briefing →</a>
           </div>
           <article class="hero" data-published={lead.updatedAt}>

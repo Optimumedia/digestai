@@ -10,3 +10,4 @@ site/src/data/*.json
 site/public/og/
 .fastembed_cache/
 site/.astro/
+site/public/audio/

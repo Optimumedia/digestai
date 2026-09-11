@@ -221,6 +221,9 @@
     send("share", 1);
   }));
 
+  /* ---------- audio ---------- */
+  document.querySelectorAll("audio[data-episode]").forEach((a) => a.addEventListener("play", () => send("listen", 1), { once: true }));
+
   /* ---------- offline + push alerts ---------- */
   // The service worker keeps recently read pages available offline and shows push alerts.
   if ("serviceWorker" in navigator && (location.protocol === "https:" || /^(localhost|127.0.0.1)$/.test(location.hostname))) {
