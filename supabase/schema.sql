@@ -37,7 +37,7 @@ drop policy if exists "public can log events" on events;
 create policy "public can log events" on events
   for insert to anon
   with check (
-    type in ('view', 'click_source', 'dwell', 'share', 'newsletter_click', 'save', 'follow', 'comment')
+    type in ('view', 'click_source', 'dwell', 'share', 'newsletter_click', 'save', 'follow', 'comment', 'push_on')
     and value >= 0 and value <= 3600
   );
 
@@ -80,3 +80,31 @@ create or replace view live_stories as
 -- To unpublish a story:   update stories set status = 'unpublished' where id = 123;
 -- To pin to the front page: update stories set pinned = true where id = 123;
 -- To drop one article:     update articles set status = 'unpublished' where id = 456;
+
+-- 3. Browser push alerts: the site inserts a subscription (endpoint + keys) through the same
+--    anonymous path as events. Nothing is readable back; the pipeline prunes dead endpoints.
+create table if not exists push_subscriptions (
+  id serial primary key,
+  endpoint text not null unique,
+  p256dh varchar(200) not null,
+  auth varchar(100) not null,
+  topics text,
+  failures integer not null default 0,
+  created_at timestamptz not null default now(),
+  last_ok_at timestamptz
+);
+alter table push_subscriptions alter column failures set default 0;
+alter table push_subscriptions alter column created_at set default now();
+alter table push_subscriptions enable row level security;
+revoke all on push_subscriptions from anon, authenticated;
+grant insert on push_subscriptions to anon;
+grant usage, select on sequence push_subscriptions_id_seq to anon;
+drop policy if exists "public can subscribe to alerts" on push_subscriptions;
+create policy "public can subscribe to alerts" on push_subscriptions
+  for insert to anon
+  with check (
+    endpoint like 'https://%' and length(endpoint) <= 1000
+    and length(p256dh) between 60 and 200 and length(auth) between 10 and 100
+    and (topics is null or length(topics) <= 2000)
+    and coalesce(failures, 0) = 0
+  );

@@ -51,6 +51,11 @@ GROQ_FALLBACK_MODELS = [m.strip() for m in (os.environ.get("GROQ_FALLBACK_MODELS
 # Kit (formerly ConvertKit) daily broadcast. 05:00 UTC is 07:00 in Central Europe in winter,
 # 08:00 in summer; change NEWSLETTER_HOUR_UTC to taste.
 KIT_API_KEY = os.environ.get("KIT_API_KEY", "")
+
+# Browser push alerts (Web Push). Keys from scripts/gen_vapid.py; the public one is embedded in the site.
+VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
+PUBLIC_VAPID_KEY = os.environ.get("PUBLIC_VAPID_KEY", "")
+PUSH_MAX_PER_DAY = int(os.environ.get("PUSH_MAX_PER_DAY") or 3)
 NEWSLETTER_HOUR_UTC = int(os.environ.get("NEWSLETTER_HOUR_UTC", "5"))
 
 # Free tiers, measured 2026-09-11: Gemini 3.x Flash models allow only 20 requests per day per

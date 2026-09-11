@@ -1,0 +1,11 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base title="Offline" description="You are offline. Stories you opened recently are still readable." noindex={true}>
+  <div class="article" style="padding: 40px 0; max-width: 60ch">
+    <div class="eyebrow">Offline</div>
+    <h1>No connection right now</h1>
+    <p>This page is not saved on your device. Stories and sections you opened recently are still readable: go <a href="javascript:history.back()">back</a> or try the <a href="/">front page</a>, and the site will refresh itself as soon as you are online again.</p>
+  </div>
+</Base>

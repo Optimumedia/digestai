@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    func,
     JSON,
     BigInteger,
     Boolean,
@@ -68,6 +69,7 @@ stories = Table(
     Column("thread_id", Integer),
     Column("pulse", Text),  # what practitioners are saying, from the HN thread
     Column("pulse_at", DateTime(timezone=True)),
+    Column("pushed_at", DateTime(timezone=True)),  # browser push alert sent
     Column("first_published_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
@@ -188,6 +190,19 @@ llm_usage = Table(
     Column("exhausted", Boolean, nullable=False, default=False),
 )
 
+push_subscriptions = Table(
+    "push_subscriptions",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("endpoint", Text, nullable=False, unique=True),
+    Column("p256dh", String(200), nullable=False),
+    Column("auth", String(100), nullable=False),
+    Column("topics", Text),  # reserved: JSON list of followed topics for targeted alerts
+    Column("failures", Integer, nullable=False, default=0, server_default=text("0")),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("last_ok_at", DateTime(timezone=True)),
+)
+
 runs = Table(
     "runs",
     metadata,
@@ -246,6 +261,8 @@ def _harden_postgres(eng: Engine) -> None:
                 conn.execute(text(f'REVOKE ALL ON "{table.name}" FROM anon, authenticated'))
             conn.execute(text('GRANT INSERT ON events TO anon'))
             conn.execute(text('GRANT USAGE, SELECT ON SEQUENCE events_id_seq TO anon'))
+            conn.execute(text('GRANT INSERT ON push_subscriptions TO anon'))
+            conn.execute(text('GRANT USAGE, SELECT ON SEQUENCE push_subscriptions_id_seq TO anon'))
     except Exception as exc:  # noqa: BLE001 - roles may not exist outside Supabase
         import logging
 

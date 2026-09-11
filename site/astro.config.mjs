@@ -18,7 +18,7 @@ export default defineConfig({
   build: { format: "file" },
   integrations: [
     sitemap({
-      filter: (page) => !/\/(search|admin|saved|river|subscribe)$/.test(page.replace(/\/$/, "")),
+      filter: (page) => !/\/(search|admin|saved|river|subscribe|offline)$/.test(page.replace(/\/$/, "")),
       serialize(item) {
         const p = new URL(item.url).pathname.replace(/\/$/, "");
         const mod = lastmod.get(p);

@@ -23,6 +23,9 @@ supabase/   SQL to run once in the Supabase project (indexes, row security, edit
 | discuss | finds the Hacker News thread for articles that arrived via feeds (Algolia API) |
 | rank    | learns from reader events which articles perform, predicts for new ones, scores stories, adjusts source weights, spins up discovery feeds for hot topics |
 | export  | writes `site/src/data/*.json` for the site build, including the daily briefing selection |
+| push    | sends one breaking story per run (three a day at most) to browsers that turned on alerts, via Web Push with our own VAPID keys; prunes dead subscriptions |
+| topics  | writes model-authored introductions for topic hubs (companies, models, people) |
+| intros  | writes introductions for weekly recaps and the model and funding trackers |
 | images  | renders a 1200×630 share card per story into `site/public/og/` |
 | newsletter | builds the daily briefing email and sends it through Kit once a day at `NEWSLETTER_HOUR_UTC` |
 

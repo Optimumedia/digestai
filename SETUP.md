@@ -82,6 +82,16 @@ Comments use the default **Announcements** category, so only the site creates th
 3. My Profile → API Tokens → Create Token → template **Edit Cloudflare Workers** (it covers Pages) →
    `CLOUDFLARE_API_TOKEN`. Account ID is on the Workers & Pages overview page → `CLOUDFLARE_ACCOUNT_ID`.
 
+## Browser push alerts (done, no account needed)
+
+Readers can turn on breaking-news alerts on `/subscribe` (and a small bar offers them after the
+third story read). The keys that sign the alerts are ours: `scripts/gen_vapid.py` wrote them to
+`.env` and `scripts\push-config.ps1` pushed them (`VAPID_PRIVATE_KEY` secret, `PUBLIC_VAPID_KEY`
+variable). Subscriptions live in Supabase `push_subscriptions` (insert-only for the public);
+the pipeline step `push` sends at most one story per run and `PUSH_MAX_PER_DAY` (3) a day, only
+for fresh stories covered by two or more outlets or of very high importance, and prunes dead
+endpoints. If the keys are ever regenerated, readers simply re-enable alerts.
+
 ## Search Console data in the dashboard (10 min)
 
 Gives the admin "Search" tab clicks, impressions, position, indexed pages and top queries.

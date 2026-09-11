@@ -221,5 +221,85 @@
     send("share", 1);
   }));
 
+  /* ---------- offline + push alerts ---------- */
+  // The service worker keeps recently read pages available offline and shows push alerts.
+  if ("serviceWorker" in navigator && (location.protocol === "https:" || /^(localhost|127.0.0.1)$/.test(location.hostname))) {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  }
+  const pushOk = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && cfg.vapidKey && cfg.supabaseUrl && cfg.supabaseKey;
+  function b64ToBytes(b64) {
+    const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+    const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+    return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+  }
+  async function pushState() {
+    if (!pushOk) return "unsupported";
+    if (Notification.permission === "denied") return "denied";
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    return sub ? "on" : "off";
+  }
+  async function pushOn() {
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") return "denied";
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(cfg.vapidKey) });
+    const j = sub.toJSON();
+    const body = JSON.stringify({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, topics: JSON.stringify((store.get("follows", []) || []).map((f) => f.slug).slice(0, 50)) });
+    const res = await fetch(`${cfg.supabaseUrl}/rest/v1/push_subscriptions`, { method: "POST", headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey, Authorization: `Bearer ${cfg.supabaseKey}`, Prefer: "return=minimal" }, body });
+    if (!res.ok && res.status !== 409) { await sub.unsubscribe().catch(() => {}); return "error"; }
+    store.set("push", true);
+    send("push_on", 1);
+    return "on";
+  }
+  async function pushOff() {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) await sub.unsubscribe().catch(() => {});
+    store.set("push", false);
+    return "off";
+  }
+  const LABELS = { on: "Alerts on", off: "Turn on alerts", denied: "Alerts blocked in browser settings", error: "Could not turn on alerts, try again", unsupported: "" };
+  async function paintPush(state) {
+    document.querySelectorAll("[data-push-box]").forEach((el) => { el.hidden = state === "unsupported"; });
+    document.querySelectorAll("[data-push]").forEach((b) => {
+      b.textContent = LABELS[state] || LABELS.off;
+      b.setAttribute("aria-pressed", state === "on" ? "true" : "false");
+      b.disabled = state === "denied";
+    });
+    document.querySelectorAll("[data-push-status]").forEach((el) => {
+      el.textContent = state === "on" ? "This browser will get breaking-news alerts, at most three a day." : state === "denied" ? "Notifications are blocked for this site; allow them in the browser's site settings to turn alerts on." : "";
+    });
+  }
+  if (document.querySelector("[data-push]")) {
+    pushState().then(paintPush);
+    document.querySelectorAll("[data-push]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true;
+      const state = await pushState();
+      const next = state === "on" ? await pushOff() : await pushOn().catch(() => "error");
+      await paintPush(next);
+      b.disabled = next === "denied";
+    }));
+  }
+  // Soft ask: after the third story read, offer alerts once in a small bar (dismiss = 30 days).
+  if (storyId && pushOk && Notification.permission === "default" && !store.get("push", false)) {
+    const reads = (store.get("reads", 0) || 0) + 1;
+    store.set("reads", reads);
+    const snoozed = store.get("pushSnooze", 0) || 0;
+    if (reads >= 3 && Date.now() > snoozed && !document.querySelector("[data-push]")) {
+      const bar = document.createElement("aside");
+      bar.className = "pushbar";
+      bar.innerHTML = `<span>Get an alert when AI news breaks, at most three a day.</span><button class="follow" data-push aria-pressed="false">Turn on alerts</button><button class="icon-btn" data-push-close aria-label="Not now">×</button>`;
+      document.querySelector("main")?.prepend(bar);
+      bar.querySelector("[data-push-close]").addEventListener("click", () => { store.set("pushSnooze", Date.now() + 30 * 864e5); bar.remove(); });
+      bar.querySelector("[data-push]").addEventListener("click", async (e) => {
+        e.target.disabled = true;
+        const next = await pushOn().catch(() => "error");
+        if (next === "on") { bar.innerHTML = "<span>Alerts on. Manage them any time on the <a href='/subscribe'>subscribe page</a>.</span>"; setTimeout(() => bar.remove(), 6000); }
+        else { e.target.disabled = false; e.target.textContent = LABELS[next] || LABELS.off; }
+      });
+    }
+  }
+
   function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 })();

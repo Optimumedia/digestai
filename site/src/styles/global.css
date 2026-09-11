@@ -391,3 +391,9 @@ table.sortable th:hover { color: var(--ink); }
 .faq details { border-top: 1px solid var(--line); padding: 10px 0; }
 .faq summary { font-weight: 600; cursor: pointer; }
 .faq p { margin: 8px 0 0; color: var(--ink-2); font-size: 15px; }
+.pushbox { margin-top: 32px; padding: 16px 18px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 4px; background: var(--surface); max-width: 60ch; }
+.pushbox h2 { font-size: 18px; margin: 4px 0 8px; }
+.pushbox p { margin: 0 0 12px; }
+.pushbox p:empty { display: none; }
+.pushbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; margin: 0 0 16px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); font-size: 14px; }
+.pushbar span { flex: 1 1 200px; }

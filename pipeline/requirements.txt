@@ -13,3 +13,4 @@ langdetect>=1.0.9
 fastembed>=0.4
 pillow>=10.1
 google-auth>=2.30
+pywebpush>=2.0

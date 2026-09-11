@@ -22,6 +22,19 @@ const kitForm = import.meta.env.PUBLIC_KIT_FORM_URL || "";
       ) : (
         <p class="muted">Sign-up opens shortly. Meanwhile, the <a href="/rss.xml">RSS feed</a> carries every story.</p>
       )}
+
+      <section class="pushbox" data-push-box hidden>
+        <div class="eyebrow">Browser alerts</div>
+        <h2>Breaking news, at most three a day</h2>
+        <p>Turn on alerts and this browser gets a notification when a story breaks that most outlets are covering: a major model release, a big deal, a rule that changes the industry. No email, no account; switch it off any time from the same button.</p>
+        <button class="follow" data-push aria-pressed="false">Turn on alerts</button>
+        <p class="muted" data-push-status></p>
+      </section>
+
+      <section style="margin-top: 32px">
+        <div class="eyebrow">Feeds</div>
+        <p>Everything also flows through <a href="/rss.xml">the main RSS feed</a> and one feed per section from the category pages; follow a topic and its stories appear on your <a href="/">front page</a>.</p>
+      </section>
     </div>
     <Rail />
   </div>
