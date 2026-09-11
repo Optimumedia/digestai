@@ -195,6 +195,8 @@ def engine() -> Engine:
         _engine = create_engine(url, future=True, pool_pre_ping=True)
         metadata.create_all(_engine)
         _migrate(_engine)
+        if _engine.dialect.name == "postgresql":
+            _harden_postgres(_engine)
         if _engine.dialect.name == "sqlite":
             with _engine.begin() as conn:
                 conn.execute(text("PRAGMA journal_mode=WAL"))
@@ -217,6 +219,24 @@ def _normalize_url(url: str) -> str:
     if url.startswith("postgresql://"):
         return "postgresql+psycopg://" + url[len("postgresql://"):]
     return url
+
+
+def _harden_postgres(eng: Engine) -> None:
+    """On Supabase every table is reachable through the public REST API with the publishable
+    key unless row security is on and grants are revoked. Do that for every pipeline table on
+    every start, so a table added in a later version is never exposed. Only `events` keeps an
+    insert grant (the site's reader beacon); supabase/schema.sql adds its policy and guard."""
+    try:
+        with eng.begin() as conn:
+            for table in metadata.sorted_tables:
+                conn.execute(text(f'ALTER TABLE "{table.name}" ENABLE ROW LEVEL SECURITY'))
+                conn.execute(text(f'REVOKE ALL ON "{table.name}" FROM anon, authenticated'))
+            conn.execute(text('GRANT INSERT ON events TO anon'))
+            conn.execute(text('GRANT USAGE, SELECT ON SEQUENCE events_id_seq TO anon'))
+    except Exception as exc:  # noqa: BLE001 - roles may not exist outside Supabase
+        import logging
+
+        logging.getLogger("digest.db").warning("could not harden tables: %s", str(exc)[:120])
 
 
 def _migrate(eng: Engine) -> None:

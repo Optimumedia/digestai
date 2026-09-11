@@ -9,16 +9,27 @@ create index if not exists stories_updated_idx on stories (updated_at desc);
 create index if not exists events_created_idx on events (created_at desc);
 create index if not exists events_article_idx on events (article_id);
 
--- 2. Lock everything down for the public (anon) key, then allow ONLY inserts into events.
+-- 2. Lock EVERY table in the public schema down for the public keys (anon, authenticated),
+--    including tables added later, then allow ONLY inserts into events.
 --    The pipeline uses the direct Postgres connection string and is unaffected by RLS.
-alter table sources  enable row level security;
-alter table articles enable row level security;
-alter table stories  enable row level security;
-alter table runs     enable row level security;
-alter table events   enable row level security;
+do $$
+declare t record;
+begin
+  for t in select tablename from pg_tables where schemaname = 'public' loop
+    execute format('alter table public.%I enable row level security', t.tablename);
+    execute format('revoke all on public.%I from anon, authenticated', t.tablename);
+  end loop;
+  for t in select viewname from pg_views where schemaname = 'public' loop
+    execute format('revoke all on public.%I from anon, authenticated', t.viewname);
+  end loop;
+  for t in select sequence_name from information_schema.sequences where sequence_schema = 'public' loop
+    execute format('revoke all on sequence public.%I from anon, authenticated', t.sequence_name);
+  end loop;
+end $$;
+-- Tables the pipeline creates in future get no public grants either.
+alter default privileges for role postgres in schema public revoke all on tables from anon, authenticated;
+alter default privileges for role postgres in schema public revoke all on sequences from anon, authenticated;
 
-revoke all on sources, articles, stories, runs from anon, authenticated;
-revoke all on events from anon, authenticated;
 grant insert on events to anon;
 grant usage, select on sequence events_id_seq to anon;
 
