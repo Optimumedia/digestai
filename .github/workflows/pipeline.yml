@@ -15,11 +15,17 @@ concurrency:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
+  actions: read
 
 jobs:
   pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 28
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -28,6 +34,8 @@ jobs:
       KIT_API_KEY: ${{ secrets.KIT_API_KEY }}
       NEWSLETTER_HOUR_UTC: ${{ vars.NEWSLETTER_HOUR_UTC || '5' }}
       CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'qwen2.5:3b' }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
 
@@ -50,12 +58,71 @@ jobs:
           key: og-images-${{ github.run_id }}
           restore-keys: og-images-
 
+      # Without a Supabase DATABASE_URL the SQLite database persists between runs through the
+      # Actions cache, with a daily artifact as backup. The cache is restored from the most
+      # recent run; if it is missing, the last backup artifact is used.
+      - name: Restore database
+        id: dbcache
+        if: env.DATABASE_URL == ''
+        uses: actions/cache/restore@v4
+        with:
+          path: pipeline/data/digest.db
+          key: digest-db-${{ github.run_id }}
+          restore-keys: digest-db-
+
+      - name: Restore database from backup artifact
+        if: env.DATABASE_URL == '' && steps.dbcache.outputs.cache-matched-key == ''
+        run: |
+          mkdir -p pipeline/data
+          run_id=$(gh run list --workflow "Ingest and publish" --status success --limit 30 --json databaseId -q '.[].databaseId' | while read id; do
+            if gh api "repos/${{ github.repository }}/actions/runs/$id/artifacts" -q '.artifacts[].name' | grep -qx digest-db; then echo "$id"; break; fi; done)
+          if [ -n "$run_id" ]; then gh run download "$run_id" -n digest-db -D pipeline/data && echo "restored backup from run $run_id"; else echo "no backup yet"; fi
+
       - name: Install pipeline
         run: pip install -q -r pipeline/requirements.txt
+
+      # Local model for summaries when no API key is configured (free, runs on this runner).
+      - name: Cache local model
+        if: env.GEMINI_API_KEY == '' && env.GROQ_API_KEY == ''
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-${{ env.OLLAMA_MODEL }}
+
+      - name: Start local model
+        if: env.GEMINI_API_KEY == '' && env.GROQ_API_KEY == ''
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh >/dev/null 2>&1
+          (ollama serve >/tmp/ollama.log 2>&1 &)
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 1; done
+          ollama pull "$OLLAMA_MODEL" 2>&1 | tail -1
+          echo "OLLAMA_URL=http://127.0.0.1:11434" >> "$GITHUB_ENV"
 
       - name: Run pipeline
         working-directory: pipeline
         run: python -m digest.run ${{ github.event.inputs.steps || 'all' }}
+
+      - name: Save database
+        if: env.DATABASE_URL == '' && always()
+        uses: actions/cache/save@v4
+        with:
+          path: pipeline/data/digest.db
+          key: digest-db-${{ github.run_id }}
+
+      - name: Decide on daily backup
+        id: backup
+        if: env.DATABASE_URL == ''
+        run: |
+          if [ "$(date -u +%H)" = "03" ] && [ "$(date -u +%M)" -lt 30 ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then echo "do=yes" >> "$GITHUB_OUTPUT"; else echo "do=no" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Back up database
+        if: env.DATABASE_URL == '' && steps.backup.outputs.do == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-db
+          path: pipeline/data/digest.db
+          retention-days: 30
+          overwrite: true
 
       - uses: actions/setup-node@v4
         with:
@@ -73,10 +140,10 @@ jobs:
           PUBLIC_GISCUS_REPO_ID: ${{ vars.PUBLIC_GISCUS_REPO_ID }}
           PUBLIC_GISCUS_CATEGORY: ${{ vars.PUBLIC_GISCUS_CATEGORY }}
           PUBLIC_GISCUS_CATEGORY_ID: ${{ vars.PUBLIC_GISCUS_CATEGORY_ID }}
-        run: npm ci && npm run build
+        run: npm ci && npm run build && echo "digestai.news" > dist/CNAME
 
-      # Direct upload from the runner: does not count against Cloudflare's 500 builds/month.
-      # Skipped until the Cloudflare secrets exist, so the workflow is safe to enable on day one.
+      # Cloudflare Pages when its token exists (unmetered bandwidth), otherwise GitHub Pages
+      # (free, no secret, 100 GB/month soft limit) so the site is live from day one.
       - name: Deploy to Cloudflare Pages
         if: env.CF_TOKEN != ''
         uses: cloudflare/wrangler-action@v3
@@ -84,3 +151,14 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy site/dist --project-name=digestai --commit-dirty=true
+
+      - name: Upload site for GitHub Pages
+        if: env.CF_TOKEN == ''
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+      - name: Deploy to GitHub Pages
+        if: env.CF_TOKEN == ''
+        id: pages
+        uses: actions/deploy-pages@v4

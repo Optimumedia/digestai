@@ -1,0 +1,12 @@
+# Editorial controls that work without a database console. Edit this file on GitHub
+# (the pencil icon), commit, and the next run applies it.
+#
+# unpublish: story slugs (the part after /story/) that must disappear from the site.
+# pin:       story slugs to keep at the top of the front page and the briefing.
+# block_domains: publishers whose articles are never shown.
+# block_title_words: a story whose headline contains any of these words is rejected.
+
+unpublish: []
+pin: []
+block_domains: []
+block_title_words: []

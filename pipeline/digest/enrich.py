@@ -91,6 +91,32 @@ def call_groq(prompt: str) -> dict:
     return _parse_json(resp.json()["choices"][0]["message"]["content"])
 
 
+def call_ollama(prompt: str) -> dict:
+    resp = requests.post(
+        f"{config.OLLAMA_URL}/api/chat",
+        json={
+            "model": config.OLLAMA_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "format": "json",
+            "stream": False,
+            "options": {"temperature": 0.3, "num_ctx": 4096, "num_predict": 900},
+        },
+        timeout=240,
+    )
+    resp.raise_for_status()
+    return _parse_json(resp.json()["message"]["content"])
+
+
+def ollama_available() -> bool:
+    if not config.OLLAMA_URL:
+        return False
+    try:
+        tags = requests.get(f"{config.OLLAMA_URL}/api/tags", timeout=5).json().get("models", [])
+        return any(m.get("name", "").startswith(config.OLLAMA_MODEL.split(":")[0]) for m in tags)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def heuristic(row, category_hint: str | None) -> dict:
     text = row.content_text or row.description or ""
     sents = first_sentences(text, 6)
@@ -143,6 +169,20 @@ def _clean(result: dict, row, category_hint: str | None) -> dict:
 def run() -> dict:
     stats = {"enriched": 0, "rejected": 0, "errors": 0, "model": None}
     eng = db.engine()
+
+    providers: list[tuple[str, object]] = []
+    if config.GEMINI_API_KEY:
+        providers.append((f"gemini:{config.GEMINI_MODEL}", call_gemini))
+    if config.GROQ_API_KEY:
+        providers.append((f"groq:{config.GROQ_MODEL}", call_groq))
+    local_only = not providers and ollama_available()
+    if local_only:
+        providers.append((f"ollama:{config.OLLAMA_MODEL}", call_ollama))
+    if not providers:
+        log.warning("no LLM key configured and no local model; using heuristic enrichment")
+    limit = config.MAX_ENRICH_LOCAL_PER_RUN if local_only else config.MAX_ENRICH_PER_RUN
+    input_words = config.LOCAL_INPUT_WORDS if local_only else config.LLM_INPUT_WORDS
+
     with eng.connect() as conn:
         rows = conn.execute(
             select(db.articles, db.sources.c.category_hint, db.sources.c.name.label("source_name"), db.sources.c.weight)
@@ -150,16 +190,8 @@ def run() -> dict:
             .where(db.articles.c.status == "gated")
             # Freshest first: a 30-minute news cadence matters more than source prestige.
             .order_by(db.articles.c.published_at.desc(), db.sources.c.weight.desc())
-            .limit(config.MAX_ENRICH_PER_RUN)
+            .limit(limit)
         ).all()
-
-    providers: list[tuple[str, object]] = []
-    if config.GEMINI_API_KEY:
-        providers.append((f"gemini:{config.GEMINI_MODEL}", call_gemini))
-    if config.GROQ_API_KEY:
-        providers.append((f"groq:{config.GROQ_MODEL}", call_groq))
-    if not providers:
-        log.warning("no LLM key configured; using heuristic enrichment")
 
     for row in rows:
         text = row.content_text or row.description or ""
@@ -168,7 +200,7 @@ def run() -> dict:
             title=row.title,
             source=row.source_name,
             published=row.published_at.isoformat() if row.published_at else "unknown",
-            text=_truncate(text, config.LLM_INPUT_WORDS),
+            text=_truncate(text, input_words),
         )
         result, model_used = None, "heuristic"
         for name, fn in list(providers):

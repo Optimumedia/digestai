@@ -50,7 +50,14 @@ KIT_API_KEY = os.environ.get("KIT_API_KEY", "")
 NEWSLETTER_HOUR_UTC = int(os.environ.get("NEWSLETTER_HOUR_UTC", "5"))
 
 # Free tier: Gemini Flash allows 1,500 requests/day and 15/min. 48 runs/day x 30 = 1,440.
-MAX_ENRICH_PER_RUN = int(os.environ.get("MAX_ENRICH_PER_RUN", "30"))
+MAX_ENRICH_PER_RUN = int(os.environ.get("MAX_ENRICH_PER_RUN") or "30")
+
+# Local model through Ollama (used when no API key is configured, e.g. on the GitHub runner).
+# A 3B model on a 4-core runner takes ~40 s per article, so the per-run cap is lower.
+OLLAMA_URL = (os.environ.get("OLLAMA_URL") or "").rstrip("/")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL") or "qwen2.5:3b"
+MAX_ENRICH_LOCAL_PER_RUN = int(os.environ.get("MAX_ENRICH_LOCAL_PER_RUN") or "10")
+LOCAL_INPUT_WORDS = int(os.environ.get("LOCAL_INPUT_WORDS") or "1200")
 MAX_FETCH_PER_SOURCE = int(os.environ.get("MAX_FETCH_PER_SOURCE", "40"))
 MAX_EXTRACT_PER_RUN = int(os.environ.get("MAX_EXTRACT_PER_RUN", "120"))
 FETCH_TIMEOUT = float(os.environ.get("FETCH_TIMEOUT", "10"))

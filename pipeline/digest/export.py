@@ -53,12 +53,47 @@ def build_briefing(stories: list[dict], now) -> dict:
     }
 
 
+def apply_moderation(eng) -> dict:
+    """moderation.yaml is the unpublish button when there is no database console."""
+    from pathlib import Path
+
+    import yaml
+    from sqlalchemy import update
+
+    path = Path(__file__).with_name("moderation.yaml")
+    if not path.exists():
+        return {}
+    rules = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    unpublish = [s.strip() for s in rules.get("unpublish") or [] if s]
+    pin = [s.strip() for s in rules.get("pin") or [] if s]
+    domains = [d.strip().lower() for d in rules.get("block_domains") or [] if d]
+    words = [w.strip().lower() for w in rules.get("block_title_words") or [] if w]
+    stats = {"unpublished": 0, "pinned": 0}
+    with eng.begin() as conn:
+        if unpublish:
+            res = conn.execute(update(db.stories).where(db.stories.c.slug.in_(unpublish), db.stories.c.status == "published")
+                               .values(status="unpublished"))
+            stats["unpublished"] = res.rowcount
+        conn.execute(update(db.stories).where(db.stories.c.pinned.is_(True), ~db.stories.c.slug.in_(pin or ["-"])).values(pinned=False))
+        if pin:
+            res = conn.execute(update(db.stories).where(db.stories.c.slug.in_(pin)).values(pinned=True))
+            stats["pinned"] = res.rowcount
+        if domains:
+            conn.execute(update(db.articles).where(db.articles.c.domain.in_(domains), db.articles.c.status == "published")
+                         .values(status="unpublished", reject_reason="moderation: domain"))
+        for w in words:
+            conn.execute(update(db.stories).where(db.stories.c.headline.ilike(f"%{w}%"), db.stories.c.status == "published")
+                         .values(status="unpublished"))
+    return stats
+
+
 def run() -> dict:
     eng = db.engine()
     out_dir = config.SITE_DATA_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     now = db.utcnow()
     since = now - timedelta(days=config.EXPORT_DAYS)
+    moderation = apply_moderation(eng)
 
     with eng.connect() as conn:
         src_rows = conn.execute(select(db.sources)).all()
@@ -190,7 +225,8 @@ def run() -> dict:
         "storyCount": len(stories_out),
         "articleCount": sum(s["articleCount"] for s in stories_out),
     }), encoding="utf-8")
-    return {"stories": len(stories_out), "entities": len(entities_out), "briefing": len(briefing["storyIds"]), "dir": str(out_dir)}
+    return {"stories": len(stories_out), "entities": len(entities_out), "briefing": len(briefing["storyIds"]),
+            "moderation": moderation, "dir": str(out_dir)}
 
 
 # Domains whose posts are the primary source of a story regardless of which feed found them.
