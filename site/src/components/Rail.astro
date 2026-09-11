@@ -1,0 +1,60 @@
+---
+import { byScore, byRecency, entities, entitySlug, categories, relativeTime } from "../lib/data";
+
+interface Props { exclude?: number }
+const { exclude } = Astro.props;
+const weekAgo = Date.now() - 7 * 864e5;
+const important = byScore
+  .filter((s) => s.id !== exclude && Date.parse(s.updatedAt || "0") > weekAgo)
+  .sort((a, b) => b.importance - a.importance || b.score - a.score)
+  .slice(0, 8);
+const latest = byRecency.filter((s) => s.id !== exclude).slice(0, 6);
+const topics = entities.slice(0, 18);
+---
+
+<aside class="rail">
+  <section>
+    <h2>Biggest this week</h2>
+    <ol>
+      {important.map((s) => (
+        <li>
+          <div>
+            <a href={`/story/${s.slug}`}>{s.headline}</a>
+            <span class="meta mono muted">{categories[s.category || ""] || "AI"} · <time datetime={s.firstPublishedAt || s.updatedAt || undefined}></time></span>
+          </div>
+        </li>
+      ))}
+    </ol>
+  </section>
+  <section>
+    <h2>Just in</h2>
+    <ol>
+      {latest.map((s) => (
+        <li>
+          <div>
+            <a href={`/story/${s.slug}`}>{s.headline}</a>
+            <span class="meta mono muted"><time datetime={s.firstPublishedAt || s.updatedAt || undefined}></time></span>
+          </div>
+        </li>
+      ))}
+    </ol>
+  </section>
+  {topics.length > 0 && (
+    <section>
+      <h2>Topics</h2>
+      <div class="taglist">
+        {topics.map((e) => <a href={`/topic/${entitySlug(e.name)}`}>{e.name} <span class="muted">{e.storyIds.length}</span></a>)}
+      </div>
+    </section>
+  )}
+  <section>
+    <div class="newsletter">
+      <h3>The daily digest</h3>
+      <p>The five stories that matter, in your inbox at 7:00 every morning. No spam, one click to leave.</p>
+      <form action="/subscribe" method="get">
+        <input type="email" name="email" placeholder="you@example.com" required aria-label="Email address" />
+        <button type="submit">Subscribe</button>
+      </form>
+    </div>
+  </section>
+</aside>

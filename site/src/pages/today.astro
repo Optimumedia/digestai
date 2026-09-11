@@ -1,0 +1,75 @@
+---
+import Base from "../layouts/Base.astro";
+import Coverage from "../components/Coverage.astro";
+import Rail from "../components/Rail.astro";
+import { briefing, briefingStories, briefingAlso, newsletters, renderMarkdown, categories, formatDate, sourceNames, meta } from "../lib/data";
+
+const pretty = formatDate(briefing.date + "T00:00:00Z", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+const description = `${briefing.stats.stories} AI stories from ${briefing.stats.articles} articles in a ${briefing.stats.minutes} minute read: ${briefingStories.map((s) => s.headline).slice(0, 3).join("; ")}`;
+const archive = Object.entries(newsletters).filter(([, n]) => n.publicUrl).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 7);
+const kitForm = import.meta.env.PUBLIC_KIT_FORM_URL || "";
+---
+
+<Base title={`Today's briefing, ${pretty}`} description={description} canonical={`${meta.siteUrl}/today`}>
+  <div class="grid">
+    <div>
+      <header class="page-head">
+        <div class="eyebrow">Daily briefing · {pretty}</div>
+        <h1>The AI stories that matter today</h1>
+        <p>{briefing.stats.stories} stories from {briefing.stats.articles} articles, the five below in about {briefing.stats.minutes} minutes. Same as the email, on the web.</p>
+      </header>
+
+      <ol class="today-list">
+        {briefingStories.map((s) => {
+          const { names, more } = sourceNames(s, 5);
+          return (
+            <li data-published={s.updatedAt}>
+              <div class="meta-row">
+                <a class="chip" href={`/category/${s.category}`}>{categories[s.category || ""] || "AI"}</a>
+                <time datetime={s.firstPublishedAt || s.updatedAt || undefined}></time>
+                <span class="new-badge">new</span>
+              </div>
+              <h2><a href={`/story/${s.slug}`}>{s.headline}</a></h2>
+              {s.keyPoints.length > 0 && <ul class="kp">{s.keyPoints.map((k) => <li>{k}</li>)}</ul>}
+              <div class="article" set:html={renderMarkdown(s.summaryMd)} />
+              {s.whyItMatters && <aside class="why"><b>Why it matters</b>{s.whyItMatters}</aside>}
+              <div class="row-foot">
+                <Coverage story={s} compact={true} />
+                <div class="sources-line">{names.map((n) => <b>{n}</b>)}{more > 0 && <span>+{more}</span>}</div>
+              </div>
+              <a class="more-link" href={`/story/${s.slug}`}>Full story, sources and discussion →</a>
+            </li>
+          );
+        })}
+      </ol>
+
+      {briefingAlso.length > 0 && (
+        <section>
+          <div class="dayhead"><h2>Also today</h2></div>
+          <ul class="coverage">
+            {briefingAlso.map((s) => (
+              <li data-published={s.updatedAt}>
+                <a class="t" href={`/story/${s.slug}`}>{s.headline}</a>
+                <span class="mono muted">{categories[s.category || ""] || "AI"} · {s.articleCount} {s.articleCount === 1 ? "source" : "sources"}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <section class="newsletter" style="margin-top: 32px">
+        <h3>Get this briefing by email</h3>
+        <p>Every morning at 07:00. One click to leave.</p>
+        {kitForm ? (
+          <form action={kitForm} method="post"><input type="email" name="email_address" placeholder="you@example.com" required aria-label="Email address" /><button type="submit">Subscribe</button></form>
+        ) : (
+          <p class="muted">Sign-up opens shortly. The <a href="/rss.xml">RSS feed</a> carries every story meanwhile.</p>
+        )}
+        {archive.length > 0 && (
+          <p class="muted" style="margin-top: 10px">Past briefings: {archive.map(([d, n]) => <a href={n.publicUrl!} rel="noopener">{d}</a>).reduce((acc: any[], el, i) => (i ? [...acc, " · ", el] : [el]), [])}</p>
+        )}
+      </section>
+    </div>
+    <Rail />
+  </div>
+</Base>

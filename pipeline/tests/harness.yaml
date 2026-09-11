@@ -1,0 +1,6 @@
+# Extraction regression harness. Each case is a live URL with a fragment that must appear
+# in the extracted text, a fragment that must NOT appear (sidebar or recirculation noise),
+# and a word-count range. Run: python tests/run_harness.py
+#
+# Add a case whenever a publisher misbehaves; the pipeline's first runs seed this list.
+cases: []

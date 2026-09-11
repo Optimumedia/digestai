@@ -1,0 +1,202 @@
+---
+import Base from "../../layouts/Base.astro";
+import Rail from "../../components/Rail.astro";
+import Coverage from "../../components/Coverage.astro";
+import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, readingMinutes, related, entitySlug, meta } from "../../lib/data";
+
+export function getStaticPaths() {
+  return stories.map((story) => ({ params: { slug: story.slug }, props: { story } }));
+}
+
+const { story } = Astro.props;
+const lead = leadArticle(story);
+const full = fullTextArticle(story);
+const shown = full || lead;
+const others = story.articles.filter((a) => a.id !== shown.id);
+const description = plain(story.summaryMd || story.keyPoints.join(" "), 160);
+const site = meta.siteUrl;
+const entityList = Object.entries(story.entities || {}).flatMap(([kind, names]) => names.map((n) => ({ kind, n })));
+const rel = related(story, 5);
+const discussions = story.discussions || [];
+const giscus = {
+  repo: import.meta.env.PUBLIC_GISCUS_REPO || "",
+  repoId: import.meta.env.PUBLIC_GISCUS_REPO_ID || "",
+  category: import.meta.env.PUBLIC_GISCUS_CATEGORY || "Stories",
+  categoryId: import.meta.env.PUBLIC_GISCUS_CATEGORY_ID || "",
+};
+const typeLabel: Record<string, string> = { primary: "Primary source", press: "Press", newsletter: "Newsletter", community: "Community" };
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "NewsArticle",
+  headline: story.headline,
+  description,
+  image: [`${site}${story.ogImage}`, ...(story.imageUrl ? [story.imageUrl] : [])],
+  datePublished: story.firstPublishedAt,
+  dateModified: story.updatedAt,
+  author: { "@type": "Organization", name: "Digest AI", url: site },
+  publisher: { "@type": "Organization", name: "Digest AI", url: site, logo: { "@type": "ImageObject", url: `${site}/favicon.svg` } },
+  mainEntityOfPage: `${site}/story/${story.slug}`,
+  isBasedOn: story.articles.map((a) => a.url),
+  about: entityList.map(({ n }) => ({ "@type": "Thing", name: n })),
+  articleSection: categories[story.category || ""],
+  discussionUrl: discussions[0]?.url,
+};
+---
+
+<Base
+  title={story.headline}
+  description={description}
+  image={`${site}${story.ogImage}`}
+  type="article"
+  publishedAt={story.firstPublishedAt}
+  modifiedAt={story.updatedAt}
+  jsonLd={jsonLd}
+  currentCategory={story.category}
+  storyId={story.id}
+  articleId={shown.id}
+>
+  <div class="grid">
+    <article>
+      <header class="story-head">
+        <div class="meta-row">
+          <a class:list={["chip", { hot: story.importance >= 8 }]} href={`/category/${story.category}`}>{categories[story.category || ""] || "AI"}</a>
+          <time datetime={story.firstPublishedAt || undefined} title={formatDate(story.firstPublishedAt)}></time>
+          {story.updatedAt !== story.firstPublishedAt && <span>updated <time datetime={story.updatedAt || undefined}></time></span>}
+          {full && <span>{readingMinutes(full.wordCount)} min read</span>}
+        </div>
+        <h1>{story.headline}</h1>
+        {story.summaryMd && <p class="standfirst">{plain(story.summaryMd.split("\n\n")[0], 400)}</p>}
+        <div class="story-tools">
+          <Coverage story={story} />
+          <div class="toolbar" role="group" aria-label="Save and share">
+            <button class="tb" data-save data-slug={story.slug} data-headline={story.headline} data-category={categories[story.category || ""] || "AI"}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z" /></svg><span>Save</span>
+            </button>
+            <button class="tb" data-share="copy">Copy link</button>
+            <button class="tb" data-share="x">X</button>
+            <button class="tb" data-share="bluesky">Bluesky</button>
+            <button class="tb" data-share="linkedin">LinkedIn</button>
+            <button class="tb" data-share="whatsapp">WhatsApp</button>
+          </div>
+        </div>
+      </header>
+
+      {story.keyPoints.length > 0 && (
+        <section class="keypoints">
+          <h2>Key points</h2>
+          <ul>{story.keyPoints.map((k) => <li>{k}</li>)}</ul>
+        </section>
+      )}
+
+      {story.summaryMd && story.summaryMd.includes("\n\n") && (
+        <div class="article" set:html={renderMarkdown(story.summaryMd.split("\n\n").slice(1).join("\n\n"))} />
+      )}
+
+      {story.whyItMatters && <aside class="why"><b>Why it matters</b>{story.whyItMatters}</aside>}
+
+      <div class="source-box">
+        <span>
+          {full ? "Full story from" : "Read the original at"} <b>{shown.source || shown.domain}</b>
+          {shown.author && <span class="muted"> · by {shown.author}</span>}
+          {shown.via && <span class="muted"> · via {shown.via}</span>}
+          {shown.sourceType === "primary" && <span class="cov-tag"> primary source</span>}
+        </span>
+        <a class="cta" href={shown.url} target="_blank" rel="noopener nofollow" data-source-link>Open source ↗</a>
+      </div>
+
+      {full && (
+        <section>
+          <div class="fulltext-head">
+            <h2>{full.title}</h2>
+            <span class="eyebrow">{full.source || full.domain} · {formatDate(full.publishedAt)}</span>
+          </div>
+          {story.imageUrl && (
+            <figure class="figure"><img src={story.imageUrl} alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentElement.style.display='none'" /></figure>
+          )}
+          <div class="article" set:html={renderMarkdown(full.contentMd)} />
+          <p class="ai-note">
+            This text was published by <a href={full.url} rel="noopener nofollow" target="_blank" data-source-link><b>{full.source || full.domain}</b></a>
+            {full.author && ` and written by ${full.author}`}. It is reproduced here with attribution so you can read it in full; the rights remain with the publisher.
+            <a href={full.url} rel="noopener nofollow" target="_blank" data-source-link>Read it at the source ↗</a>
+          </p>
+        </section>
+      )}
+
+      {(others.length > 0 || discussions.length > 0) && (
+        <section>
+          <div class="fulltext-head"><h2>Coverage and discussion</h2><span class="eyebrow">{story.articleCount} {story.articleCount === 1 ? "source" : "sources"}</span></div>
+          <ul class="coverage">
+            {discussions.map((d) => (
+              <li class="disc">
+                <a class="t" href={d.url} target="_blank" rel="noopener" data-source-link>
+                  {d.site === "hn" ? "Hacker News discussion" : "Reddit discussion"}{d.points ? ` · ${d.points} points` : ""}
+                </a>
+                <span class="mono muted">{d.site === "hn" ? "news.ycombinator.com" : "reddit.com"}</span>
+              </li>
+            ))}
+            {others.map((a) => (
+              <li>
+                <a class="t" href={a.url} target="_blank" rel="noopener nofollow" data-source-link>{a.title}</a>
+                <span class="mono muted">{typeLabel[a.sourceType] || "Press"} · {a.source || a.domain} · <time datetime={a.publishedAt || undefined}></time></span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {entityList.length > 0 && (
+        <section style="margin-top: 28px">
+          <div class="eyebrow" style="margin-bottom: 8px">Topics · follow one to build your own front page</div>
+          <div class="taglist">{entityList.map(({ n }) => <a href={`/topic/${entitySlug(n)}`}>{n}</a>)}</div>
+        </section>
+      )}
+
+      <p class="ai-note">
+        The headline, key points and digest above were generated by Digest AI's editorial model from the linked sources. Automated summaries can contain errors: the sources are the record.
+        Spotted a mistake? <a href="/about#corrections">Tell us</a>.
+      </p>
+
+      {giscus.repo && giscus.repoId && giscus.categoryId && (
+        <section class="comments" data-pagefind-ignore>
+          <div class="dayhead"><h2>Comments</h2><span class="eyebrow">via GitHub Discussions</span></div>
+          <script
+            src="https://giscus.app/client.js"
+            data-repo={giscus.repo}
+            data-repo-id={giscus.repoId}
+            data-category={giscus.category}
+            data-category-id={giscus.categoryId}
+            data-mapping="pathname"
+            data-strict="1"
+            data-reactions-enabled="1"
+            data-emit-metadata="0"
+            data-input-position="top"
+            data-theme="preferred_color_scheme"
+            data-lang="en"
+            data-loading="lazy"
+            crossorigin="anonymous"
+            async
+            is:inline
+          ></script>
+        </section>
+      )}
+
+      {rel.length > 0 && (
+        <section style="margin-top: 36px">
+          <div class="dayhead"><h2>Related stories</h2></div>
+          <ol class="river">
+            {rel.map((s) => (
+              <li class="no-img" data-published={s.updatedAt}>
+                <div>
+                  <div class="meta-row"><a class="chip" href={`/category/${s.category}`}>{categories[s.category || ""] || "AI"}</a><time datetime={s.firstPublishedAt || s.updatedAt || undefined}></time><span class="new-badge">new</span></div>
+                  <h3><a href={`/story/${s.slug}`}>{s.headline}</a></h3>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+    </article>
+    <Rail exclude={story.id} />
+  </div>
+</Base>

@@ -1,0 +1,26 @@
+---
+import type { Story } from "../lib/data";
+import { topDiscussion } from "../lib/data";
+
+interface Props { story: Story; compact?: boolean }
+const { story, compact = false } = Astro.props;
+const c = story.coverage || { primary: 0, press: 0, newsletter: 0, community: 0 };
+const total = Math.max(1, c.primary + c.press + c.newsletter + c.community);
+const pct = (n: number) => `${Math.round((n / total) * 100)}%`;
+const disc = topDiscussion(story);
+const label = (n: number, w: string) => (n ? `${n} ${w}` : null);
+const parts = [label(c.primary, "primary"), label(c.press, "press"), label(c.newsletter, "newsletter"), label(c.community, "community")].filter(Boolean);
+---
+
+<div class:list={["cov", { compact }]} title={parts.join(" · ")}>
+  <b class="cov-n">{story.articleCount}</b>
+  <span class="cov-l">{story.articleCount === 1 ? "source" : "sources"}</span>
+  <span class="cov-bar" aria-hidden="true">
+    {c.primary > 0 && <i class="p" style={`width:${pct(c.primary)}`}></i>}
+    {c.press > 0 && <i class="r" style={`width:${pct(c.press)}`}></i>}
+    {c.newsletter > 0 && <i class="n" style={`width:${pct(c.newsletter)}`}></i>}
+    {c.community > 0 && <i class="c" style={`width:${pct(c.community)}`}></i>}
+  </span>
+  {story.hasPrimary && <span class="cov-tag">primary source</span>}
+  {disc && disc.points && <span class="cov-tag hn">HN {disc.points}</span>}
+</div>

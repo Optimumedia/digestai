@@ -1,0 +1,19 @@
+---
+import Base from "../layouts/Base.astro";
+import Rail from "../components/Rail.astro";
+---
+
+<Base title="Saved stories" description="Stories you saved on Digest AI, kept in this browser." noindex={true}>
+  <div class="grid">
+    <div>
+      <header class="page-head">
+        <div class="eyebrow">Reading list</div>
+        <h1>Saved stories</h1>
+        <p>Kept in this browser only. Nothing is uploaded and no account is needed.</p>
+      </header>
+      <p id="saved-empty" class="muted" style="padding: 24px 0">Nothing saved yet. Use <b>Save</b> on any story to keep it here.</p>
+      <ol class="river" id="saved-list"></ol>
+    </div>
+    <Rail />
+  </div>
+</Base>

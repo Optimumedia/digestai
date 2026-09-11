@@ -1,0 +1,44 @@
+---
+import Base from "../../layouts/Base.astro";
+import StoryRow from "../../components/StoryRow.astro";
+import Rail from "../../components/Rail.astro";
+import { categories, storiesInCategory } from "../../lib/data";
+
+export function getStaticPaths() {
+  return Object.entries(categories).map(([category, name]) => ({ params: { category }, props: { name } }));
+}
+
+const { category } = Astro.params;
+const { name } = Astro.props;
+const list = storiesInCategory(category!);
+const blurbs: Record<string, string> = {
+  models: "New models, releases and capabilities from the frontier labs and the open-source community.",
+  agents: "Agents, developer tools, coding assistants and the software being built on top of models.",
+  research: "Papers, benchmarks and findings that change what we know AI systems can do.",
+  business: "Funding rounds, valuations, deals and the economics of the AI industry.",
+  policy: "Regulation, safety, lawsuits and how governments respond to AI.",
+  hardware: "Chips, data centres, power and the compute race.",
+  enterprise: "How companies are actually deploying AI, and what it costs them.",
+  robotics: "Humanoids, autonomy and AI in the physical world.",
+  society: "Jobs, education, culture and daily life in an AI-shaped world.",
+};
+const follow = JSON.stringify({ kind: "category", slug: category, name });
+---
+
+<Base title={name} description={blurbs[category!] || `${name} news, digested.`} currentCategory={category}>
+  <div class="grid">
+    <div>
+      <header class="page-head">
+        <div class="eyebrow">Category</div>
+        <div class="head-row">
+          <h1>{name}</h1>
+          <button class="follow" data-follow={follow} aria-pressed="false">Follow</button>
+        </div>
+        <p>{blurbs[category!]}</p>
+      </header>
+      {list.length === 0 && <p class="muted" style="padding: 24px 0">Nothing here yet.</p>}
+      <ol class="river">{list.slice(0, 60).map((s) => <StoryRow story={s} />)}</ol>
+    </div>
+    <Rail />
+  </div>
+</Base>

@@ -1,0 +1,37 @@
+---
+import Base from "../../layouts/Base.astro";
+import StoryRow from "../../components/StoryRow.astro";
+import Rail from "../../components/Rail.astro";
+import { storiesByDay, formatDate } from "../../lib/data";
+
+export function getStaticPaths() {
+  return [...storiesByDay().entries()].map(([date, list]) => ({ params: { date }, props: { list } }));
+}
+
+const { date } = Astro.params;
+const { list } = Astro.props;
+const pretty = formatDate(date + "T00:00:00Z", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+const days = [...storiesByDay().keys()];
+const idx = days.indexOf(date!);
+const newer = idx > 0 ? days[idx - 1] : null;
+const older = idx < days.length - 1 ? days[idx + 1] : null;
+---
+
+<Base title={`AI news for ${pretty}`} description={`The ${list.length} AI stories Digest AI covered on ${pretty}, ranked by importance.`}>
+  <div class="grid">
+    <div>
+      <header class="page-head">
+        <div class="eyebrow">Daily digest</div>
+        <h1>{pretty}</h1>
+        <p>{list.length} stories, most important first.</p>
+      </header>
+      <ol class="river">{list.map((s) => <StoryRow story={s} />)}</ol>
+      <nav class="meta-row" style="padding: 24px 0" aria-label="Archive navigation">
+        {older && <a href={`/daily/${older}`}>← {older}</a>}
+        <a href="/daily" style="margin-left:auto">All days</a>
+        {newer && <a href={`/daily/${newer}`}>{newer} →</a>}
+      </nav>
+    </div>
+    <Rail />
+  </div>
+</Base>

@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/
+pipeline/data/
+site/node_modules/
+site/dist/
+site/src/data/*.json
+site/public/og/
+.fastembed_cache/

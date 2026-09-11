@@ -1,0 +1,28 @@
+---
+import Base from "../layouts/Base.astro";
+import Rail from "../components/Rail.astro";
+// Week 4 wires this to Kit. Until then the page explains what the newsletter is and
+// forwards the email to the Kit form URL when one is configured.
+const kitForm = import.meta.env.PUBLIC_KIT_FORM_URL || "";
+---
+
+<Base title="Subscribe" description="The Digest AI daily email: five stories that matter, every morning at 7:00." noindex={!kitForm}>
+  <div class="grid">
+    <div class="article">
+      <header class="page-head">
+        <div class="eyebrow">Newsletter</div>
+        <h1>The daily digest</h1>
+        <p>Five stories that matter, chosen by importance and by what readers actually opened, in your inbox at 7:00 every morning.</p>
+      </header>
+      {kitForm ? (
+        <form action={kitForm} method="post" class="newsletter" style="max-width: 460px">
+          <input type="email" name="email_address" placeholder="you@example.com" required aria-label="Email address" />
+          <button type="submit">Subscribe</button>
+        </form>
+      ) : (
+        <p class="muted">Sign-up opens shortly. Meanwhile, the <a href="/rss.xml">RSS feed</a> carries every story.</p>
+      )}
+    </div>
+    <Rail />
+  </div>
+</Base>

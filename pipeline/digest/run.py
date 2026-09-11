@@ -1,0 +1,57 @@
+"""Entry point: python -m digest.run [all|fetch|extract|gate|enrich|cluster|rank|export]"""
+from __future__ import annotations
+
+import json
+import logging
+import sys
+import time
+
+from sqlalchemy import insert, update
+
+from . import cluster, db, discuss, enrich, export, extract, fetch, gate, images, newsletter, rank
+
+STEPS = {
+    "fetch": fetch.run,
+    "extract": extract.run,
+    "gate": gate.run,
+    "enrich": enrich.run,
+    "cluster": cluster.run,
+    "discuss": discuss.run,
+    "rank": rank.run,
+    "export": export.run,
+    "images": images.run,
+    "newsletter": newsletter.run,
+}
+ORDER = ["fetch", "extract", "gate", "enrich", "cluster", "discuss", "rank", "export", "images", "newsletter"]
+
+
+def main(argv: list[str]) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname).1s %(name)s: %(message)s", datefmt="%H:%M:%S")
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    steps = ORDER if not argv or argv[0] == "all" else [s for s in argv if s in STEPS]
+    if not steps:
+        print(f"usage: python -m digest.run [{'|'.join(['all'] + ORDER)}]")
+        return 2
+    eng = db.engine()
+    summary = {}
+    for step in steps:
+        started = db.utcnow()
+        with eng.begin() as conn:
+            run_id = conn.execute(insert(db.runs).values(started_at=started, step=step)).inserted_primary_key[0]
+        t0 = time.time()
+        try:
+            stats = STEPS[step]()
+        except Exception:
+            logging.getLogger("digest").exception("step %s crashed", step)
+            stats = {"crashed": True}
+        stats["seconds"] = round(time.time() - t0, 1)
+        summary[step] = stats
+        with eng.begin() as conn:
+            conn.execute(update(db.runs).where(db.runs.c.id == run_id).values(finished_at=db.utcnow(), stats=stats))
+        logging.getLogger("digest").info("%s: %s", step, json.dumps(stats, default=str))
+    print(json.dumps(summary, indent=2, default=str))
+    return 1 if any(s.get("crashed") for s in summary.values()) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

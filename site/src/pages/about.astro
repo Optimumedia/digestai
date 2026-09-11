@@ -1,0 +1,29 @@
+---
+import Base from "../layouts/Base.astro";
+import Rail from "../components/Rail.astro";
+---
+
+<Base title="About Digest AI" description="How Digest AI gathers, checks and publishes AI news every 30 minutes.">
+  <div class="grid">
+    <div class="article">
+      <header class="page-head">
+        <div class="eyebrow">About</div>
+        <h1>How Digest AI works</h1>
+      </header>
+      <p>Digest AI is a news desk for artificial intelligence. Every 30 minutes it reads more than fifty sources, from the research labs' own announcements to the major technology press and the communities where practitioners talk, and turns what is new into one page per story.</p>
+      <h2>What you get on a story page</h2>
+      <ul>
+        <li>A headline, three key points and a short digest written by our editorial model from the sources listed on the page.</li>
+        <li>The full text of the lead article, credited and linked, so you can read it without leaving. Publishers who do not permit reuse are shown as a digest with a link instead.</li>
+        <li>Every other outlet covering the same story, so you can compare accounts.</li>
+      </ul>
+      <h2>How stories are ranked</h2>
+      <p>Ordering combines the editorial importance our model assigns, how recent the story is, how many independent sources cover it, and what readers actually open and read. The last signal is learned continuously: we record page views, time on page and clicks to the source, without cookies or personal identifiers, and use them to predict which new stories will matter to you.</p>
+      <h2 id="corrections">Corrections</h2>
+      <p>Automated summaries can be wrong. If a headline, key point or digest misstates what the sources say, email <a href="mailto:hello@digestai.news">hello@digestai.news</a> with the story link. Corrected stories are updated on the next publishing run and marked as updated.</p>
+      <h2>Publishers</h2>
+      <p>If you publish on AI and want to be added as a source, or would prefer we show only a digest of your articles, write to the same address. Digest AI sends readers to your site with a prominent link on every story and identifies itself as <code>DigestAIBot</code> when it fetches pages.</p>
+    </div>
+    <Rail />
+  </div>
+</Base>

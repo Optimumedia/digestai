@@ -1,0 +1,29 @@
+---
+import Base from "../../layouts/Base.astro";
+import Rail from "../../components/Rail.astro";
+import { storiesByDay, formatDate } from "../../lib/data";
+
+const days = [...storiesByDay().entries()];
+---
+
+<Base title="Daily archive" description="Every day of AI news on Digest AI, one page per day.">
+  <div class="grid">
+    <div>
+      <header class="page-head">
+        <div class="eyebrow">Archive</div>
+        <h1>Day by day</h1>
+      </header>
+      <ol class="river">
+        {days.map(([day, list]) => (
+          <li class="no-img">
+            <div>
+              <h3><a href={`/daily/${day}`}>{formatDate(day + "T00:00:00Z", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</a></h3>
+              <p>{list.length} stories · top: {list[0]?.headline}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
+    <Rail />
+  </div>
+</Base>

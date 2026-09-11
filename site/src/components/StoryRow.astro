@@ -1,0 +1,34 @@
+---
+import type { Story } from "../lib/data";
+import Coverage from "./Coverage.astro";
+import { plain, categories, sourceNames } from "../lib/data";
+
+interface Props { story: Story; showImage?: boolean }
+const { story, showImage = true } = Astro.props;
+const { names, more } = sourceNames(story, 4);
+const img = showImage ? story.imageUrl : null;
+---
+
+<li class:list={[{ "no-img": !img }]} data-published={story.updatedAt}>
+  <div>
+    <div class="meta-row">
+      <a class:list={["chip", { hot: story.importance >= 8 }]} href={`/category/${story.category}`}>{categories[story.category || ""] || "AI"}</a>
+      <time datetime={story.firstPublishedAt || story.updatedAt || undefined}></time>
+      <span class="new-badge">new</span>
+    </div>
+    <h3><a href={`/story/${story.slug}`}>{story.headline}</a></h3>
+    <p>{plain(story.summaryMd || story.keyPoints[0] || "", 220)}</p>
+    <div class="row-foot">
+      <Coverage story={story} compact={true} />
+      <div class="sources-line">
+        {names.map((s) => <b>{s}</b>)}
+        {more > 0 && <span>+{more} more</span>}
+      </div>
+    </div>
+  </div>
+  {img && (
+    <a class="thumb" href={`/story/${story.slug}`} tabindex="-1" aria-hidden="true">
+      <img src={img} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentElement.style.display='none'" />
+    </a>
+  )}
+</li>

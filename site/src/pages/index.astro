@@ -1,0 +1,91 @@
+---
+import Base from "../layouts/Base.astro";
+import StoryRow from "../components/StoryRow.astro";
+import Coverage from "../components/Coverage.astro";
+import Rail from "../components/Rail.astro";
+import { briefing, briefingStories, storiesByDay, plain, firstSentence, categories, meta, formatDate } from "../lib/data";
+
+const lead = briefingStories[0];
+const rest = briefingStories.slice(1);
+const briefingIds = new Set(briefingStories.map((s) => s.id));
+const days = [...storiesByDay().entries()].slice(0, 4);
+const today = new Date().toISOString().slice(0, 10);
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: "Digest AI",
+  url: meta.siteUrl,
+  potentialAction: { "@type": "SearchAction", target: `${meta.siteUrl}/search?q={search_term_string}`, "query-input": "required name=search_term_string" },
+};
+---
+
+<Base title="Digest AI" jsonLd={jsonLd}>
+  <div class="grid">
+    <div>
+      {lead && (
+        <section class="briefing" aria-labelledby="briefing-h">
+          <div class="briefing-head">
+            <h2 id="briefing-h">Today's briefing</h2>
+            <span class="eyebrow">{briefing.stats.stories} stories · {briefing.stats.articles} articles · {briefing.stats.minutes} min read</span>
+            <span class="eyebrow new-count" id="new-count" hidden></span>
+            <a class="eyebrow more" href="/today">Read the briefing →</a>
+          </div>
+          <article class="hero" data-published={lead.updatedAt}>
+            <div>
+              <div class="meta-row">
+                <a class:list={["chip", { hot: lead.importance >= 8 }]} href={`/category/${lead.category}`}>{categories[lead.category || ""] || "AI"}</a>
+                <time datetime={lead.firstPublishedAt || lead.updatedAt || undefined}></time>
+                <span class="new-badge">new</span>
+              </div>
+              <h1><a href={`/story/${lead.slug}`}>{lead.headline}</a></h1>
+              <p>{plain(lead.summaryMd, 320)}</p>
+              <Coverage story={lead} />
+            </div>
+            {lead.imageUrl && (
+              <a class="thumb" href={`/story/${lead.slug}`} tabindex="-1" aria-hidden="true">
+                <img src={lead.imageUrl} alt="" loading="eager" fetchpriority="high" referrerpolicy="no-referrer" onerror="this.parentElement.style.display='none'" />
+              </a>
+            )}
+          </article>
+          <ol class="briefing-list" start="2">
+            {rest.map((s) => (
+              <li data-published={s.updatedAt}>
+                <div class="meta-row">
+                  <a class="chip" href={`/category/${s.category}`}>{categories[s.category || ""] || "AI"}</a>
+                  <time datetime={s.firstPublishedAt || s.updatedAt || undefined}></time>
+                  <span class="new-badge">new</span>
+                </div>
+                <h3><a href={`/story/${s.slug}`}>{s.headline}</a></h3>
+                <p>{firstSentence(s.summaryMd || s.keyPoints[0], 170)}</p>
+                <Coverage story={s} compact={true} />
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      <section id="your-topics" class="your-topics" hidden>
+        <div class="dayhead">
+          <h2>Your topics</h2>
+          <span class="eyebrow topic-names"></span>
+        </div>
+        <ol class="river"></ol>
+      </section>
+
+      {days.length === 0 && <p class="muted" style="padding: 40px 0">No stories yet. The pipeline publishes its first run within 30 minutes.</p>}
+
+      {days.map(([day, list], i) => (
+        <section>
+          <div class="dayhead">
+            <h2>{day === today ? "More today" : formatDate(day + "T00:00:00Z", { weekday: "long", day: "numeric", month: "long" })}</h2>
+            <a class="eyebrow" href={`/daily/${day}`}>{list.length} stories →</a>
+          </div>
+          <ol class="river">
+            {list.filter((s) => !briefingIds.has(s.id)).slice(0, i === 0 ? 14 : 8).map((s) => <StoryRow story={s} />)}
+          </ol>
+        </section>
+      ))}
+    </div>
+    <Rail exclude={lead?.id} />
+  </div>
+</Base>

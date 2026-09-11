@@ -1,0 +1,17 @@
+---
+import Base from "../layouts/Base.astro";
+import Rail from "../components/Rail.astro";
+---
+
+<Base title="Page not found" noindex={true}>
+  <div class="grid">
+    <div>
+      <header class="page-head">
+        <div class="eyebrow">404</div>
+        <h1>That page is not here</h1>
+        <p>Stories older than a few months are archived. Try <a href="/search">search</a> or go back to the <a href="/">front page</a>.</p>
+      </header>
+    </div>
+    <Rail />
+  </div>
+</Base>

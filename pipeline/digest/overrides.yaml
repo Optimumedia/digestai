@@ -1,0 +1,35 @@
+# Per-domain extraction overrides. Only add a domain here when the generic extractor fails
+# on it in the harness. `selector` isolates the article container before extraction;
+# `fulltext: false` shows the digest only for that publisher; `agent: browser` sends a
+# browser-like user agent for sites that serve an empty shell to bots.
+
+domains:
+  msn.com:
+    selector: "article, .article-body, [data-testid='article-body']"
+  medium.com:
+    selector: "article"
+  substack.com:
+    selector: ".available-content, article"
+  wsj.com:
+    fulltext: false
+  ft.com:
+    fulltext: false
+  bloomberg.com:
+    fulltext: false
+  nytimes.com:
+    fulltext: false
+  theinformation.com:
+    fulltext: false
+  reuters.com:
+    fulltext: false
+    agent: browser
+  forbes.com:
+    selector: ".article-body, article"
+  reddit.com:
+    fulltext: false
+  x.com:
+    fulltext: false
+  twitter.com:
+    fulltext: false
+  youtube.com:
+    fulltext: false

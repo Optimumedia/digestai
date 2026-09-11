@@ -1,0 +1,23 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base title="Search" description="Search every story on Digest AI." noindex={true}>
+  <div class="search-wrap">
+    <header class="page-head">
+      <div class="eyebrow">Search</div>
+      <h1>Find a story</h1>
+    </header>
+    <div id="search" style="margin-top: 16px"></div>
+  </div>
+  <link rel="stylesheet" href="/pagefind/pagefind-ui.css" />
+  <script is:inline src="/pagefind/pagefind-ui.js"></script>
+  <script is:inline>
+    addEventListener("DOMContentLoaded", () => {
+      if (!window.PagefindUI) return;
+      const ui = new PagefindUI({ element: "#search", showSubResults: false, showImages: false, resetStyles: false });
+      const q = new URLSearchParams(location.search).get("q");
+      if (q) ui.triggerSearch(q);
+    });
+  </script>
+</Base>

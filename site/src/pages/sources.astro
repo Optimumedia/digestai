@@ -1,0 +1,28 @@
+---
+import Base from "../layouts/Base.astro";
+import Rail from "../components/Rail.astro";
+import { sources } from "../lib/data";
+
+const sorted = [...sources].sort((a, b) => a.name.localeCompare(b.name));
+---
+
+<Base title="Sources" description="The publications, labs and communities Digest AI reads every 30 minutes.">
+  <div class="grid">
+    <div>
+      <header class="page-head">
+        <div class="eyebrow">Sources</div>
+        <h1>Where the news comes from</h1>
+        <p>{sorted.length} curated sources, read every 30 minutes. Topics that readers follow closely also get temporary search feeds.</p>
+      </header>
+      <ul class="coverage">
+        {sorted.map((s) => (
+          <li>
+            <a class="t" href={s.url.startsWith("http") ? new URL(s.url).origin : "#"} rel="noopener" target="_blank">{s.name}</a>
+            <span class="mono muted">{s.kind}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+    <Rail />
+  </div>
+</Base>

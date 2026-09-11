@@ -1,0 +1,33 @@
+---
+import Base from "../../layouts/Base.astro";
+import StoryRow from "../../components/StoryRow.astro";
+import Rail from "../../components/Rail.astro";
+import { topicPages, storiesForEntity } from "../../lib/data";
+
+export function getStaticPaths() {
+  return topicPages().map(({ slug, entity }) => ({ params: { slug }, props: { entity } }));
+}
+
+const { slug } = Astro.params;
+const { entity } = Astro.props;
+const list = storiesForEntity(entity);
+const kindLabel = { companies: "Company", models: "Model", people: "Person" }[entity.kind] || "Topic";
+const follow = JSON.stringify({ kind: "topic", slug, name: entity.name });
+---
+
+<Base title={`${entity.name} news`} description={`Every Digest AI story about ${entity.name}: ${list.length} stories, newest first.`}>
+  <div class="grid">
+    <div>
+      <header class="page-head">
+        <div class="eyebrow">{kindLabel}</div>
+        <div class="head-row">
+          <h1>{entity.name}</h1>
+          <button class="follow" data-follow={follow} aria-pressed="false">Follow</button>
+        </div>
+        <p>{list.length} {list.length === 1 ? "story" : "stories"} mentioning {entity.name}, newest first. Follow to see new ones on your front page.</p>
+      </header>
+      <ol class="river">{list.map((s) => <StoryRow story={s} />)}</ol>
+    </div>
+    <Rail />
+  </div>
+</Base>

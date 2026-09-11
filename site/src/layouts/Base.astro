@@ -1,0 +1,137 @@
+---
+import "../styles/global.css";
+import { categories, meta, byScore } from "../lib/data";
+
+interface Props {
+  title: string;
+  description?: string;
+  image?: string | null;
+  canonical?: string;
+  type?: "website" | "article";
+  publishedAt?: string | null;
+  modifiedAt?: string | null;
+  jsonLd?: Record<string, unknown> | Record<string, unknown>[];
+  currentCategory?: string | null;
+  storyId?: number;
+  articleId?: number;
+  noindex?: boolean;
+}
+
+const {
+  title,
+  description = "The AI news desk: every important story in artificial intelligence, digested and linked to its sources, updated every 30 minutes.",
+  image,
+  canonical,
+  type = "website",
+  publishedAt,
+  modifiedAt,
+  jsonLd,
+  currentCategory,
+  storyId,
+  articleId,
+  noindex = false,
+} = Astro.props;
+
+const site = (Astro.site?.toString() || meta.siteUrl).replace(/\/$/, "");
+const url = canonical || new URL(Astro.url.pathname, site).toString();
+const ogImage = image || `${site}/og-default.png`;
+const fullTitle = title === "Digest AI" ? "Digest AI — AI news, digested" : `${title} — Digest AI`;
+const ticker = byScore.slice(0, 8);
+const clientConfig = {
+  supabaseUrl: import.meta.env.PUBLIC_SUPABASE_URL || "",
+  supabaseKey: import.meta.env.PUBLIC_SUPABASE_ANON_KEY || "",
+};
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={url} />
+    {noindex && <meta name="robots" content="noindex" />}
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="alternate" type="application/rss+xml" title="Digest AI" href={`${site}/rss.xml`} />
+    <meta property="og:site_name" content="Digest AI" />
+    <meta property="og:type" content={type} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={url} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+    {publishedAt && <meta property="article:published_time" content={publishedAt} />}
+    {modifiedAt && <meta property="article:modified_time" content={modifiedAt} />}
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap"
+    />
+    <script is:inline>
+      try {
+        const t = JSON.parse(localStorage.getItem("theme"));
+        if (t === "dark" || t === "light") document.documentElement.dataset.theme = t;
+      } catch {}
+    </script>
+    <script is:inline set:html={`window.DIGEST=${JSON.stringify(clientConfig)};`} />
+    <script src="/app.js" defer is:inline></script>
+    {jsonLd && <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />}
+  </head>
+  <body data-story-id={storyId} data-article-id={articleId}>
+    <header class="masthead">
+      <div class="wrap">
+        <a class="brand" href="/" aria-label="Digest AI home">Digest<b>AI</b> <small>news desk</small></a>
+        <nav class="nav" aria-label="Categories">
+          {Object.entries(categories).map(([key, name]) => (
+            <a href={`/category/${key}`} aria-current={currentCategory === key ? "page" : undefined}>{name.split(" & ")[0]}</a>
+          ))}
+        </nav>
+        <div class="tools">
+          <a class="icon-btn" href="/saved" aria-label="Saved stories" title="Saved stories">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z" /></svg>
+            <span class="count" id="saved-count" hidden></span>
+          </a>
+          <a class="icon-btn" href="/search" aria-label="Search" title="Search">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+          </a>
+          <button class="icon-btn" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle theme">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+    {ticker.length > 0 && (
+      <div class="ticker" aria-label="Top stories">
+        <div class="wrap">
+          {ticker.map((s) => (
+            <a href={`/story/${s.slug}`}><span class="dot">●</span> {s.headline} <span class="muted"><time datetime={s.firstPublishedAt || s.updatedAt || undefined}></time></span></a>
+          ))}
+        </div>
+      </div>
+    )}
+
+    <main class="wrap" data-pagefind-body>
+      <slot />
+    </main>
+
+    <footer class="footer">
+      <div class="wrap">
+        <a href="/today">Today's briefing</a>
+        <a href="/about">About</a>
+        <a href="/sources">Sources</a>
+        <a href="/daily">Archive</a>
+        <a href="/saved">Saved</a>
+        <a href="/rss.xml">RSS</a>
+        <a href="/search">Search</a>
+        <span class="gen">Updated <time datetime={meta.generatedAt}></time> · {meta.storyCount} stories from {meta.articleCount} articles</span>
+      </div>
+    </footer>
+  </body>
+</html>
