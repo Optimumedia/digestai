@@ -59,7 +59,7 @@
   }
   function tick() {
     document.querySelectorAll("time[datetime]").forEach((t) => {
-      if (t.dataset.static) return;
+      if ("static" in t.dataset) return;
       const r = rel(t.getAttribute("datetime"));
       if (r) t.textContent = r;
     });

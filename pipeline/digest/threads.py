@@ -18,7 +18,14 @@ from .textutil import short_hash, slugify
 log = logging.getLogger("digest.threads")
 
 WINDOW_DAYS = 14
-THRESHOLD = 0.62  # looser than story clustering (0.82): same saga, different events
+# Measured on bge-small embeddings: episodes of one saga score ~0.80+, unrelated stories about
+# the same company 0.65-0.70. Two ways in: very close with any shared name, or fairly close
+# with a shared name that is specific (not one of the names in every other story).
+THRESHOLD_ANY = 0.78
+THRESHOLD_SPECIFIC = 0.72
+# Entities present in more than this share of recent stories (Anthropic, OpenAI, Claude...) say
+# nothing about which saga a story belongs to, so they do not count as a shared entity.
+UBIQUITOUS_SHARE = 0.15
 
 
 def _names(entities: dict | None) -> set[str]:
@@ -48,23 +55,35 @@ def run() -> dict:
         vecs = {t.id: np.asarray(t.embedding, dtype=np.float32) for t in threads}
         meta = {t.id: {"names": _names(t.entities), "count": t.story_count, "ents": t.entities or {}} for t in threads}
 
+        # Entity frequency over the window decides which names are too common to be a signal.
+        recent = conn.execute(select(db.stories.c.entities).where(db.stories.c.first_published_at >= since)).all()
+        freq: dict[str, int] = {}
+        for r in recent:
+            for n in _names(r.entities):
+                freq[n] = freq.get(n, 0) + 1
+        total = max(1, len(recent))
+        ubiquitous = {n for n, c in freq.items() if c >= 3 and c / total > UBIQUITOUS_SHARE}
+
         for s in stories:
             v = np.asarray(s.embedding, dtype=np.float32)
-            names = _names(s.entities)
+            names_all = _names(s.entities)
+            names = names_all - ubiquitous
             best, best_sim = None, 0.0
             for tid, tv in vecs.items():
-                if not (names & meta[tid]["names"]):
+                shared_any = names_all & meta[tid]["names"]
+                if not shared_any:
                     continue
                 sim = float(np.dot(v, tv))
-                if sim > best_sim:
+                specific = bool(names & (meta[tid]["names"] - ubiquitous))
+                if (sim >= THRESHOLD_ANY or (specific and sim >= THRESHOLD_SPECIFIC)) and sim > best_sim:
                     best, best_sim = tid, sim
-            if best is not None and best_sim >= THRESHOLD:
+            if best is not None:
                 n = meta[best]["count"]
                 merged = (vecs[best] * n + v) / (n + 1)
                 merged /= np.linalg.norm(merged) or 1.0
                 vecs[best] = merged
                 meta[best]["count"] = n + 1
-                meta[best]["names"] |= names
+                meta[best]["names"] |= names_all
                 ents = meta[best]["ents"]
                 for kind in ("companies", "models", "people"):
                     have = [x.lower() for x in ents.get(kind, [])]
@@ -88,7 +107,7 @@ def run() -> dict:
                 ))
                 tid = res.inserted_primary_key[0]
                 vecs[tid] = v
-                meta[tid] = {"names": names, "count": 1, "ents": dict(s.entities or {})}
+                meta[tid] = {"names": set(names_all), "count": 1, "ents": dict(s.entities or {})}
                 conn.execute(update(db.stories).where(db.stories.c.id == s.id).values(thread_id=tid))
                 stats["new_threads"] += 1
     return stats
