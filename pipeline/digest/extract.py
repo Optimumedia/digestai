@@ -38,6 +38,7 @@ DROP_PATTERNS = re.compile(
     r"the post .* appeared first on|disclosure:|editor'?s note|updated?:|correction:|"
     r"table of contents|skip to (main )?content|open in app|download (the|our) app|"
     r"follow (us|[a-z' ]+ on (google news|x|twitter|facebook|linkedin|instagram))|"
+    r"in partnership with|presented by|brought to you by|paid (content|post)|"
     r"get [a-z' ]+ (best )?(news|stories|reviews|analysis)[^.]*inbox|sign up (for|to)|"
     r"we'?re ending our live coverage|"
     r"[a-z0-9._-]+·\d+[hdm]"
@@ -228,7 +229,7 @@ def to_text(markdown: str) -> str:
     return text.strip()
 
 
-def validate(text: str, title: str, min_words: int, max_words: int) -> str | None:
+def validate(text: str, title: str, min_words: int, max_words: int, page_title: str | None = None) -> str | None:
     words = word_count(text)
     if words < min_words:
         return f"too short ({words} words)"
@@ -239,9 +240,19 @@ def validate(text: str, title: str, min_words: int, max_words: int) -> str | Non
         low = text.lower().replace("’", "'")
         hits = sum(1 for k in kws if k in low)
         need = 2 if len(kws) >= 3 else 1
+        # When the page's own title matches the feed title we know we extracted the right page;
+        # a roundup whose headline shares no words with its body is then still acceptable.
+        if page_title and _same_title(page_title, title):
+            need = min(need, 1) if hits else 0
         if hits < need:
             return f"title/body mismatch ({hits}/{len(kws)} keywords)"
     return None
+
+
+def _same_title(a: str, b: str) -> bool:
+    norm = lambda s: re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()  # noqa: E731
+    na, nb = norm(a), norm(b)
+    return bool(na and nb) and (na == nb or na.startswith(nb) or nb.startswith(na))
 
 
 # --------------------------------------------------------------------- main
@@ -304,6 +315,15 @@ def extract(url: str, html: str | None, title: str, feed_content: str | None = N
             result.notes.append("selector")
 
     # 4. Main-content extraction, precision first, then recall, then readability.
+    # When the page marks its article with <article> and that element holds a full text,
+    # extracting inside it beats guessing from the whole page (sidebars sometimes win otherwise).
+    if not rule.get("selector"):
+        arts = [a for a in soup.find_all("article") if word_count(a.get_text(" ")) >= min_words]
+        if len(arts) >= 1:
+            biggest = max(arts, key=lambda a: word_count(a.get_text(" ")))
+            md_art = _markdown_from_html(f"<html><body>{biggest}</body></html>", url, precision=True)
+            if md_art:
+                candidates.append(("trafilatura-article", md_art))
     md = _markdown_from_html(scoped_html, url, precision=True)
     if md:
         candidates.append(("trafilatura", md))
@@ -319,7 +339,10 @@ def extract(url: str, html: str | None, title: str, feed_content: str | None = N
     for method, raw in candidates:
         cleaned, notes = scrub(raw)
         text = to_text(cleaned)
-        err = validate(text, title, min_words, config.MAX_WORDS)
+        err = validate(text, title, min_words, config.MAX_WORDS, page_title=result.title)
+        if err and "mismatch" in err and result.title and not _same_title(result.title, title):
+            # The feed title and the page title differ (edited headline): judge by the page's own title.
+            err = validate(text, result.title, min_words, config.MAX_WORDS, page_title=result.title)
         if err:
             result.notes.append(f"{method}: {err}")
             # Remember a short but otherwise valid body: link-blog posts and briefs are real content.

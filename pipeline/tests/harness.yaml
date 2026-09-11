@@ -9,12 +9,13 @@ cases:
   - But Sir Nigel also said that a “Hippocratic
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 308
   max_words: 9000
 - url: https://404media.co/we-did-not-invite-you-citizens-rage-at-town-hall-over-proposed-nuclear-ai-data-center
@@ -24,12 +25,13 @@ cases:
   - But LANL also conceded that the data center
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 779
   max_words: 9000
 - url: https://spectrum.ieee.org/video-friday-disaster-response-robots
@@ -39,12 +41,13 @@ cases:
   - In this work, we show how a multilined
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 298
   max_words: 9000
 - url: https://bbc.co.uk/news/articles/c3eq7kl5l00o?at_medium=RSS&at_campaign=rss
@@ -54,12 +57,13 @@ cases:
   - The idea follows reports of AI models from
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 317
   max_words: 9000
 - url: https://wired.com/story/one-of-ais-fiercest-critics-says-all-the-doom-talk-is-meant-to-distract-us
@@ -69,12 +73,13 @@ cases:
   - We wrote our stochastic parrot paper in 2021
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 530
   max_words: 9000
 - url: https://the-decoder.com/how-hackers-used-claude-for-missiles-drone-swarms-and-surveillance-while-chinese-labs-mined-it-for-training-data
@@ -84,12 +89,13 @@ cases:
   - DeepSeek (GTG-16001) used strings to detect when requests
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 755
   max_words: 9000
 - url: https://news.mit.edu/2026/lifesaving-lincoln-laboratory-technology-wins-tech-transfer-award-0911
@@ -99,12 +105,13 @@ cases:
   - The AI-GUIDE project has served as a framework
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 309
   max_words: 9000
 - url: https://machinelearning.apple.com/research/simpledesign-protein-codesign
@@ -114,12 +121,13 @@ cases:
   - We hypothesize that this multi-stage training is not
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 187
   max_words: 9000
 - url: https://machinelearning.apple.com/research/video-caption-quality
@@ -129,12 +137,13 @@ cases:
   - We further formulate CapF1, a composite metric that
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 181
   max_words: 9000
 - url: https://machinelearning.apple.com/research/discosign-gloss-translation
@@ -144,12 +153,13 @@ cases:
   - Our work establishes the first systematic framework for
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 181
   max_words: 9000
 - url: https://cnbc.com/2026/09/11/ai-regulation-anthropic-researcher-extinction-warning.html
@@ -159,12 +169,13 @@ cases:
   - Ted Lieu, D-Calif., introduced a bill called the
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 383
   max_words: 9000
 - url: https://cnbc.com/2026/09/11/5-things-to-know-before-the-stock-market-opens.html
@@ -174,12 +185,13 @@ cases:
   - Overall revenue grew nearly 30% to $19.35 billion,
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 401
   max_words: 9000
 - url: https://quesma.com/blog/does-rtk-make-ai-coding-cheaper
@@ -189,12 +201,13 @@ cases:
   - Those two calls accounted for 69% of the
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 573
   max_words: 9000
 - url: https://bensbites.com/p/telling-ai-to-design-is-hard
@@ -204,12 +217,13 @@ cases:
   - So obviously there’s editorial, geo tone, brutalist, swiss,
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 1123
   max_words: 9000
 - url: https://arstechnica.com/ai/2026/09/claude-users-found-ways-around-safeguards-for-bioweapons-research
@@ -219,12 +233,13 @@ cases:
   - Anthropic said it had banned the accounts mentioned
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 251
   max_words: 9000
 - url: https://interconnects.ai/p/open-source-ai-reading-list
@@ -234,12 +249,13 @@ cases:
   - '- Why Chinese labs are so good at'
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 803
   max_words: 9000
 - url: https://therundown.ai/articles/tesla-cybercab-is-already-getting-weird
@@ -249,12 +265,13 @@ cases:
   - XPeng is targeting mass production by the end
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 501
   max_words: 9000
 - url: https://therundown.ai/articles/anthropic-opens-the-files-on-global-claude-misuse
@@ -264,12 +281,13 @@ cases:
   - If I can't find a piece online, I
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 657
   max_words: 9000
 - url: https://unite.ai/what-is-tokenization-how-ai-turns-text-into-tokens
@@ -279,12 +297,13 @@ cases:
   - Change one assumption in the Tokenization example and
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 1152
   max_words: 9000
 - url: https://artificialintelligence-news.com/news/palantir-foundry-cuopt-nvidia-supply-chain-allocation
@@ -294,12 +313,13 @@ cases:
   - Formulating distribution as a mixed-integer linear program designed
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 270
   max_words: 9000
 - url: https://researchagenda.news/articles/the-waymo-effect.html
@@ -309,12 +329,13 @@ cases:
   - They whisper that the literature review can be
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 1279
   max_words: 9000
 - url: https://unite.ai/scaling-enterprise-agentic-ai-data-governance
@@ -324,12 +345,13 @@ cases:
   - Instead, focus on connecting agents, human oversight, and
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 476
   max_words: 9000
 - url: https://cnbc.com/2026/09/11/anthropic-openai-ai-existential-concerns.html
@@ -339,12 +361,13 @@ cases:
   - Anthropic finished its RSI blog post by laying
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 431
   max_words: 9000
 - url: https://towardsdatascience.com/demystifying-anthropics-j-space-a-mathematical-primer
@@ -354,12 +377,13 @@ cases:
   - Empirically, this excess variance plateaus beyond k =
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 644
   max_words: 9000
 - url: https://unite.ai/ai-playbook-workplace-investigations-human-oversight
@@ -369,12 +393,13 @@ cases:
   - The Handoff Matters as Much as the Model
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 586
   max_words: 9000
 - url: https://securityweek.com/microsoft-patches-record-974-vulnerabilities-including-two-exploited-zero-days
@@ -384,12 +409,13 @@ cases:
   - Multiple security issues were also addressed in SQL
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 260
   max_words: 9000
 - url: https://chessbench-ai.github.io/
@@ -399,12 +425,13 @@ cases:
   - ACPL and cost are also available in model
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 334
   max_words: 9000
 - url: https://anthropic.com/institute/econ-scenarios
@@ -414,12 +441,13 @@ cases:
   - '- Adjustment How long does it take people'
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 1351
   max_words: 9000
 - url: https://prospect.org/2026/09/09/anthropic-artificial-intelligence-surveillance-system-monitor-activists
@@ -429,12 +457,13 @@ cases:
   - “Samdesk gave us about 60 minutes of advanced
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 573
   max_words: 9000
 - url: https://developers.openai.com/api/docs/guides/agents-api/overview
@@ -444,12 +473,13 @@ cases:
   - A session from start to finish Start with
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 309
   max_words: 9000
 - url: https://johndcook.com/blog/2026/09/09/formal-method-revolution
@@ -459,12 +489,13 @@ cases:
   - Then formalizing the 166-page paper from OpenAI would
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 178
   max_words: 9000
 - url: https://arxiv.org/abs/2609.09153
@@ -474,12 +505,13 @@ cases:
   - Across multiple datasets, task types, and LLMs, the
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 164
   max_words: 9000
 - url: https://hugovergnes.github.io/little-lm-3-8b
@@ -489,12 +521,13 @@ cases:
   - RoPE was 2.2× faster in a microbenchmark and
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 1645
   max_words: 9000
 - url: https://cbsnews.com/news/ai-kill-humans-anthropic-researcher-more-than-ten-percent-chance
@@ -504,12 +537,13 @@ cases:
   - CBS News has asked the AISI for comment
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 337
   max_words: 9000
 - url: https://entropicthoughts.com/better-ai-comment-classifier
@@ -519,12 +553,13 @@ cases:
   - '- A blue arrow means at least two'
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 1842
   max_words: 9000
 - url: https://jeffs.blog/p/defining-ai-psychosis-part-2-prolific
@@ -534,12 +569,13 @@ cases:
   - You can’t sleep at night because you’re so
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 970
   max_words: 9000
 - url: https://the-independent.com/arts-entertainment/music/news/muse-band-meta-ai-tool-handle-b3047291.html
@@ -549,12 +585,13 @@ cases:
   - “WHAAAAT thats insane that MUSE THE BAND got
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 234
   max_words: 9000
 - url: https://engadget.com/2254419/muse-the-band-lost-its-social-media-handles-to-muse-meta-s-new-ai-agent
@@ -564,12 +601,13 @@ cases:
   - The account was instead used by a small
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 327
   max_words: 9000
 - url: https://blog.genesmindsmachines.com/p/im-sorry-youre-not-going-to-die-from
@@ -579,12 +617,13 @@ cases:
   - Consider the common flu (H3N2 influenza) and avian
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 1130
   max_words: 9000
 - url: https://slimemoldtimemold.com/2026/08/05/a-stupid-idea-for-ai-alignment-we-came-up-with-by-looking-at-the-list-of-specification-gaming-behaviours
@@ -594,12 +633,13 @@ cases:
   - And it’s very hard to tell if you’ve
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 920
   max_words: 9000
 - url: https://terriblesoftware.org/2026/09/10/ai-is-breaking-this-thing-we-call-trust
@@ -609,12 +649,13 @@ cases:
   - Yes, I merged an AI-written fix without understanding
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 469
   max_words: 9000
 - url: https://tokenstead.ai/models/swe-2
@@ -624,12 +665,13 @@ cases:
   - Terminal-Bench 2.1 is the highest number in the
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 204
   max_words: 9000
 - url: https://anthropic.com/threat-intelligence-report-september-2026
@@ -639,12 +681,13 @@ cases:
   - We identified and investigated a sustained espionage operation,
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 3806
   max_words: 9000
 - url: https://system76.com/workstations/thelio-mira-ai
@@ -654,12 +697,13 @@ cases:
   - System76 does not cover shipping costs related to
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 220
   max_words: 9000
 - url: https://lastweekin.ai/p/last-week-in-ai-343-gpt-6-openais
@@ -669,12 +713,13 @@ cases:
   - Clearing out what the agents left takes the
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 618
   max_words: 9000
 - url: https://magazine.sebastianraschka.com/p/gpt-6-astra-looped-transformers-and
@@ -684,12 +729,13 @@ cases:
   - Another may go through three or four loops,
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 2359
   max_words: 9000
 - url: https://simonwillison.net/2026/Sep/8/on-navier-stokes
@@ -699,12 +745,13 @@ cases:
   - Lean formalization and verification took an additional 17
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 495
   max_words: 9000
 - url: https://latent.space/p/ainews-collusionwiki-a-second-undisclosed
@@ -714,12 +761,13 @@ cases:
   - Others also noted interest in the smaller3.7B and
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 1488
   max_words: 9000
 - url: https://latent.space/p/grok-bot
@@ -729,12 +777,13 @@ cases:
   - I’ve had a Gmail account for 20 years,
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 1136
   max_words: 9000
 - url: https://latent.space/p/aeo
@@ -744,12 +793,13 @@ cases:
   - Astra seems to be just generally a lot
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 338
   max_words: 9000
 - url: https://interconnects.ai/p/latest-open-artifacts-24-motif-3
@@ -759,12 +809,13 @@ cases:
   - dots3 was also able to win the IMO
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 403
   max_words: 9000
 - url: https://interconnects.ai/p/when-will-average-people-feel-ais
@@ -774,12 +825,13 @@ cases:
   - This will take a long, long time to
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 726
   max_words: 9000
 - url: https://tomshardware.com/tech-industry/artificial-intelligence/anthropic-says-claude-thwarted-bioweapon-research-from-state-sponsored-actors-covert-accounts-used-u-s-proxies-to-attempt-to-engineer-deadlier-viruses-tried-to-evade-identification-and-regional-blocks
@@ -790,12 +842,13 @@ cases:
   - The story with the third case bears a
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 409
   max_words: 9000
 - url: https://therobotreport.com/eric-sivertson-discusses-fpgas-robot-security
@@ -805,12 +858,13 @@ cases:
   - So you need to do that process, and
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 771
   max_words: 9000
 - url: https://therobotreport.com/massrobotics-shares-member-survey-results-around-fcc-restrictions
@@ -820,12 +874,13 @@ cases:
   - MassRobotics finds an even split among member organizations
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 315
   max_words: 9000
 - url: https://therobotreport.com/agility-robotics-reports-18m-revenue-ahead-of-humanoid-spac
@@ -835,12 +890,13 @@ cases:
   - Those deployments and orders have not yet turned
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 325
   max_words: 9000
 - url: https://spectrum.ieee.org/video-friday-agility-robotics-digit
@@ -850,12 +906,13 @@ cases:
   - The robots are made of a liquid-crystal elastomer
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 339
   max_words: 9000
 - url: https://spectrum.ieee.org/blood-draw-robot-vitestro-aletta
@@ -865,12 +922,13 @@ cases:
   - But a more significant obstacle could be skin
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 634
   max_words: 9000
 - url: https://the-decoder.com/new-deepseek-model-v4-1-flash-cuts-memory-needs-for-ai-agents
@@ -880,12 +938,13 @@ cases:
   - The model was trained from scratch on a
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 407
   max_words: 9000
 - url: https://the-decoder.com/gpt-6-astra-gives-mathematicians-a-breather-and-openai-says-thats-by-design
@@ -895,12 +954,13 @@ cases:
   - That reminded me of a visualization by Cambridge
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 366
   max_words: 9000
 - url: https://theregister.com/software/2026/09/09/another-microsoft-team-admits-its-struggling-to-handle-flood-of-ai-generated-code/5295185
@@ -910,12 +970,13 @@ cases:
   - The Edge team says its increased use of
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 233
   max_words: 9000
 - url: https://theregister.com/software/2026/09/10/microsoft-goes-after-salesforce-and-erp-users-with-ai-powered-converter/5295428
@@ -925,12 +986,13 @@ cases:
   - It’s thought that Microsoft has earned about 25
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 230
   max_words: 9000
 - url: https://theregister.com/software/2026/09/11/oracle-says-ai-will-save-it-from-the-saaspocalypse-not-bring-it-on/5295736
@@ -940,12 +1002,13 @@ cases:
   - SaaS is also a solid performer, growing ten
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 346
   max_words: 9000
 - url: https://bbc.co.uk/news/articles/cwyzrrd0kp7o?at_medium=RSS&at_campaign=rss
@@ -955,12 +1018,13 @@ cases:
   - He said OpenAI would continue to "build defensive
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 296
   max_words: 9000
 - url: https://bbc.co.uk/news/articles/cy7zygy3rl2o?at_medium=RSS&at_campaign=rss
@@ -970,12 +1034,13 @@ cases:
   - He included text from emails exchanged with OpenAI
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 364
   max_words: 9000
 - url: https://theguardian.com/business/2026/sep/08/ai-cure-cancer-arm-holdings-rene-haas
@@ -985,12 +1050,13 @@ cases:
   - Haas added that AI would also pave the
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 208
   max_words: 9000
 - url: https://theguardian.com/film/2026/sep/08/andrew-garfield-sam-altman-artificial-movie-openai
@@ -1000,27 +1066,28 @@ cases:
   - The film follows the abrupt firing and reinstatement
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 219
   max_words: 9000
 - url: https://technologyreview.com/2026/09/04/1140872/architecting-memory-and-storage-in-the-ai-era
   title: Architecting memory and storage in the AI era
   must_contain:
-  - In partnership withMicron The era of AI inference
   - Inference depends heavily on memory bandwidth, caching, storage
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 695
   max_words: 9000
 - url: https://technologyreview.com/2026/09/08/1142088/danijar-hafner-developing-plan-ahead-agents
@@ -1030,12 +1097,13 @@ cases:
   - He learned programming from a neighbor, and in
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 393
   max_words: 9000
 - url: https://technologyreview.com/2026/09/08/1143747/what-openais-latest-controversy-tells-us-about-the-future-of-math
@@ -1045,12 +1113,13 @@ cases:
   - MIT Technology Review reached out to Buckmaster for
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 678
   max_words: 9000
 - url: https://wired.com/story/meta-releases-muse-a-personal-ai-agent-with-privacy-built-into-it
@@ -1060,12 +1129,13 @@ cases:
   - A personal AI agent requires a lot of
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 441
   max_words: 9000
 - url: https://wired.com/story/i-used-ai-to-hack-my-home-network
@@ -1075,12 +1145,13 @@ cases:
   - Hardly surprising for a bunch of casually vibe-coded
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 737
   max_words: 9000
 - url: https://arstechnica.com/ai/2026/09/anthropics-2-trillion-ipo-puts-powerful-external-trustees-in-spotlight
@@ -1090,12 +1161,13 @@ cases:
   - Anthropic is attempting to establish a template for
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 165
   max_words: 9000
 - url: https://arstechnica.com/security/2026/09/once-popular-for-attacking-ai-ascii-smuggling-is-embraced-by-spammers
@@ -1105,12 +1177,13 @@ cases:
   - By expressing the malicious prompts in these tags,
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 152
   max_words: 9000
 - url: https://theverge.com/ai-artificial-intelligence/992953/openai-math-millennium-prize-navier-stokes
@@ -1120,12 +1193,13 @@ cases:
   - Why don’t we try to solve also a
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 735
   max_words: 9000
 - url: https://theverge.com/ai-artificial-intelligence/991977/suno-releases-its-first-ai-music-model-made-with-record-industry-help
@@ -1135,12 +1209,13 @@ cases:
   - Tell it you want “monotone vocals” and “no
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 228
   max_words: 9000
 - url: https://theverge.com/ai-artificial-intelligence/993263/where-does-openai-get-mathematics-training-data
@@ -1150,12 +1225,13 @@ cases:
   - “De-identification may remove a name; it does not
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 397
   max_words: 9000
 - url: https://techcrunch.com/2026/09/09/apple-ceo-john-ternus-says-the-best-ai-device-is-still-the-iphone
@@ -1165,12 +1241,13 @@ cases:
   - Plus, “you’d want it to be super easy
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 163
   max_words: 9000
 - url: https://techcrunch.com/2026/09/09/apple-has-a-new-way-prove-your-iphone-photos-arent-ai-slop
@@ -1180,12 +1257,13 @@ cases:
   - Apple Reference Image is one of several new
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 162
   max_words: 9000
 - url: https://techcrunch.com/2026/09/09/apple-watchs-new-ai-features-are-normalizing-the-idea-that-technology-is-always-listening
@@ -1195,11 +1273,12 @@ cases:
   - Since Apple isn’t saving audio, it’s unclear how
   must_not_contain:
   - More for You
-  - Sponsored
+  - Sponsored Content
+  - Sponsored Links
   - Curated by
   - If you would like to submit a response
   - This is an edition of
-  - Read next
   - Related articles
+  - You may also like
   min_words: 474
   max_words: 9000
