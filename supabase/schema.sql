@@ -30,6 +30,34 @@ create policy "public can log events" on events
     and value >= 0 and value <= 3600
   );
 
+-- 2b. Abuse limits on the public insert path. The publishable key is in every page, so anyone
+--     can call the insert endpoint; these checks keep a script from flooding the table or
+--     forging engagement for a story: at most 30 events per session per minute, only known
+--     stories, only recent timestamps, bounded payload sizes.
+create or replace function public.events_guard() returns trigger
+  language plpgsql security definer set search_path = public as $$
+begin
+  if new.story_id is null or not exists (select 1 from stories s where s.id = new.story_id) then
+    raise exception 'unknown story';
+  end if;
+  if new.created_at is null or new.created_at > now() + interval '5 minutes' or new.created_at < now() - interval '1 day' then
+    new.created_at := now();
+  end if;
+  if length(coalesce(new.session, '')) > 40 or length(coalesce(new.path, '')) > 200 then
+    raise exception 'payload too large';
+  end if;
+  if (select count(*) from events e where e.session = new.session and e.created_at > now() - interval '1 minute') >= 30 then
+    raise exception 'too many events';
+  end if;
+  return new;
+end $$;
+drop trigger if exists events_guard on events;
+create trigger events_guard before insert on events for each row execute function public.events_guard();
+
+-- 2c. Retention: events older than 90 days are not used by the ranker and are removed daily
+--     by the pipeline (rank.py); this index makes that cheap.
+create index if not exists events_session_created_idx on events (session, created_at desc);
+
 -- 3. Editorial helpers for Supabase Studio: a view of what is live, ordered like the site.
 create or replace view live_stories as
   select s.id, s.slug, s.headline, s.category, s.importance, s.score, s.article_count,

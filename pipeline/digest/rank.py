@@ -40,11 +40,20 @@ DISCOVERY_TTL_DAYS = 3
 
 
 def _engagement(conn) -> dict[int, float]:
+    """Engagement per article, counting each session at most once per event type per day,
+    so a single visitor (or a script) cannot inflate a story by reloading it."""
     since = db.utcnow() - timedelta(days=30)
-    rows = conn.execute(
-        select(db.events.c.article_id, db.events.c.type, func.sum(db.events.c.value))
+    # Prune old events first: nothing past 90 days is used anywhere.
+    conn.execute(db.events.delete().where(db.events.c.created_at < db.utcnow() - timedelta(days=90)))
+    day = func.date(db.events.c.created_at)
+    dedup = (
+        select(db.events.c.article_id, db.events.c.type, db.events.c.session, day.label("d"),
+               func.max(db.events.c.value).label("v"))
         .where(db.events.c.created_at >= since, db.events.c.article_id.isnot(None))
-        .group_by(db.events.c.article_id, db.events.c.type)
+        .group_by(db.events.c.article_id, db.events.c.type, db.events.c.session, day)
+    ).subquery()
+    rows = conn.execute(
+        select(dedup.c.article_id, dedup.c.type, func.sum(dedup.c.v)).group_by(dedup.c.article_id, dedup.c.type)
     ).all()
     raw: dict[int, float] = {}
     for article_id, etype, total in rows:

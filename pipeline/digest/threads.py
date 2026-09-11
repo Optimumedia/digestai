@@ -21,11 +21,12 @@ WINDOW_DAYS = 14
 # Measured on bge-small embeddings: episodes of one saga score ~0.80+, unrelated stories about
 # the same company 0.65-0.70. Two ways in: very close with any shared name, or fairly close
 # with a shared name that is specific (not one of the names in every other story).
-THRESHOLD_ANY = 0.78
-THRESHOLD_SPECIFIC = 0.72
+THRESHOLD_ANY = 0.88
+THRESHOLD_SPECIFIC = 0.78
+MAX_EPISODES = 10  # past this a "thread" is a topic; the next episode starts a fresh thread
 # Entities present in more than this share of recent stories (Anthropic, OpenAI, Claude...) say
 # nothing about which saga a story belongs to, so they do not count as a shared entity.
-UBIQUITOUS_SHARE = 0.15
+UBIQUITOUS_SHARE = 0.06
 
 
 def _names(entities: dict | None) -> set[str]:
@@ -111,9 +112,17 @@ def run() -> dict:
         if not stories:
             stats["named"] = name_threads(eng)
             return stats
-        threads = conn.execute(select(db.threads).where(db.threads.c.updated_at >= since)).all()
+        threads = conn.execute(select(db.threads).where(db.threads.c.updated_at >= since, db.threads.c.story_count < MAX_EPISODES)).all()
         vecs = {t.id: np.asarray(t.embedding, dtype=np.float32) for t in threads}
         meta = {t.id: {"names": _names(t.entities), "count": t.story_count, "ents": t.entities or {}} for t in threads}
+        # The latest episode's own vector: a thread's centroid drifts as it grows, so the "very
+        # close" test is made against the most recent episode rather than the average.
+        latest_vec: dict[int, np.ndarray] = {}
+        for t in threads:
+            row = conn.execute(select(db.stories.c.embedding).where(db.stories.c.thread_id == t.id, db.stories.c.embedding.isnot(None))
+                               .order_by(db.stories.c.first_published_at.desc()).limit(1)).first()
+            if row:
+                latest_vec[t.id] = np.asarray(row.embedding, dtype=np.float32)
 
         # Entity frequency over the window decides which names are too common to be a signal.
         recent = conn.execute(select(db.stories.c.entities).where(db.stories.c.first_published_at >= since)).all()
@@ -130,13 +139,16 @@ def run() -> dict:
             names = names_all - ubiquitous
             best, best_sim = None, 0.0
             for tid, tv in vecs.items():
+                if meta[tid]["count"] >= MAX_EPISODES:
+                    continue
                 shared_any = names_all & meta[tid]["names"]
                 if not shared_any:
                     continue
                 sim = float(np.dot(v, tv))
+                sim_latest = float(np.dot(v, latest_vec[tid])) if tid in latest_vec else sim
                 specific = bool(names & (meta[tid]["names"] - ubiquitous))
-                if (sim >= THRESHOLD_ANY or (specific and sim >= THRESHOLD_SPECIFIC)) and sim > best_sim:
-                    best, best_sim = tid, sim
+                if (sim_latest >= THRESHOLD_ANY or (specific and sim_latest >= THRESHOLD_SPECIFIC)) and sim_latest > best_sim:
+                    best, best_sim = tid, sim_latest
             if best is not None:
                 n = meta[best]["count"]
                 merged = (vecs[best] * n + v) / (n + 1)

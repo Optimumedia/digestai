@@ -20,13 +20,23 @@ def main() -> int:
         return 1
     eng = db.engine()  # creates any missing tables first
     sql = (ROOT / "supabase" / "schema.sql").read_text(encoding="utf-8")
-    statements = [s.strip() for s in sql.split(";") if s.strip() and not s.strip().startswith("--")]
+    sql = "\n".join(line for line in sql.splitlines() if not line.strip().startswith("--"))
+    # Split on semicolons, but not inside $$ ... $$ function bodies.
+    statements, buf, in_dollar = [], "", False
+    for ch in sql:
+        buf += ch
+        if buf.endswith("$$"):
+            in_dollar = not in_dollar
+        if ch == ";" and not in_dollar:
+            statements.append(buf.strip().rstrip(";").strip())
+            buf = ""
+    if buf.strip():
+        statements.append(buf.strip().rstrip(";").strip())
     from sqlalchemy import text
 
     applied = 0
     with eng.begin() as conn:
-        for stmt in statements:
-            body = "\n".join(line for line in stmt.splitlines() if not line.strip().startswith("--")).strip()
+        for body in statements:
             if not body:
                 continue
             conn.execute(text(body))
