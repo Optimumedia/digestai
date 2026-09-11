@@ -182,7 +182,10 @@ def call_groq(prompt: str) -> dict:
         wait = _groq_wait_until.get(model, 0.0) - time.time()
         if wait > 0:
             if wait > 45:
-                continue  # let a fallback model take this one
+                # Rate limited for a while: let a fallback take this one. This is a retry
+                # condition, never a daily-quota one, so the day must not be marked exhausted.
+                last = RuntimeError(f"groq {model} rate limited for {wait:.0f}s")
+                continue
             time.sleep(wait)
         resp = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -220,6 +223,10 @@ def call_groq(prompt: str) -> dict:
             continue
         if resp.status_code >= 500:
             last = RuntimeError(f"groq {model} http {resp.status_code}")
+            continue
+        if resp.status_code == 400 and "json" in resp.text.lower():
+            # This model could not produce valid JSON for this article; another model usually can.
+            last = RuntimeError(f"groq {model} could not produce JSON")
             continue
         if resp.status_code >= 400:
             raise RuntimeError(f"groq {model} http {resp.status_code}: {resp.text[:160]}")
