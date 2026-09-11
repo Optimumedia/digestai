@@ -44,7 +44,9 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-3.8-flash"
 GEMINI_FALLBACK_MODELS = [m.strip() for m in (os.environ.get("GEMINI_FALLBACK_MODELS") or "gemini-3.5-flash,gemini-flash-latest").split(",") if m.strip()]
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+# Verified 2026-09-11 against the Groq model list; each model has its own free-tier quota.
+GROQ_MODEL = os.environ.get("GROQ_MODEL") or "qwen/qwen3.8-27b"
+GROQ_FALLBACK_MODELS = [m.strip() for m in (os.environ.get("GROQ_FALLBACK_MODELS") or "openai/gpt-oss-120b,openai/gpt-oss-20b").split(",") if m.strip()]
 
 # Kit (formerly ConvertKit) daily broadcast. 05:00 UTC is 07:00 in Central Europe in winter,
 # 08:00 in summer; change NEWSLETTER_HOUR_UTC to taste.
@@ -61,8 +63,11 @@ MAX_ENRICH_PER_RUN = int(os.environ.get("MAX_ENRICH_PER_RUN") or "20")
 RUNS_PER_DAY = int(os.environ.get("RUNS_PER_DAY") or "48")
 DAILY_BUDGET = {
     "gemini": int(os.environ.get("GEMINI_DAILY_BUDGET") or "54"),
-    "groq": int(os.environ.get("GROQ_DAILY_BUDGET") or "1000"),
+    "groq": int(os.environ.get("GROQ_DAILY_BUDGET") or "2400"),  # 3 models x 1,000/day, 80%
 }
+# Groq's free tier allows ~8,000 tokens per minute per model, so the article text sent to it is
+# shorter than Gemini's and calls are paced from the rate-limit headers.
+GROQ_INPUT_WORDS = int(os.environ.get("GROQ_INPUT_WORDS") or "2200")
 
 # Local model through Ollama (used when no API key is configured, e.g. on the GitHub runner).
 # A 3B model on a 4-core runner takes ~40 s per article, so the per-run cap is lower.

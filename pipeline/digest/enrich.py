@@ -154,24 +154,85 @@ def call_gemini(prompt: str) -> dict:
     raise last or QuotaExhausted("gemini: no model available")
 
 
+_groq_dead: set[str] = set()
+_groq_wait_until: dict[str, float] = {}  # model -> time.time() when its token window resets
+
+
+def _parse_reset(value: str | None) -> float:
+    """Groq reset headers look like '1.5s', '23.4s', '1m2s'; return seconds."""
+    if not value:
+        return 0.0
+    total, num = 0.0, ""
+    for ch in value:
+        if ch.isdigit() or ch == ".":
+            num += ch
+        elif ch in "hms" and num:
+            total += float(num) * {"h": 3600, "m": 60, "s": 1}[ch]
+            num = ""
+    return total
+
+
 def call_groq(prompt: str) -> dict:
-    resp = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {config.GROQ_API_KEY}"},
-        json={
-            "model": config.GROQ_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.3,
-            "response_format": {"type": "json_object"},
-            "max_tokens": 2048,
-        },
-        timeout=60,
-    )
-    if resp.status_code == 429:
-        raise QuotaExhausted("groq 429")
-    if resp.status_code >= 400:
-        raise RuntimeError(f"groq http {resp.status_code}: {resp.text[:160]}")
-    return _parse_json(resp.json()["choices"][0]["message"]["content"])
+    """Try the primary model, then the fallbacks; each Groq model has its own daily quota and
+    a tokens-per-minute window that the response headers report."""
+    last: Exception | None = None
+    for model in [config.GROQ_MODEL, *config.GROQ_FALLBACK_MODELS]:
+        if model in _groq_dead:
+            continue
+        wait = _groq_wait_until.get(model, 0.0) - time.time()
+        if wait > 0:
+            if wait > 45:
+                continue  # let a fallback model take this one
+            time.sleep(wait)
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {config.GROQ_API_KEY}"},
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3,
+                "response_format": {"type": "json_object"},
+                "max_tokens": 3000,
+            },
+            timeout=90,
+        )
+        h = resp.headers
+        if resp.status_code == 429:
+            detail = ""
+            try:
+                detail = resp.json().get("error", {}).get("message", "")[:100]
+            except Exception:  # noqa: BLE001
+                pass
+            # A per-minute limit resets in seconds; a daily one does not. Only the latter kills the model.
+            reset_tokens = _parse_reset(h.get("x-ratelimit-reset-tokens"))
+            reset_requests = _parse_reset(h.get("x-ratelimit-reset-requests"))
+            if h.get("x-ratelimit-remaining-requests") == "0" and reset_requests > 120:
+                _groq_dead.add(model)
+                last = QuotaExhausted(f"groq {model} daily quota: {detail}")
+                log.warning("groq %s daily quota reached; trying next model", model)
+            else:
+                _groq_wait_until[model] = time.time() + max(reset_tokens, reset_requests, 5.0)
+                last = RuntimeError(f"groq {model} rate limited for {max(reset_tokens, reset_requests):.0f}s")
+            continue
+        if resp.status_code == 404:
+            _groq_dead.add(model)
+            last = QuotaExhausted(f"groq {model} 404")
+            continue
+        if resp.status_code >= 500:
+            last = RuntimeError(f"groq {model} http {resp.status_code}")
+            continue
+        if resp.status_code >= 400:
+            raise RuntimeError(f"groq {model} http {resp.status_code}: {resp.text[:160]}")
+        # Pace the next call from the tokens-per-minute window so we never trip the limit.
+        try:
+            remaining = int(h.get("x-ratelimit-remaining-tokens", "99999"))
+            if remaining < 4500:
+                _groq_wait_until[model] = time.time() + _parse_reset(h.get("x-ratelimit-reset-tokens")) + 1
+        except ValueError:
+            pass
+        content = resp.json()["choices"][0]["message"]["content"]
+        return _parse_json(content)
+    raise last or QuotaExhausted("groq: no model available")
 
 
 def call_ollama(prompt: str) -> dict:
@@ -342,13 +403,14 @@ def run() -> dict:
             provider = name.split(":")[0]
             if provider in budgets and spent.get(provider, 0) >= budgets[provider]:
                 continue  # this provider's share for the run is spent; try the next one
-            if provider == "ollama":
-                # Long inputs are slow on CPU; trim for the local model only.
+            if provider in ("ollama", "groq"):
+                # Shorter input for the CPU model (speed) and for Groq (tokens-per-minute window).
+                words = config.LOCAL_INPUT_WORDS if provider == "ollama" else config.GROQ_INPUT_WORDS
                 prompt = PROMPT.format(
                     categories=", ".join(f'"{k}" ({v})' for k, v in config.CATEGORIES.items()),
                     title=row.title, source=row.source_name,
                     published=row.published_at.isoformat() if row.published_at else "unknown",
-                    text=_truncate(text, config.LOCAL_INPUT_WORDS),
+                    text=_truncate(text, words),
                 )
             try:
                 result = fn(prompt)
@@ -398,6 +460,5 @@ def run() -> dict:
             ))
         if model_used.startswith("gemini"):
             time.sleep(4.2)  # 15 requests per minute on the free tier
-        elif model_used.startswith("groq"):
-            time.sleep(2.1)
+        # Groq paces itself from its rate-limit headers inside call_groq.
     return stats

@@ -9,7 +9,7 @@ The repository is public at https://github.com/Optimumedia/digestai and the work
 |---|---|---|
 | Hosting | GitHub Pages, deployed by the workflow | Cloudflare Pages (unmetered bandwidth) |
 | Database | SQLite kept in the Actions cache, daily backup artifact | Supabase Postgres + reader events |
-| Summaries | Qwen 2.5 3B running on the runner (10 articles per run) | Gemini Flash (30 per run, better prose) |
+| Summaries | Qwen 2.5 3B running on the runner (10 articles per run) | Gemini (done; free tier is only 20/day per model, used for top sources) and **Groq** (14,400/day free: every article gets a proper summary) |
 | Unpublish | edit `pipeline/digest/moderation.yaml` on GitHub | Supabase Studio |
 | Newsletter | none (the `/today` page and RSS exist) | Kit |
 | Comments | none | giscus app install (one click) |
@@ -40,10 +40,12 @@ Copy `.env.example` to `.env` at the repo root, fill in what you have, then run
    `PUBLIC_SUPABASE_ANON_KEY`. This key is designed to be public; the SQL in step 6 limits it to
    inserting reader events.
 
-## 2. Gemini and Groq keys (3 min)
+## 2. Groq key (3 min, the most valuable remaining upgrade)
 
-- https://aistudio.google.com/apikey → Create API key → `GEMINI_API_KEY`.
-- https://console.groq.com/keys → Create key → `GROQ_API_KEY`.
+- https://console.groq.com/keys → sign in (Google or GitHub account works) → Create API Key →
+  paste into `.env` as `GROQ_API_KEY`. Free, no card, 14,400 requests a day.
+- Gemini is already configured. Its free tier turned out to be 20 requests a day per model, so
+  it only covers the top sources; Groq covers everything else with a strong model (Llama 3.3 70B).
 
 ## 3. Kit newsletter (10 min)
 
