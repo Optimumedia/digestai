@@ -190,11 +190,7 @@ _engine: Engine | None = None
 def engine() -> Engine:
     global _engine
     if _engine is None:
-        url = config.DATABASE_URL
-        if url.startswith("postgres://"):
-            url = url.replace("postgres://", "postgresql+psycopg://", 1)
-        elif url.startswith("postgresql://"):
-            url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+        url = _normalize_url(config.DATABASE_URL)
         _engine = create_engine(url, future=True, pool_pre_ping=True)
         metadata.create_all(_engine)
         _migrate(_engine)
@@ -202,6 +198,24 @@ def engine() -> Engine:
             with _engine.begin() as conn:
                 conn.execute(text("PRAGMA journal_mode=WAL"))
     return _engine
+
+
+def _normalize_url(url: str) -> str:
+    """Use the psycopg driver and percent-encode a raw password (spaces, &, @, # ...) so a
+    connection string pasted straight from a dashboard works unchanged."""
+    import re
+    from urllib.parse import quote, unquote
+
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    m = re.match(r"^(postgresql)(\+\w+)?://([^:/@]+):(.*)@([^@]+)$", url, re.DOTALL)
+    if m:
+        scheme, driver, user, password, rest = m.groups()
+        password = quote(unquote(password), safe="")
+        return f"{scheme}+psycopg://{user}:{password}@{rest}"
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
 
 
 def _migrate(eng: Engine) -> None:
