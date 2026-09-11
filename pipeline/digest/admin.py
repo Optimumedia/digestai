@@ -159,6 +159,134 @@ def run() -> dict:
             top_engaged = [{"slug": r.slug, "headline": r.headline, "engagement": round(float(r.e or 0), 1)} for r in rows]
         out["engagement"] = {"available": has_events, "perDay": list(per_day_ev.values()), "topStories": top_engaged}
 
+        # ---- story performance: prediction vs what actually happened (readers, or the web).
+        per_story_ev: dict[int, dict] = {}
+        if has_events:
+            for sid, etype, n, total in conn.execute(
+                select(db.events.c.story_id, db.events.c.type, func.count(), func.sum(db.events.c.value))
+                .where(db.events.c.created_at >= since, db.events.c.story_id.isnot(None))
+                .group_by(db.events.c.story_id, db.events.c.type)
+            ).all():
+                row = per_story_ev.setdefault(sid, {"views": 0, "dwell": 0.0, "dwellN": 0, "clicks": 0, "saves": 0, "shares": 0})
+                if etype == "view": row["views"] += int(n)
+                elif etype == "dwell": row["dwell"] += float(total or 0); row["dwellN"] += int(n)
+                elif etype == "click_source": row["clicks"] += int(n)
+                elif etype == "save": row["saves"] += int(n)
+                elif etype == "share": row["shares"] += int(n)
+        art_by_story: dict[int, list] = {}
+        for a in conn.execute(
+            select(db.articles.c.story_id, db.articles.c.predicted_score, db.articles.c.engagement, db.articles.c.discussion_points,
+                   db.articles.c.trend_score, db.articles.c.published_at, db.articles.c.created_at, db.articles.c.source_id)
+            .where(db.articles.c.status == "published", db.articles.c.created_at >= week)
+        ).all():
+            art_by_story.setdefault(a.story_id, []).append(a)
+        src_type = {s.id: s.source_type for s in src}
+        perf = []
+        for s in stories:
+            if s.status != "published" or s.id not in art_by_story:
+                continue
+            members = art_by_story[s.id]
+            ev_row = per_story_ev.get(s.id, {})
+            pop = max((float(m.discussion_points or 0) for m in members), default=0.0)
+            trend = max((float(m.trend_score or 0) for m in members), default=0.0)
+            perf.append({
+                "slug": s.slug, "headline": s.headline, "category": s.category, "score": round(s.score or 0, 3),
+                "importance": s.importance, "sources": s.article_count, "pinned": s.pinned,
+                "publishedAt": _iso(s.first_published_at),
+                "primary": any(src_type.get(m.source_id) == "primary" for m in members),
+                "predicted": round(max((m.predicted_score or 0.0) for m in members), 2),
+                "actual": round(sum((m.engagement or 0.0) for m in members), 1),
+                "hnPoints": int(pop), "trend": int(trend),
+                "views": ev_row.get("views", 0),
+                "dwellAvg": round(ev_row["dwell"] / ev_row["dwellN"]) if ev_row.get("dwellN") else None,
+                "clicks": ev_row.get("clicks", 0), "saves": ev_row.get("saves", 0), "shares": ev_row.get("shares", 0),
+            })
+        perf.sort(key=lambda p: (-(p["actual"] if has_events else (p["hnPoints"] + p["trend"])), -p["score"]))
+        out["performance"] = perf[:60]
+
+        # ---- freshness: minutes from publication to appearing in our database.
+        lat_rows = conn.execute(
+            select(db.articles.c.created_at, db.articles.c.published_at, db.articles.c.source_id)
+            .where(db.articles.c.created_at >= since, db.articles.c.published_at.isnot(None), db.articles.c.status == "published")
+        ).all()
+        by_day_lat: dict[str, list[float]] = {d: [] for d in days}
+        by_src_lat: dict[int, list[float]] = {}
+        for r in lat_rows:
+            mins = (db.as_utc(r.created_at) - db.as_utc(r.published_at)).total_seconds() / 60
+            if mins < 0 or mins > 7 * 24 * 60:
+                continue
+            d = _day(r.created_at)
+            if d in by_day_lat:
+                by_day_lat[d].append(mins)
+            if db.as_utc(r.created_at) >= week:
+                by_src_lat.setdefault(r.source_id, []).append(mins)
+
+        def median(xs: list[float]):
+            if not xs:
+                return None
+            xs = sorted(xs)
+            return round(xs[len(xs) // 2])
+
+        out["freshness"] = {
+            "perDay": [{"day": d, "medianMinutes": median(v), "articles": len(v)} for d, v in by_day_lat.items()],
+            "perSource": {str(sid): median(v) for sid, v in by_src_lat.items()},
+        }
+        for s_out in out["sources"]:
+            sid = next((s.id for s in src if s.key == s_out["key"]), None)
+            s_out["medianMinutes"] = median(by_src_lat.get(sid, []))
+
+        # ---- extraction quality per publisher domain, 7 days vs last 24 hours.
+        ex_rows = conn.execute(
+            select(db.articles.c.domain, db.articles.c.extraction_method, db.articles.c.status, db.articles.c.reject_reason,
+                   db.articles.c.created_at, db.articles.c.show_fulltext)
+            .where(db.articles.c.created_at >= week, db.articles.c.status != "new")
+        ).all()
+        day_ago = now - timedelta(days=1)
+        quality: dict[str, dict] = {}
+        for r in ex_rows:
+            q = quality.setdefault(r.domain, {"domain": r.domain, "full": 0, "short": 0, "description": 0, "failed": 0, "total": 0, "recentTotal": 0, "recentBad": 0})
+            m = r.extraction_method or ""
+            if (r.reject_reason or "").startswith("extract"):
+                cls = "failed"
+            elif m.endswith("-short"):
+                cls = "short"
+            elif m == "description" or m == "none":
+                cls = "description"
+            else:
+                cls = "full"
+            q[cls] += 1
+            q["total"] += 1
+            if db.as_utc(r.created_at) >= day_ago:
+                q["recentTotal"] += 1
+                if cls in ("failed", "description"):
+                    q["recentBad"] += 1
+        qual = sorted(quality.values(), key=lambda q: -q["total"])[:25]
+        for q in qual:
+            q["fullRate"] = round(q["full"] / q["total"], 2) if q["total"] else None
+            q["recentBadRate"] = round(q["recentBad"] / q["recentTotal"], 2) if q["recentTotal"] >= 3 else None
+        out["extraction"] = qual
+
+        # ---- alerts: the things that need a human today.
+        alerts = []
+        last_steps = [r for r in runs if db.as_utc(r.started_at) >= now - timedelta(hours=1)]
+        if any((r.stats or {}).get("crashed") for r in last_steps):
+            alerts.append({"level": "critical", "text": "The latest pipeline run had a crashed step. Open the Actions log."})
+        if not runs or db.as_utc(runs[0].started_at) < now - timedelta(hours=2):
+            alerts.append({"level": "critical", "text": "No pipeline run in the last 2 hours. The schedule may be paused."})
+        for s in out["sources"]:
+            if s["enabled"] and not s["discovered"] and s["errorCount"] >= 12:
+                alerts.append({"level": "warning", "text": f"Source {s['name']} has failed {s['errorCount']} runs in a row: {s['lastError'] or 'no detail'}"})
+        for u in usage:
+            if u.day == now.date().isoformat() and u.exhausted and now.hour < 12:
+                alerts.append({"level": "warning", "text": f"{u.provider} hit its daily quota before noon UTC; the rest of the day runs on fallbacks."})
+        recent_pub = conn.execute(select(func.count()).select_from(db.stories).where(db.stories.c.first_published_at >= now - timedelta(hours=3), db.stories.c.status == "published")).scalar() or 0
+        if recent_pub == 0 and now.hour not in (2, 3, 4, 5):
+            alerts.append({"level": "warning", "text": "No new story published in the last 3 hours."})
+        for q in qual:
+            if q["recentBadRate"] is not None and q["recentBadRate"] >= 0.6 and (q["fullRate"] or 0) >= 0.5:
+                alerts.append({"level": "warning", "text": f"Extraction from {q['domain']} is failing today ({int(q['recentBadRate']*100)}% bad) after working this week; the site may have changed."})
+        out["alerts"] = alerts
+
     config.SITE_DATA_DIR.mkdir(parents=True, exist_ok=True)
     (config.SITE_DATA_DIR / "admin.json").write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
     return {"runs": len(out["runs"]), "sources": len(out["sources"]), "engagement": out["engagement"]["available"]}

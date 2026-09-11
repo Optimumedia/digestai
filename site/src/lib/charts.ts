@@ -86,6 +86,33 @@ export function lines(rows: Record<string, any>[], xKey: string, series: Series[
   return out;
 }
 
+/** Horizontal stacked bars: one row per entity, segments per series (shares of a whole). */
+export function stackedBars(rows: Record<string, any>[], labelKey: string, series: Series[], opts: { w?: number; rowH?: number } = {}): string {
+  const w = opts.w ?? 640, rowH = opts.rowH ?? 24;
+  const labelW = 190, padR = 44;
+  const h = rows.length * rowH + 4;
+  const pw = w - labelW - padR;
+  let out = `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="stacked bar chart">`;
+  rows.forEach((r, i) => {
+    const total = series.reduce((s, k) => s + (Number(r[k.key]) || 0), 0) || 1;
+    const y0 = i * rowH + 3, bh = Math.min(16, rowH - 8);
+    const label = String(r[labelKey]);
+    out += `<text class="ylabel" x="${labelW - 10}" y="${y0 + bh / 2 + 4}" text-anchor="end">${esc(label.length > 26 ? label.slice(0, 25) + "…" : label)}</text>`;
+    let x = labelW;
+    const tip = `${esc(label)}: ` + series.map((s) => `${s.label} ${r[s.key] ?? 0}`).join(", ");
+    series.forEach((s) => {
+      const v = Number(r[s.key]) || 0;
+      if (!v) return;
+      const bw = Math.max(0, (v / total) * pw - 2);
+      out += `<rect class="mark" fill="${s.color}" x="${x}" y="${y0}" width="${bw}" height="${bh}" rx="2"><title>${tip}</title></rect>`;
+      x += (v / total) * pw;
+    });
+    out += `<text class="value" x="${labelW + pw + 6}" y="${y0 + bh / 2 + 4}">${fmt(total)}</text>`;
+  });
+  out += `</svg>`;
+  return out;
+}
+
 /** Horizontal bars, single series, labelled at the tip. */
 export function bars(rows: { label: string; value: number; color?: string; title?: string }[], opts: { w?: number; color: string; rowH?: number }): string {
   const w = opts.w ?? 640, rowH = opts.rowH ?? 26;

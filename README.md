@@ -92,6 +92,28 @@ per-story share images.
 7. Site events: repository secrets `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_ANON_KEY`
    (the anon key is public by design; `supabase/schema.sql` restricts it to inserting events).
 
+## Admin dashboard
+
+`https://digestai.news/admin` (not indexed, not in the sitemap). Built from `admin.json`, which the
+pipeline writes on every run: last-run health, the article funnel per day, who wrote the summaries,
+model calls against budgets, run durations, category mix, source performance (7-day fetched /
+published / discussed on the web, weight, learned performance, errors), top stories by feed
+score, recent runs step by step, and reader engagement once Supabase records events.
+
+Actions on the page (run the pipeline now, pin, unpublish) commit through GitHub's API and need a
+personal token with `repo` and `workflow` scopes, stored only in that browser. Pin and unpublish
+edit `pipeline/digest/moderation.yaml`; the next run applies them.
+
+## How ranking learns
+
+`rank.py` scores every story from two signal families. External popularity: Hacker News points,
+Reddit score, Mastodon trending shares, number of outlets covering the story, whether the primary
+source is in it, and how fast that popularity arrived. Internal engagement: views, time on page,
+clicks to source, saves, follows and shares from the events table. A ridge regression from
+[story embedding + those features] predicts how new stories will do; it trains on reader
+engagement when there is enough of it and on web popularity until then. Source weights drift
+toward sources whose stories perform, and the hottest entities become temporary search feeds.
+
 ## Editorial control
 
 Supabase Studio is the admin panel. `live_stories` shows what is on the site in site order.

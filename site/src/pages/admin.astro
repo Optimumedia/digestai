@@ -1,6 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
-import { columns, lines, bars } from "../lib/charts";
+import { columns, lines, bars, stackedBars } from "../lib/charts";
 import { meta, categories, formatDate } from "../lib/data";
 import fs from "node:fs";
 import path from "node:path";
@@ -73,6 +73,18 @@ const runRows = runs.slice(0, 48).reverse().map((r) => ({ t: r.startedAt, second
 const catRows = (admin?.content?.categories || []).map((c: any) => ({ label: c.name, value: c.stories }));
 const srcRows = sources.filter((s: any) => s.published > 0).slice(0, 14).map((s: any) => ({ label: s.name, value: s.published, title: `${s.name}: ${s.published} published of ${s.articles} fetched, ${s.discussed} discussed on the web` }));
 const rel = (iso: string | null | undefined) => iso ? `${Math.round((Date.now() - Date.parse(iso)) / 60000)}m ago` : "never";
+const alerts: { level: string; text: string }[] = admin?.alerts || [];
+const perf: any[] = admin?.performance || [];
+const fresh = admin?.freshness || { perDay: [], perSource: {} };
+const freshRows = fresh.perDay.map((d: any) => ({ day: d.day, minutes: d.medianMinutes ?? 0 }));
+const extraction: any[] = admin?.extraction || [];
+const exSeries = [
+  { key: "full", label: "Full text", color: C.s1 },
+  { key: "short", label: "Short text", color: C.s4 },
+  { key: "description", label: "Summary only", color: C.neutral },
+  { key: "failed", label: "Failed", color: C.s2 },
+];
+const mins = (m: number | null | undefined) => m == null ? "—" : m >= 120 ? `${(m / 60).toFixed(1)} h` : `${m} min`;
 ---
 
 <Base title="Digest AI Admin" description="Pipeline health, sources, model usage and reader engagement." noindex={true}>
@@ -94,6 +106,14 @@ const rel = (iso: string | null | undefined) => iso ? `${Math.round((Date.now() 
 
     {admin && (
       <>
+        <section class="alerts" aria-label="Needs attention">
+          {alerts.length === 0 ? (
+            <div class="alert ok"><span class="st good">●</span> Nothing needs attention. Last check <time datetime={admin.generatedAt}></time>.</div>
+          ) : alerts.map((a) => (
+            <div class:list={["alert", a.level]}><span class:list={["st", a.level === "critical" ? "bad" : "warn"]}>●</span> {a.text}</div>
+          ))}
+        </section>
+
         <section class="tiles">
           <div class:list={["tile", { bad: lastRun && !lastRun.ok }]}>
             <span class="label">Last run</span>
@@ -139,6 +159,15 @@ const rel = (iso: string | null | undefined) => iso ? `${Math.round((Date.now() 
             <h2>Sources that publish <span class="muted">articles published, 7 days</span></h2>
             <Fragment set:html={bars(srcRows, { color: C.s1 })} />
           </article>
+          <article class="card">
+            <h2>Freshness <span class="muted">median minutes from publication to our site, per day</span></h2>
+            <Fragment set:html={lines(freshRows, "day", [{ key: "minutes", label: "Minutes", color: C.s1 }])} />
+          </article>
+          <article class="card">
+            <h2>Extraction quality by publisher <span class="muted">7 days, share of articles</span></h2>
+            <div class="legend">{exSeries.map((s) => <span><i style={`background:${s.color}`}></i>{s.label}</span>)}</div>
+            <Fragment set:html={stackedBars(extraction.slice(0, 12), "domain", exSeries)} />
+          </article>
           <article class="card wide">
             <h2>Readers <span class="muted">views and sessions per day</span></h2>
             {eng.available ? (
@@ -153,19 +182,29 @@ const rel = (iso: string | null | undefined) => iso ? `${Math.round((Date.now() 
         </section>
 
         <section class="card">
-          <h2>Top stories right now <span class="muted">by feed score · actions need a GitHub token (below)</span></h2>
+          <h2>Story performance <span class="muted">7 days · predicted vs actual{eng.available ? "" : " (web signals until readers are recorded)"} · click a header to sort</span></h2>
           <div class="tablewrap">
-            <table class="tracker" id="stories-table">
-              <thead><tr><th>Score</th><th>Story</th><th>Category</th><th>Imp.</th><th>Sources</th><th>Published</th><th>Actions</th></tr></thead>
+            <table class="tracker sortable" id="stories-table">
+              <thead><tr>
+                <th data-sort="score" class="num">Score</th><th data-sort="headline">Story</th><th data-sort="category">Category</th>
+                <th data-sort="predicted" class="num">Predicted</th><th data-sort="actual" class="num">Actual</th>
+                <th data-sort="views" class="num">Views</th><th data-sort="dwellavg" class="num">Time</th><th data-sort="clicks" class="num">Clicks</th>
+                <th data-sort="hnpoints" class="num">HN</th><th data-sort="trend" class="num">Shares</th><th data-sort="sources" class="num">Src</th><th>Actions</th>
+              </tr></thead>
               <tbody>
-                {admin.topStories.map((s: any) => (
-                  <tr data-slug={s.slug}>
+                {perf.map((s: any) => (
+                  <tr data-slug={s.slug} data-score={s.score} data-headline={s.headline} data-category={s.category} data-predicted={s.predicted} data-actual={s.actual} data-views={s.views} data-dwellavg={s.dwellAvg ?? ""} data-clicks={s.clicks} data-hnpoints={s.hnPoints} data-trend={s.trend} data-sources={s.sources}>
                     <td class="num">{s.score.toFixed(2)}</td>
-                    <td><a href={`/story/${s.slug}`}>{s.headline}</a>{s.pinned && <span class="cov-tag"> pinned</span>}</td>
-                    <td>{categories[s.category] || s.category}</td>
-                    <td class="num">{s.importance}</td>
+                    <td><a href={`/story/${s.slug}`}>{s.headline}</a>{s.pinned && <span class="cov-tag"> pinned</span>}{s.primary && <span class="cov-tag"> primary</span>}</td>
+                    <td>{(categories[s.category] || s.category || "").split(" & ")[0]}</td>
+                    <td class="num"><span class="mini"><i style={`width:${Math.round(s.predicted * 100)}%`}></i></span>{s.predicted.toFixed(2)}</td>
+                    <td class="num">{eng.available ? s.actual : "—"}</td>
+                    <td class="num">{eng.available ? s.views : "—"}</td>
+                    <td class="num">{eng.available && s.dwellAvg != null ? `${s.dwellAvg}s` : "—"}</td>
+                    <td class="num">{eng.available ? s.clicks : "—"}</td>
+                    <td class="num">{s.hnPoints || ""}</td>
+                    <td class="num">{s.trend || ""}</td>
                     <td class="num">{s.sources}</td>
-                    <td class="num">{formatDate(s.publishedAt, { day: "numeric", month: "short" })}</td>
                     <td class="acts"><button class="tb" data-mod="pin" data-slug={s.slug}>{s.pinned ? "Unpin" : "Pin"}</button><button class="tb danger" data-mod="unpublish" data-slug={s.slug}>Unpublish</button></td>
                   </tr>
                 ))}
@@ -178,10 +217,10 @@ const rel = (iso: string | null | undefined) => iso ? `${Math.round((Date.now() 
           <h2>Sources <span class="muted">7-day performance · click a header to sort</span></h2>
           <div class="tablewrap">
             <table class="tracker sortable" id="sources-table">
-              <thead><tr><th data-sort="name">Source</th><th data-sort="type">Type</th><th data-sort="weight" class="num">Weight</th><th data-sort="performance" class="num">Performance</th><th data-sort="articles" class="num">Fetched</th><th data-sort="published" class="num">Published</th><th data-sort="discussed" class="num">Discussed</th><th data-sort="lastFetchedAt">Last fetch</th><th>Status</th></tr></thead>
+              <thead><tr><th data-sort="name">Source</th><th data-sort="type">Type</th><th data-sort="weight" class="num">Weight</th><th data-sort="performance" class="num">Performance</th><th data-sort="articles" class="num">Fetched</th><th data-sort="published" class="num">Published</th><th data-sort="discussed" class="num">Discussed</th><th data-sort="medianminutes" class="num">Freshness</th><th data-sort="lastFetchedAt">Last fetch</th><th>Status</th></tr></thead>
               <tbody>
                 {sources.map((s: any) => (
-                  <tr data-name={s.name} data-type={s.type} data-weight={s.weight} data-performance={s.performance} data-articles={s.articles} data-published={s.published} data-discussed={s.discussed} data-lastfetchedat={s.lastFetchedAt || ""}>
+                  <tr data-name={s.name} data-type={s.type} data-weight={s.weight} data-performance={s.performance} data-articles={s.articles} data-published={s.published} data-discussed={s.discussed} data-medianminutes={s.medianMinutes ?? ""} data-lastfetchedat={s.lastFetchedAt || ""}>
                     <td>{s.name}{s.discovered && <span class="cov-tag"> discovered</span>}</td>
                     <td>{s.type}</td>
                     <td class="num">{s.weight.toFixed(1)}</td>
@@ -189,6 +228,7 @@ const rel = (iso: string | null | undefined) => iso ? `${Math.round((Date.now() 
                     <td class="num">{s.articles}</td>
                     <td class="num">{s.published}</td>
                     <td class="num">{s.discussed}</td>
+                    <td class="num">{mins(s.medianMinutes)}</td>
                     <td class="num"><time datetime={s.lastFetchedAt || undefined}></time></td>
                     <td>{!s.enabled ? <span class="st off">● off</span> : s.errorCount > 0 ? <span class="st bad" title={s.lastError}>● failing ({s.errorCount})</span> : <span class="st good">● ok</span>}</td>
                   </tr>

@@ -337,3 +337,10 @@ table.tracker td a:hover { color: var(--accent); }
 .tokenrow input { flex: 1; min-width: 240px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; }
 table.sortable th { cursor: pointer; user-select: none; }
 table.sortable th:hover { color: var(--ink); }
+.alerts { display: grid; gap: 6px; margin-bottom: 14px; }
+.alert { padding: 9px 12px; border-radius: 4px; background: var(--surface); border: 1px solid var(--line); font-size: 14px; }
+.alert.critical { border-color: var(--status-critical); }
+.alert.warning { border-color: var(--status-warning); }
+.st.warn { color: var(--status-warning); }
+.mini { display: inline-block; width: 44px; height: 6px; background: var(--surface-2); border-radius: 3px; vertical-align: middle; margin-right: 6px; overflow: hidden; }
+.mini i { display: block; height: 100%; background: var(--series-1); }
