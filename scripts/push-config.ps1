@@ -38,6 +38,7 @@ foreach ($line in Get-Content $envFile) {
 # Search Console: if the downloaded service-account key file is saved in the repo root as
 # gsc-service-account.json (gitignored), use it instead of pasting the JSON into .env.
 $gscFile = Join-Path $root "gsc-service-account.json"
+$envHasGsc = [bool]$vals["GSC_SERVICE_ACCOUNT_JSON"]
 if (-not $vals["GSC_SERVICE_ACCOUNT_JSON"] -and (Test-Path $gscFile)) {
   try {
     $vals["GSC_SERVICE_ACCOUNT_JSON"] = (Get-Content $gscFile -Raw | ConvertFrom-Json | ConvertTo-Json -Compress -Depth 10)
@@ -86,7 +87,11 @@ if ($Check) { exit 0 }
 foreach ($k in $secrets) {
   # --body rather than a pipe: Windows PowerShell 5.1 writes a UTF-8 byte-order mark in front of
   # piped text, which silently corrupts the secret (DATABASE_URL then fails to parse in CI).
-  if ($vals[$k]) { & $gh.Source secret set $k --repo $repo --body $vals[$k] | Out-Null; Write-Host "  pushed secret   $k" }
+  if ($k -eq "GSC_SERVICE_ACCOUNT_JSON" -and -not $envHasGsc -and (Test-Path $gscFile)) {
+    # JSON contains quotes that PowerShell strips from native arguments; feed the file through cmd
+    # redirection instead (raw bytes, no byte-order mark).
+    & cmd /c "`"$($gh.Source)`" secret set $k --repo $repo < `"$gscFile`"" | Out-Null; Write-Host "  pushed secret   $k (from gsc-service-account.json)"
+  } elseif ($vals[$k]) { & $gh.Source secret set $k --repo $repo --body $vals[$k] | Out-Null; Write-Host "  pushed secret   $k" }
 }
 foreach ($k in $variables) {
   if ($vals[$k]) { & $gh.Source variable set $k --repo $repo --body $vals[$k] | Out-Null; Write-Host "  pushed variable $k" }
