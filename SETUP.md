@@ -6,6 +6,7 @@
 - [ ] **Kit** newsletter account, form and v4 API key → `.env` → `scripts\push-config.ps1` (section 3). Turns on the 07:00 daily email; everything else is wired.
 - [ ] **Bluesky** (optional): create an account for Digest AI, Settings → App passwords → create one; put `BLUESKY_HANDLE` and `BLUESKY_APP_PASSWORD` in `.env`. Then ask for the auto-poster to be built. Telegram channel is the alternative: create a bot with @BotFather, put `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHANNEL` in `.env`.
 - [x] **Google News Publisher Center**: submitted 12 September 2026; approval usually takes days to two weeks. Check status at https://publishercenter.google.com; once approved, Google News and Discover traffic shows in Search Console → Performance → Discover / News tabs.
+- [x] Search Console service account connected (12 Sep); the admin Search tab updates every run.
 - [x] Bing Webmaster Tools imported from Search Console (12 Sep).
 - [x] Search Console sitemaps submitted (11 Sep).
 - [x] giscus installed (11 Sep).
@@ -94,7 +95,7 @@ the pipeline step `push` sends at most one story per run and `PUSH_MAX_PER_DAY` 
 for fresh stories covered by two or more outlets or of very high importance, and prunes dead
 endpoints. If the keys are ever regenerated, readers simply re-enable alerts.
 
-## Search Console data in the dashboard (10 min)
+## Search Console data in the dashboard (done 12 Sep)
 
 Gives the admin "Search" tab clicks, impressions, position, indexed pages and top queries.
 
