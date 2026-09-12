@@ -6,6 +6,7 @@
 - [ ] **Kit** newsletter account, form and v4 API key → `.env` → `scripts\push-config.ps1` (section 3). Turns on the 07:00 daily email; everything else is wired.
 - [ ] **Bluesky** (optional): create an account for Digest AI, Settings → App passwords → create one; put `BLUESKY_HANDLE` and `BLUESKY_APP_PASSWORD` in `.env`. Then ask for the auto-poster to be built. Telegram channel is the alternative: create a bot with @BotFather, put `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHANNEL` in `.env`.
 - [x] **Google News Publisher Center**: submitted 12 September 2026; approval usually takes days to two weeks. Check status at https://publishercenter.google.com; once approved, Google News and Discover traffic shows in Search Console → Performance → Discover / News tabs.
+- [x] Bing Webmaster Tools imported from Search Console (12 Sep).
 - [x] Search Console sitemaps submitted (11 Sep).
 - [x] giscus installed (11 Sep).
 - [x] Supabase connected (11 Sep).
@@ -107,7 +108,7 @@ Gives the admin "Search" tab clicks, impressions, position, indexed pages and to
 4. Put the whole JSON file's content on one line in `.env` as `GSC_SERVICE_ACCOUNT_JSON=` (or add it
    as a repository secret with that name), run `scripts\push-config.ps1`.
 
-## Bing Webmaster Tools (3 min)
+## Bing Webmaster Tools (done 12 Sep)
 
 https://www.bing.com/webmasters → Sign in → **Import from Google Search Console**. Bing then
 mirrors the verified property and sitemaps. IndexNow submissions from the pipeline are already
