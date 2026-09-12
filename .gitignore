@@ -11,3 +11,4 @@ site/public/og/
 .fastembed_cache/
 site/.astro/
 site/public/audio/
+gsc-service-account.json

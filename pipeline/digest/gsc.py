@@ -31,6 +31,9 @@ def _token(sa_info: dict) -> str:
 def run() -> dict:
     stats = {"configured": False}
     raw = os.environ.get("GSC_SERVICE_ACCOUNT_JSON", "").strip()
+    key_file = config.ROOT / "gsc-service-account.json"  # local runs: the downloaded key file
+    if not raw and key_file.exists():
+        raw = key_file.read_text(encoding="utf-8").strip()
     if not raw:
         return stats
     try:
@@ -48,6 +51,16 @@ def run() -> dict:
         return stats
     s = requests.Session()
     s.headers["Authorization"] = f"Bearer {token}"
+    if not os.environ.get("GSC_PROPERTY"):
+        # Use whichever property the service account was actually added to: the domain
+        # property if it exists, otherwise the URL-prefix property (meta-tag verification).
+        try:
+            host = config.SITE_URL.split("//", 1)[-1]
+            sites = [x.get("siteUrl", "") for x in s.get(f"{API}/sites", timeout=30).json().get("siteEntry", [])]
+            mine = [x for x in sites if host in x]
+            prop = next((x for x in mine if x.startswith("sc-domain:")), mine[0] if mine else prop)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("GSC site list failed: %s", str(exc)[:120])
     end = (db.utcnow() - timedelta(days=2)).date()  # GSC data lags ~2 days
     start = end - timedelta(days=27)
     out: dict = {"property": prop, "start": start.isoformat(), "end": end.isoformat()}

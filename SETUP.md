@@ -105,8 +105,10 @@ Gives the admin "Search" tab clicks, impressions, position, indexed pages and to
 3. https://search.google.com/search-console → digestai.news property → Settings → Users and
    permissions → Add user → paste the service account's email (ends in `iam.gserviceaccount.com`),
    permission **Full**.
-4. Put the whole JSON file's content on one line in `.env` as `GSC_SERVICE_ACCOUNT_JSON=` (or add it
-   as a repository secret with that name), run `scripts\push-config.ps1`.
+4. Save the downloaded file in the project folder as `gsc-service-account.json` (it is gitignored),
+   then run `scripts\push-config.ps1`. The script reads the file and pushes it as the
+   `GSC_SERVICE_ACCOUNT_JSON` secret; the pipeline finds the property automatically
+   (domain property or the https://digestai.news/ prefix property, whichever you verified).
 
 ## Bing Webmaster Tools (done 12 Sep)
 

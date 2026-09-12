@@ -35,6 +35,16 @@ foreach ($line in Get-Content $envFile) {
   $vals[$k.Trim()] = $v.Trim().Trim('"').Trim("'")
 }
 
+# Search Console: if the downloaded service-account key file is saved in the repo root as
+# gsc-service-account.json (gitignored), use it instead of pasting the JSON into .env.
+$gscFile = Join-Path $root "gsc-service-account.json"
+if (-not $vals["GSC_SERVICE_ACCOUNT_JSON"] -and (Test-Path $gscFile)) {
+  try {
+    $vals["GSC_SERVICE_ACCOUNT_JSON"] = (Get-Content $gscFile -Raw | ConvertFrom-Json | ConvertTo-Json -Compress -Depth 10)
+    Write-Host "Using gsc-service-account.json for GSC_SERVICE_ACCOUNT_JSON"
+  } catch { Write-Host "gsc-service-account.json is not valid JSON" -ForegroundColor Yellow }
+}
+
 # Secrets stay secret; PUBLIC_ values are embedded in the site so they are stored as secrets too
 # (harmless) except the ones that are convenient to edit in the GitHub UI, which go to variables.
 $secrets   = @("DATABASE_URL", "GEMINI_API_KEY", "GROQ_API_KEY", "KIT_API_KEY",
