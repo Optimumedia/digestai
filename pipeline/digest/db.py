@@ -216,6 +216,33 @@ social_posts = Table(
     UniqueConstraint("network", "kind", "key", name="social_posts_unique"),
 )
 
+# One row per UTC day, kept forever: the dashboard's period comparisons (day vs day ... year vs
+# year). Reader events are pruned after 90 days, so these totals are the only long record.
+# NULL means "not measured that day" (before tracking existed), which is not the same as zero.
+daily_stats = Table(
+    "daily_stats",
+    metadata,
+    Column("day", String(10), primary_key=True),  # YYYY-MM-DD, UTC
+    Column("sessions", Integer),
+    Column("views", Integer),
+    Column("dwell_seconds", Float),
+    Column("dwell_reads", Integer),
+    Column("clicks", Integer),
+    Column("saves", Integer),
+    Column("follows", Integer),
+    Column("shares", Integer),
+    Column("listens", Integer),
+    Column("alert_signups", Integer),
+    Column("stories_published", Integer),
+    Column("articles_published", Integer),
+    Column("articles_fetched", Integer),
+    Column("social_posts", Integer),
+    Column("crashed_steps", Integer),
+    Column("google_clicks", Integer),
+    Column("google_impressions", Integer),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
 runs = Table(
     "runs",
     metadata,

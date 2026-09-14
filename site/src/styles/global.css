@@ -545,3 +545,46 @@ table.sortable th:hover { color: var(--ink); }
 @media (prefers-reduced-motion: reduce) { .social-link, .social-link .social-glyph, .footer-mark { transition: none; } }
 /* ---------- Official social profiles (end) ---------- */
 
+
+/* ---------- Admin: Compare (period vs period) ---------- */
+.compare { margin-bottom: 14px; }
+.compare-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 4px; }
+.compare-head h2 { margin-bottom: 0; }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); }
+.seg-opt { position: relative; }
+.seg-opt input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.seg-opt span { display: block; padding: 5px 12px; border-radius: 4px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.seg-opt:hover span { color: var(--ink); }
+.seg-opt input:checked + span { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
+.seg-opt input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 1px; }
+.seg-opt input:disabled + span { color: var(--ink-3); cursor: default; }
+.compare-custom { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 22px; margin: 10px 0 2px; }
+.compare-custom[hidden] { display: none; }
+.compare-custom fieldset { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.compare-custom legend { padding: 0; margin-bottom: 4px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.compare-custom label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.compare-custom input[type="date"] { padding: 5px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; }
+.compare-range { margin: 8px 0 0; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.compare-range b { font-weight: 600; color: var(--ink); }
+.cmp-group { margin: 14px 0 6px; font-family: var(--font-mono); font-size: 11px; font-weight: 400; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+.cmp-tiles { margin-bottom: 4px; }
+.cmp-tile .value { font-size: 24px; font-variant-numeric: tabular-nums; }
+.cmp-tile .value small { margin-left: 3px; font-size: 12.5px; font-weight: 400; color: var(--ink-2); }
+.cmp-change { font-size: 14px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.cmp-change.cmp-note { font-size: 12.5px; font-weight: 400; color: var(--ink-2); }
+.cmp-from { font-weight: 400; color: var(--ink-2); }
+.cmp-arrow { margin-right: 4px; font-size: 11px; color: var(--ink-3); }
+.cmp-tile.good { border-top-color: var(--status-good); }
+.cmp-tile.good .cmp-arrow { color: var(--status-good); }
+.cmp-tile.bad { border-top-color: var(--status-critical); }
+.cmp-tile.bad .cmp-arrow { color: var(--status-critical); }
+.cmp-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@media (max-width: 560px) {
+  .seg { display: flex; width: 100%; }
+  .seg-opt { flex: 1; }
+  .seg-opt span { padding: 6px 4px; text-align: center; }
+  .cmp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .cmp-tile { padding: 10px 11px; }
+  .cmp-tile .value { font-size: 20px; }
+}
+/* ---------- /Admin: Compare ---------- */

@@ -8,7 +8,7 @@ from datetime import timedelta
 
 from sqlalchemy import func, select
 
-from . import config, db
+from . import config, db, history
 
 log = logging.getLogger("digest.admin")
 
@@ -31,6 +31,15 @@ def run() -> dict:
     week = now - timedelta(days=7)
     days = [(now - timedelta(days=i)).date().isoformat() for i in range(DAYS - 1, -1, -1)]
     out: dict = {"generatedAt": _iso(now), "days": days, "dbMode": "postgres" if db.engine().dialect.name != "sqlite" else "sqlite"}
+
+    # ---- daily history for the Compare section; a failure here must not cost the rest of the page.
+    history_error = None
+    try:
+        out["history"] = history.update(eng, now)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("daily history failed: %s", str(exc)[:200])
+        history_error = str(exc)[:120]
+        out["history"] = []
 
     with eng.connect() as conn:
         # ---- runs: one row per step; the dashboard groups them into pipeline runs.
@@ -294,8 +303,10 @@ def run() -> dict:
         for q in qual:
             if q["recentBadRate"] is not None and q["recentBadRate"] >= 0.6 and (q["fullRate"] or 0) >= 0.5:
                 alerts.append({"level": "warning", "text": f"Extraction from {q['domain']} is failing today ({int(q['recentBadRate']*100)}% bad) after working this week; the site may have changed."})
+        if history_error:
+            alerts.append({"level": "warning", "text": f"The daily history behind Compare could not be updated: {history_error}"})
         out["alerts"] = alerts
 
     config.SITE_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    (config.SITE_DATA_DIR / "admin.json").write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
-    return {"runs": len(out["runs"]), "sources": len(out["sources"]), "engagement": out["engagement"]["available"]}
+    (config.SITE_DATA_DIR / "admin.json").write_text(json.dumps(out, ensure_ascii=False, default=str), encoding="utf-8")
+    return {"runs": len(out["runs"]), "sources": len(out["sources"]), "engagement": out["engagement"]["available"], "historyDays": len(out["history"])}

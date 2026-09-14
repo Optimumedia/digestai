@@ -74,6 +74,75 @@ def test_enrich_clean_survives_malformed_answers():
     assert _clean({"key_points": "One point"}, row, None)["key_points"] == ["One point"]
 
 
+def test_daily_history_survives_event_pruning():
+    import tempfile
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import create_engine, insert
+
+    from digest import db, history
+
+    tmp = Path(tempfile.mkdtemp()) / "history.db"
+    eng = create_engine(f"sqlite:///{tmp.as_posix()}", future=True)
+    db.metadata.create_all(eng)
+    now = datetime(2026, 9, 14, 10, 0, tzinfo=timezone.utc)
+    at = lambda days, hour=12: (now - timedelta(days=days)).replace(hour=hour, minute=0)  # noqa: E731
+
+    with eng.begin() as conn:
+        conn.execute(insert(db.stories), [
+            {"slug": "s1", "headline": "A", "first_published_at": at(5), "updated_at": at(5), "status": "published"},
+            {"slug": "s2", "headline": "B", "first_published_at": at(1), "updated_at": at(1), "status": "published"},
+            {"slug": "s3", "headline": "C", "first_published_at": at(1), "updated_at": at(1), "status": "unpublished"},
+        ])
+        conn.execute(insert(db.articles), [
+            {"url": f"https://x.test/{i}", "fetched_at": at(d), "created_at": at(d), "status": st}
+            for i, (d, st) in enumerate([(5, "published"), (5, "rejected"), (1, "published"), (1, "new"), (1, "published")])
+        ])
+        conn.execute(insert(db.events), [
+            {"type": t, "session": s, "story_id": sid, "value": v, "created_at": when}
+            for t, s, sid, v, when in [
+                ("view", "a", 1, 1, at(2)), ("view", "a", 2, 1, at(2)), ("view", "b", 1, 1, at(2)),
+                ("dwell", "a", 1, 30, at(2)), ("dwell", "a", 1, 10, at(2, 13)), ("dwell", "b", 1, 20, at(2)),
+                ("click_source", "a", 1, 1, at(2)), ("push_on", "b", None, 1, at(2)), ("listen", "b", None, 1, at(2, 23)),
+            ]
+        ])
+        conn.execute(insert(db.social_posts), [{"network": "bluesky", "kind": "story", "key": "s2", "created_at": at(1)}])
+        conn.execute(insert(db.runs), [
+            {"step": "fetch", "started_at": at(3), "stats": {"inserted": 3}},
+            {"step": "enrich", "started_at": at(1), "stats": {"crashed": True}},
+        ])
+
+    google = {(now - timedelta(days=d)).date().isoformat(): (d, d * 10) for d in range(2, 9)}
+    rows = {r["day"]: r for r in history.update(eng, now, google=google)}
+    d = lambda n: (now - timedelta(days=n)).date().isoformat()  # noqa: E731
+
+    assert min(rows) == d(8) and max(rows) == d(0) and len(rows) == 9  # from the first Search Console day to today
+    two = rows[d(2)]
+    assert (two["sessions"], two["views"], two["clicks"], two["alertSignups"], two["listens"]) == (2, 3, 1, 1, 1)
+    assert two["dwellSeconds"] == 60 and two["dwellReads"] == 2  # 30s average per reading session
+    assert rows[d(3)]["sessions"] is None  # before the first event: not measured, not zero
+    assert rows[d(1)]["sessions"] == 0  # tracking live, nobody came
+    assert (rows[d(5)]["articlesFetched"], rows[d(5)]["articlesPublished"], rows[d(5)]["storiesPublished"]) == (2, 1, 1)
+    assert (rows[d(1)]["articlesFetched"], rows[d(1)]["articlesPublished"], rows[d(1)]["storiesPublished"]) == (3, 2, 1)
+    assert rows[d(6)]["articlesFetched"] is None and rows[d(8)]["articlesFetched"] is None
+    assert rows[d(2)]["socialPosts"] is None and rows[d(1)]["socialPosts"] == 1
+    assert rows[d(1)]["crashedSteps"] == 1 and rows[d(2)]["crashedSteps"] == 0
+    assert (rows[d(8)]["googleClicks"], rows[d(8)]["googleImpressions"]) == (8, 80)
+    assert rows[d(1)]["googleClicks"] is None  # Search Console lag: unknown
+
+    # Events get pruned, a late event lands yesterday, Search Console revises an old day.
+    with eng.begin() as conn:
+        conn.execute(db.events.delete())
+        conn.execute(insert(db.events), [{"type": "view", "session": "c", "value": 1, "created_at": at(1, 20)}])
+    google[d(7)] = (70, 700)
+    later = now + timedelta(hours=1)
+    rows = {r["day"]: r for r in history.update(eng, later, google=google)}
+    assert len(rows) == 9
+    assert rows[d(2)]["views"] == 3 and rows[d(2)]["dwellSeconds"] == 60  # kept after pruning
+    assert rows[d(1)]["views"] == 1  # recomputed with the late event
+    assert rows[d(7)]["googleClicks"] == 70
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):
