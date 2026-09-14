@@ -215,6 +215,9 @@ p { margin: 0 0 1em; }
 .briefing-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 16px; padding: 18px 0 14px; border-bottom: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); margin-bottom: 20px; }
 .briefing-title { display: flex; flex-direction: column; gap: 4px; }
 .briefing-date { color: var(--accent); }
+.briefing-stats { color: var(--ink-3); }
+.briefing-actions { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-left: auto; padding-bottom: 2px; }
+.briefing-actions .more { margin-left: 0; }
 .briefing-head h2 { font-size: 26px; }
 .briefing-head .more { margin-left: auto; color: var(--accent); }
 .briefing .hero { border-bottom: 0; margin-bottom: 4px; padding-bottom: 12px; }

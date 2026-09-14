@@ -28,11 +28,12 @@ const jsonLd = {
             <div class="briefing-title">
               <span class="eyebrow briefing-date">{formatDate(briefing.date + "T12:00:00Z", { weekday: "long", day: "numeric", month: "long" })} · updated <time datetime={briefing.generatedAt}></time></span>
               <h2 id="briefing-h">Today's briefing</h2>
+              <span class="eyebrow briefing-stats">{briefing.stats.stories} stories · {briefing.stats.articles} articles · {briefing.stats.minutes} min read <span class="new-count" id="new-count" hidden></span></span>
             </div>
-            <span class="eyebrow">{briefing.stats.stories} stories · {briefing.stats.articles} articles · {briefing.stats.minutes} min read</span>
-            <span class="eyebrow new-count" id="new-count" hidden></span>
-            {episodes[0] && <a class="eyebrow more" href="/listen">Listen ({Math.max(1, Math.round(episodes[0].seconds / 60))} min)</a>}
-            <a class="eyebrow more" href="/today">Read the briefing →</a>
+            <div class="briefing-actions">
+              {episodes[0] && <a class="eyebrow more" href="/listen">Listen · {Math.max(1, Math.round(episodes[0].seconds / 60))} min</a>}
+              <a class="eyebrow more" href="/today">Read the briefing →</a>
+            </div>
           </div>
           <article class="hero" data-published={lead.updatedAt}>
             <div>
