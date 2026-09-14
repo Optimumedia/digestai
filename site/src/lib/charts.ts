@@ -1,5 +1,5 @@
 /* Tiny SVG chart builders for the admin dashboard. Built at build time, no library.
-   Marks follow the data-viz spec: columns <= 24px with 4px rounded caps, 2px surface gaps
+   Marks follow the data-viz spec: columns <= 28px with 4px rounded caps, 2px surface gaps
    between stacked segments, 2px lines with >= 8px end markers, hairline solid grid, text in
    text tokens. Every chart also has a table view on the page. */
 
@@ -7,81 +7,134 @@ export interface Series { key: string; label: string; color: string }
 
 const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
-function niceMax(v: number): number {
-  if (v <= 0) return 1;
-  const p = Math.pow(10, Math.floor(Math.log10(v)));
-  const n = v / p;
-  const m = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
-  return m * p;
+/** A round step (1, 2 or 5 times a power of ten) that splits the data into about `n` bands,
+    and the axis maximum as a whole number of those steps. Ticks are always round numbers. */
+function scale(v: number, n = 4): { max: number; ticks: number[] } {
+  const raw = Math.max(1, v) / n;
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const r = raw / p;
+  const step = Math.max(1, (r <= 1 ? 1 : r <= 2 ? 2 : r <= 5 ? 5 : 10) * p);
+  const max = step * Math.max(1, Math.ceil(Math.max(1, v) / step));
+  return { max, ticks: Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step) };
 }
 
-function ticks(max: number, n = 4): number[] {
-  const step = max / n;
-  return Array.from({ length: n + 1 }, (_, i) => Math.round(i * step));
+const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, "")}k` : String(Math.round(n)));
+
+/** Drop the leading days before any series has data, so a young site's chart is not mostly
+    empty. Keeps at least `min` days; with no data at all, keeps the last week. */
+export function sinceFirst<T extends Record<string, any>>(rows: T[], keys: string[], min = 3): T[] {
+  const i = rows.findIndex((r) => keys.some((k) => Number(r[k]) > 0));
+  if (i < 0) return rows.slice(-7);
+  return rows.slice(Math.max(0, Math.min(i, rows.length - min)));
 }
 
-const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(Math.round(n)));
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** x-axis formatter for ISO days: "Sep 12", and "today" for the build day (UTC). */
+export function dayLabel(today = new Date().toISOString().slice(0, 10)) {
+  return (v: any) => {
+    const s = String(v).slice(0, 10);
+    if (s === today) return "today";
+    const [, m, d] = s.split("-").map(Number);
+    return m ? `${MON[m - 1]} ${d}` : s;
+  };
+}
 
-/** Stacked (or single-series) columns, one column per row. */
-export function columns(rows: Record<string, any>[], xKey: string, series: Series[], opts: { w?: number; h?: number; labelEvery?: number; xFormat?: (v: any) => string } = {}): string {
+function capPath(x: number, base: number, top: number, bw: number): string {
+  const hh = base - top;
+  const rad = Math.max(0, Math.min(4, hh, bw / 2));
+  return `M${x},${base} V${top + rad} a${rad},${rad} 0 0 1 ${rad},${-rad} H${x + bw - rad} a${rad},${rad} 0 0 1 ${rad},${rad} V${base} Z`;
+}
+
+/** Columns, one group per row. Stacked by default; `grouped` puts the series side by side on
+    one shared axis (for related counts that are not parts of a whole). With ten rows or fewer,
+    grouped columns carry their value on top. */
+export function columns(rows: Record<string, any>[], xKey: string, series: Series[], opts: { w?: number; h?: number; labelEvery?: number; xFormat?: (v: any) => string; grouped?: boolean } = {}): string {
   const w = opts.w ?? 640, h = opts.h ?? 200;
-  const padL = 34, padR = 8, padT = 10, padB = 24;
+  const padL = 34, padR = 8, padT = opts.grouped ? 18 : 10, padB = 24;
   const pw = w - padL - padR, ph = h - padT - padB;
-  const totals = rows.map((r) => series.reduce((s, k) => s + (Number(r[k.key]) || 0), 0));
-  const max = niceMax(Math.max(1, ...totals));
+  const base = padT + ph;
+  const values = opts.grouped
+    ? rows.flatMap((r) => series.map((s) => Number(r[s.key]) || 0))
+    : rows.map((r) => series.reduce((s, k) => s + (Number(r[k.key]) || 0), 0));
+  const { max, ticks: yTicks } = scale(Math.max(0, ...values));
   const band = pw / Math.max(1, rows.length);
-  const bw = Math.min(24, Math.max(4, band * 0.62));
   const y = (v: number) => padT + ph - (v / max) * ph;
   const xf = opts.xFormat ?? ((v) => String(v).slice(5));
   const every = opts.labelEvery ?? Math.max(1, Math.ceil(rows.length / 7));
+  const showValues = opts.grouped && rows.length <= 10;
   let out = `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="column chart">`;
-  for (const t of ticks(max)) {
+  for (const t of yTicks) {
     out += `<line class="grid" x1="${padL}" x2="${w - padR}" y1="${y(t)}" y2="${y(t)}"/><text class="tick" x="${padL - 6}" y="${y(t) + 3}" text-anchor="end">${fmt(t)}</text>`;
   }
   rows.forEach((r, i) => {
     const cx = padL + band * i + band / 2;
-    let acc = 0;
-    const tip = `${esc(r[xKey])}: ` + series.map((s) => `${s.label} ${r[s.key] ?? 0}`).join(", ");
-    series.forEach((s, si) => {
-      const v = Number(r[s.key]) || 0;
-      if (v <= 0) return;
-      const y1 = y(acc + v), y0 = y(acc);
-      const top = si === series.length - 1 || series.slice(si + 1).every((k) => !(Number(r[k.key]) || 0));
-      const hh = Math.max(0, y0 - y1 - (acc > 0 ? 2 : 0));
-      const yy = y1 + (acc > 0 ? 2 : 0);
-      const rad = top ? 4 : 0;
-      out += `<path class="mark" fill="${s.color}" d="M${cx - bw / 2},${yy + hh} v${-(hh - rad)} a${rad},${rad} 0 0 1 ${rad},${-rad} h${bw - 2 * rad} a${rad},${rad} 0 0 1 ${rad},${rad} v${hh - rad} z"><title>${tip}</title></path>`;
-      acc += v;
-    });
+    const tip = `${esc(xf(r[xKey]))}: ` + series.map((s) => `${s.label} ${r[s.key] ?? 0}`).join(", ");
+    if (opts.grouped) {
+      const gap = 3, n = series.length;
+      const bw = Math.min(28, Math.max(4, (band * 0.7 - gap * (n - 1)) / n));
+      const x0 = cx - (bw * n + gap * (n - 1)) / 2;
+      const anyValue = series.some((s) => (Number(r[s.key]) || 0) > 0);
+      series.forEach((s, si) => {
+        const v = Number(r[s.key]) || 0;
+        const x = x0 + si * (bw + gap);
+        if (v > 0) out += `<path class="mark" fill="${s.color}" d="${capPath(x, base, y(v), bw)}"><title>${tip}</title></path>`;
+        if (showValues && anyValue) out += `<text class="value" x="${x + bw / 2}" y="${(v > 0 ? y(v) : base) - 5}" text-anchor="middle">${fmt(v)}</text>`;
+      });
+      out += `<rect class="hit" x="${cx - band / 2}" y="${padT}" width="${band}" height="${ph}"><title>${tip}</title></rect>`;
+    } else {
+      const bw = Math.min(24, Math.max(4, band * 0.62));
+      let acc = 0;
+      series.forEach((s, si) => {
+        const v = Number(r[s.key]) || 0;
+        if (v <= 0) return;
+        const y1 = y(acc + v), y0 = y(acc);
+        const top = si === series.length - 1 || series.slice(si + 1).every((k) => !(Number(r[k.key]) || 0));
+        const hh = Math.max(0, y0 - y1 - (acc > 0 ? 2 : 0));
+        const yy = y1 + (acc > 0 ? 2 : 0);
+        const rad = top ? Math.min(4, hh) : 0;
+        out += `<path class="mark" fill="${s.color}" d="M${cx - bw / 2},${yy + hh} v${-(hh - rad)} a${rad},${rad} 0 0 1 ${rad},${-rad} h${bw - 2 * rad} a${rad},${rad} 0 0 1 ${rad},${rad} v${hh - rad} z"><title>${tip}</title></path>`;
+        acc += v;
+      });
+    }
     if (i % every === 0) out += `<text class="tick" x="${cx}" y="${h - 6}" text-anchor="middle">${esc(xf(r[xKey]))}</text>`;
   });
-  out += `<line class="axis" x1="${padL}" x2="${w - padR}" y1="${padT + ph}" y2="${padT + ph}"/></svg>`;
+  out += `<line class="axis" x1="${padL}" x2="${w - padR}" y1="${base}" y2="${base}"/></svg>`;
   return out;
 }
 
-/** One or more lines over the same x, with end markers and end labels. */
+/** One or more lines over the same x, with end markers and end labels that never overlap. */
 export function lines(rows: Record<string, any>[], xKey: string, series: Series[], opts: { w?: number; h?: number; xFormat?: (v: any) => string } = {}): string {
   const w = opts.w ?? 640, h = opts.h ?? 200;
-  const padL = 34, padR = 56, padT = 10, padB = 24;
+  const padL = 34, padR = 76, padT = 10, padB = 24;
   const pw = w - padL - padR, ph = h - padT - padB;
-  const max = niceMax(Math.max(1, ...rows.flatMap((r) => series.map((s) => Number(r[s.key]) || 0))));
+  const { max, ticks: yTicks } = scale(Math.max(0, ...rows.flatMap((r) => series.map((s) => Number(r[s.key]) || 0))));
   const x = (i: number) => padL + (rows.length > 1 ? (i / (rows.length - 1)) * pw : pw / 2);
   const y = (v: number) => padT + ph - (v / max) * ph;
   const xf = opts.xFormat ?? ((v) => String(v).slice(5));
   let out = `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="line chart">`;
-  for (const t of ticks(max)) out += `<line class="grid" x1="${padL}" x2="${w - padR}" y1="${y(t)}" y2="${y(t)}"/><text class="tick" x="${padL - 6}" y="${y(t) + 3}" text-anchor="end">${fmt(t)}</text>`;
+  for (const t of yTicks) out += `<line class="grid" x1="${padL}" x2="${w - padR}" y1="${y(t)}" y2="${y(t)}"/><text class="tick" x="${padL - 6}" y="${y(t) + 3}" text-anchor="end">${fmt(t)}</text>`;
   const every = Math.max(1, Math.ceil(rows.length / 7));
   rows.forEach((r, i) => { if (i % every === 0) out += `<text class="tick" x="${x(i)}" y="${h - 6}" text-anchor="middle">${esc(xf(r[xKey]))}</text>`; });
+  const lastRow = rows[rows.length - 1];
+  const ends: { label: string; ly: number; dy: number }[] = [];
   for (const s of series) {
     const pts = rows.map((r, i) => [x(i), y(Number(r[s.key]) || 0)] as const);
     out += `<path class="line" stroke="${s.color}" d="${pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ")}"/>`;
     const last = pts[pts.length - 1];
     if (last) {
-      out += `<circle class="dot" cx="${last[0]}" cy="${last[1]}" r="4" fill="${s.color}"><title>${esc(s.label)}: ${rows[rows.length - 1][s.key] ?? 0}</title></circle>`;
-      out += `<text class="endlabel" x="${last[0] + 8}" y="${last[1] + 4}">${esc(s.label)} ${fmt(Number(rows[rows.length - 1][s.key]) || 0)}</text>`;
+      const v = Number(lastRow[s.key]) || 0;
+      out += `<circle class="dot" cx="${last[0]}" cy="${last[1]}" r="4" fill="${s.color}"><title>${esc(s.label)}: ${v}</title></circle>`;
+      ends.push({ label: `${s.label} ${fmt(v)}`, ly: last[1], dy: last[1] });
     }
-    rows.forEach((r, i) => { out += `<circle class="hit" cx="${pts[i][0]}" cy="${pts[i][1]}" r="9"><title>${esc(r[xKey])} · ${esc(s.label)}: ${r[s.key] ?? 0}</title></circle>`; });
+    rows.forEach((r, i) => { out += `<circle class="hit" cx="${pts[i][0]}" cy="${pts[i][1]}" r="9"><title>${esc(xf(r[xKey]))} · ${esc(s.label)}: ${r[s.key] ?? 0}</title></circle>`; });
   }
+  // Spread end labels at least one line apart, then pull the stack back inside the plot.
+  const gapY = 13;
+  ends.sort((a, b) => a.ly - b.ly);
+  for (let i = 1; i < ends.length; i++) ends[i].dy = Math.max(ends[i].ly, ends[i - 1].dy + gapY);
+  const overflow = ends.length ? ends[ends.length - 1].dy - (padT + ph) : 0;
+  if (overflow > 0) ends.forEach((e) => (e.dy -= overflow));
+  for (const e of ends) out += `<text class="endlabel" x="${w - padR + 10}" y="${e.dy + 4}">${esc(e.label)}</text>`;
   out += `<line class="axis" x1="${padL}" x2="${w - padR}" y1="${padT + ph}" y2="${padT + ph}"/></svg>`;
   return out;
 }

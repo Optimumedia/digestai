@@ -1,6 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
-import { columns, lines, bars, stackedBars } from "../lib/charts";
+import { columns, lines, bars, stackedBars, sinceFirst, dayLabel } from "../lib/charts";
 import { meta, categories, formatDate } from "../lib/data";
 import fs from "node:fs";
 import path from "node:path";
@@ -152,9 +152,9 @@ const statusKind = critical.length || (lastRun && !lastRun.ok) ? "bad" : alerts.
           </div>
           <div class="cards">
             <article class="card wide">
-              <h2>Views, sessions and clicks to source <span class="muted">per day</span></h2>
+              <h2>Views, sessions and clicks to source <span class="muted">per day, since the first reader · hover a day for exact numbers</span></h2>
               <div class="legend"><span><i style={`background:${C.s1}`}></i>Views</span><span><i style={`background:${C.s2}`}></i>Sessions</span><span><i style={`background:${C.s3}`}></i>Clicks to source</span></div>
-              <Fragment set:html={lines(eng.perDay, "day", [{ key: "views", label: "Views", color: C.s1 }, { key: "sessions", label: "Sessions", color: C.s2 }, { key: "clicks", label: "Clicks", color: C.s3 }])} />
+              <Fragment set:html={columns(sinceFirst(eng.perDay, ["views", "sessions", "clicks"]), "day", [{ key: "views", label: "Views", color: C.s1 }, { key: "sessions", label: "Sessions", color: C.s2 }, { key: "clicks", label: "Clicks to source", color: C.s3 }], { grouped: true, w: 1100, h: 240, xFormat: dayLabel() })} />
             </article>
           </div>
           <section class="card">
@@ -312,8 +312,8 @@ const statusKind = critical.length || (lastRun && !lastRun.ok) ? "bad" : alerts.
               <div class="cards">
                 <article class="card wide">
                   <h2>Clicks and impressions <span class="muted">per day, Google Search</span></h2>
-                  <div class="legend"><span><i style={`background:${C.s1}`}></i>Clicks</span><span><i style={`background:${C.s2}`}></i>Impressions ÷ 10</span></div>
-                  <Fragment set:html={lines(gsc.perDay.map((d: any) => ({ day: d.day, clicks: d.clicks, imp: Math.round(d.impressions / 10) })), "day", [{ key: "clicks", label: "Clicks", color: C.s1 }, { key: "imp", label: "Impr./10", color: C.s2 }])} />
+                  <div class="legend"><span><i style={`background:${C.s1}`}></i>Clicks</span><span><i style={`background:${C.s2}`}></i>Impressions</span></div>
+                  <Fragment set:html={columns(sinceFirst(gsc.perDay, ["impressions", "clicks"], 7), "day", [{ key: "clicks", label: "Clicks", color: C.s1 }, { key: "impressions", label: "Impressions", color: C.s2 }], { grouped: true, w: 1100, h: 240, xFormat: dayLabel() })} />
                 </article>
                 <article class="card">
                   <h2>Top queries</h2>
