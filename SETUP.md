@@ -4,7 +4,7 @@
 
 - [ ] **Podcast directories** (free, 10 min each): submit `https://digestai.news/podcast.xml` at podcastsconnect.apple.com and podcasters.spotify.com (both need an Apple ID / Spotify login); Pocket Casts and Overcast pick it up from Apple. The feed, artwork and daily episodes are already live.
 - [ ] **Kit** newsletter account, form and v4 API key → `.env` → `scripts\push-config.ps1` (section 3). Turns on the 07:00 daily email; everything else is wired.
-- [ ] **Bluesky** (optional): create an account for Digest AI, Settings → App passwords → create one; put `BLUESKY_HANDLE` and `BLUESKY_APP_PASSWORD` in `.env`. Then ask for the auto-poster to be built. Telegram channel is the alternative: create a bot with @BotFather, put `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHANNEL` in `.env`.
+- [x] **Bluesky** auto-posting (14 Sep): app password pushed as BLUESKY_HANDLE / BLUESKY_APP_PASSWORD; the `social` step posts the daily briefing (from 07:00 UTC) and up to 6 breaking stories a day. Profiles: LinkedIn company page, bsky digestai.bsky.social, X @DigestAINews (X and LinkedIn posting stay manual).
 - [x] **Google News Publisher Center**: submitted 12 September 2026; approval usually takes days to two weeks. Check status at https://publishercenter.google.com; once approved, Google News and Discover traffic shows in Search Console → Performance → Discover / News tabs.
 - [x] Search Console service account connected (12 Sep); the admin Search tab updates every run.
 - [x] Bing Webmaster Tools imported from Search Console (12 Sep).

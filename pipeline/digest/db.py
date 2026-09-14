@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     func,
+    UniqueConstraint,
     JSON,
     BigInteger,
     Boolean,
@@ -201,6 +202,18 @@ push_subscriptions = Table(
     Column("failures", Integer, nullable=False, default=0, server_default=text("0")),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("last_ok_at", DateTime(timezone=True)),
+)
+
+social_posts = Table(
+    "social_posts",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("network", String(20), nullable=False),  # bluesky
+    Column("kind", String(20), nullable=False),  # briefing | story
+    Column("key", String(160), nullable=False),  # briefing date or story slug
+    Column("uri", Text),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("network", "kind", "key", name="social_posts_unique"),
 )
 
 runs = Table(

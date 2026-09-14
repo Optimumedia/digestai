@@ -1,0 +1,219 @@
+"""Step: post to Digest AI's Bluesky account.
+
+Two kinds of post, both built from the data the export step just wrote:
+- the daily briefing, once a day from SOCIAL_BRIEFING_HOUR_UTC: the top headlines and a link card
+  to /today (which also carries the audio version);
+- breaking stories, at most one per run and SOCIAL_MAX_PER_DAY a day, using the same bar as the
+  browser alerts: first published in the last few hours and covered by at least two outlets with
+  real importance, or very important on its own. Each gets its share image as the link card.
+
+Every post is recorded in social_posts, so nothing is posted twice. SOCIAL_DRY_RUN=1 prints the
+posts instead of publishing them. Failures are logged and never stop the pipeline.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import re
+from datetime import datetime, timedelta, timezone
+
+import requests
+from sqlalchemy import func, insert, select
+
+from . import config, db
+
+log = logging.getLogger("digest.social")
+
+API = "https://bsky.social/xrpc"
+TEXT_LIMIT = 290  # Bluesky allows 300 graphemes; keep a margin
+FRESH_HOURS = 6
+UTM = "utm_source=bluesky&utm_medium=social"
+
+
+def _clip(text: str, limit: int) -> str:
+    """Shorten to at most `limit` characters, cutting at a word boundary."""
+    text = re.sub(r"\s+", " ", text or "").strip()
+    if len(text) <= limit:
+        return text
+    cut = text[: max(0, limit - 1)]
+    if " " in cut[limit // 2:]:
+        cut = cut[: cut.rfind(" ")]
+    return cut.rstrip(" ,.;:-") + "…"
+
+
+def _first_sentence(text: str, limit: int = 220) -> str:
+    plain = re.sub(r"[*_`#>\[\]]", "", text or "")
+    plain = re.sub(r"\(https?://[^)]*\)", "", plain)
+    m = re.match(r"(.+?[.!?])(\s|$)", plain.strip())
+    return _clip(m.group(1) if m else plain, limit)
+
+
+def _tag_facets(text: str, tags: list[str]) -> list[dict]:
+    """Hashtag facets use UTF-8 byte offsets."""
+    facets = []
+    raw = text.encode("utf-8")
+    for tag in tags:
+        needle = f"#{tag}".encode("utf-8")
+        start = raw.rfind(needle)
+        if start >= 0:
+            facets.append({"index": {"byteStart": start, "byteEnd": start + len(needle)},
+                           "features": [{"$type": "app.bsky.richtext.facet#tag", "tag": tag}]})
+    return facets
+
+
+def _story_post(story: dict) -> dict:
+    points = story.get("keyPoints") or []
+    detail = points[0] if points else _first_sentence(story.get("summaryMd") or "")
+    sources = story.get("articleCount") or 1
+    tail = f"\n\n{sources} sources, one digest. #AI" if sources > 1 else "\n\n#AI"
+    head = _clip(story["headline"], 140)
+    room = TEXT_LIMIT - len(head) - len(tail) - 2
+    text = head + (f"\n\n{_clip(detail, room)}" if room > 40 and detail else "") + tail
+    return {
+        "kind": "story",
+        "key": story["slug"],
+        "text": text,
+        "tags": ["AI"],
+        "link": f"{config.SITE_URL}/story/{story['slug']}?{UTM}",
+        "title": _clip(story["headline"], 200),
+        "description": _first_sentence(story.get("summaryMd") or detail, 280),
+        "image": config.ROOT / "site" / "public" / "og" / f"{story['slug']}.png",
+    }
+
+
+def _briefing_post(briefing: dict, by_id: dict, date_label: str) -> dict | None:
+    top = [by_id[i] for i in briefing.get("storyIds", []) if i in by_id]
+    if len(top) < 3:
+        return None
+    intro = f"Today's AI briefing, {date_label}\n\n"
+    outro = f"\n\nAll {len(top)} with sources + audio #AI"
+    text = ""
+    for width in (96, 84, 74, 64, 54):
+        lines = [f"{n}. {_clip(s['headline'], width)}" for n, s in enumerate(top[:3], 1)]
+        text = intro + "\n".join(lines) + outro
+        if len(text) <= TEXT_LIMIT:
+            break
+    return {
+        "kind": "briefing",
+        "key": briefing["date"],
+        "text": text,
+        "tags": ["AI"],
+        "link": f"{config.SITE_URL}/today?{UTM}",
+        "title": f"Today's AI briefing · {date_label}",
+        "description": "The AI stories that matter today, each with its sources, in about five minutes. Read or listen.",
+        "image": config.ROOT / "site" / "public" / "og-default.png",
+    }
+
+
+class Bluesky:
+    def __init__(self, handle: str, password: str):
+        r = requests.post(f"{API}/com.atproto.server.createSession", json={"identifier": handle, "password": password}, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        self.did = data["did"]
+        self.headers = {"Authorization": f"Bearer {data['accessJwt']}"}
+
+    def upload(self, path) -> dict | None:
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            return None
+        if len(raw) > 950_000:
+            return None
+        r = requests.post(f"{API}/com.atproto.repo.uploadBlob", data=raw,
+                          headers={**self.headers, "Content-Type": "image/png"}, timeout=60)
+        return r.json().get("blob") if r.status_code == 200 else None
+
+    def post(self, item: dict) -> str:
+        external = {"uri": item["link"], "title": item["title"], "description": item["description"]}
+        thumb = self.upload(item["image"])
+        if thumb:
+            external["thumb"] = thumb
+        record = {
+            "$type": "app.bsky.feed.post",
+            "text": item["text"],
+            "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "langs": ["en"],
+            "facets": _tag_facets(item["text"], item["tags"]),
+            "embed": {"$type": "app.bsky.embed.external", "external": external},
+        }
+        r = requests.post(f"{API}/com.atproto.repo.createRecord", headers=self.headers, timeout=30,
+                          json={"repo": self.did, "collection": "app.bsky.feed.post", "record": record})
+        r.raise_for_status()
+        return r.json().get("uri", "")
+
+
+def _plan(now: datetime) -> list[dict]:
+    data = config.SITE_DATA_DIR
+    try:
+        stories = json.loads((data / "stories.json").read_text(encoding="utf-8"))
+        briefing = json.loads((data / "briefing.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    by_id = {s["id"]: s for s in stories}
+    eng = db.engine()
+    with eng.connect() as conn:
+        done = {(r.kind, r.key) for r in conn.execute(select(db.social_posts.c.kind, db.social_posts.c.key)
+                                                        .where(db.social_posts.c.network == "bluesky")).all()}
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        stories_today = conn.execute(select(func.count()).select_from(db.social_posts).where(
+            db.social_posts.c.network == "bluesky", db.social_posts.c.kind == "story",
+            db.social_posts.c.created_at >= day_start)).scalar() or 0
+
+    plan: list[dict] = []
+    today = now.date().isoformat()
+    if now.hour >= config.SOCIAL_BRIEFING_HOUR_UTC and briefing.get("date") == today and ("briefing", today) not in done:
+        label = now.strftime("%a %d %b").replace(" 0", " ")
+        item = _briefing_post(briefing, by_id, label)
+        if item:
+            plan.append(item)
+
+    if stories_today < config.SOCIAL_MAX_PER_DAY:
+        cutoff = (now - timedelta(hours=FRESH_HOURS)).isoformat().replace("+00:00", "Z")
+        fresh = [
+            s for s in stories
+            if (s.get("firstPublishedAt") or "") >= cutoff and ("story", s["slug"]) not in done
+            and ((s.get("articleCount", 1) >= 2 and (s.get("importance") or 0) >= 6) or (s.get("importance") or 0) >= 8)
+        ]
+        fresh.sort(key=lambda s: -(s.get("score") or 0))
+        if fresh:
+            plan.append(_story_post(fresh[0]))
+    return plan
+
+
+def run() -> dict:
+    stats = {"posted": 0, "planned": 0, "skipped": ""}
+    dry = config.SOCIAL_DRY_RUN
+    if not dry and not (config.BLUESKY_HANDLE and config.BLUESKY_APP_PASSWORD):
+        stats["skipped"] = "no Bluesky credentials"
+        return stats
+    now = datetime.now(timezone.utc)
+    plan = _plan(now)
+    stats["planned"] = len(plan)
+    if not plan:
+        stats["skipped"] = "nothing to post"
+        return stats
+    if dry:
+        for item in plan:
+            log.info("DRY RUN %s post (%d chars) -> %s\n%s", item["kind"], len(item["text"]), item["link"], item["text"])
+        stats["skipped"] = "dry run"
+        return stats
+    try:
+        client = Bluesky(config.BLUESKY_HANDLE, config.BLUESKY_APP_PASSWORD)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Bluesky login failed: %s", str(exc)[:160])
+        stats["skipped"] = "login failed"
+        return stats
+    eng = db.engine()
+    for item in plan:
+        try:
+            uri = client.post(item)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Bluesky %s post failed: %s", item["kind"], str(exc)[:160])
+            continue
+        with eng.begin() as conn:
+            conn.execute(insert(db.social_posts).values(network="bluesky", kind=item["kind"], key=item["key"],
+                                                        uri=uri, created_at=db.utcnow()))
+        stats["posted"] += 1
+        log.info("posted %s to Bluesky: %s", item["kind"], item["key"])
+    return stats

@@ -57,6 +57,13 @@ VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
 PUBLIC_VAPID_KEY = os.environ.get("PUBLIC_VAPID_KEY", "")
 PUSH_MAX_PER_DAY = int(os.environ.get("PUSH_MAX_PER_DAY") or 3)
 
+# Social posting (Bluesky). The app password comes from Bluesky settings; never a main password.
+BLUESKY_HANDLE = os.environ.get("BLUESKY_HANDLE", "")
+BLUESKY_APP_PASSWORD = os.environ.get("BLUESKY_APP_PASSWORD", "")
+SOCIAL_MAX_PER_DAY = int(os.environ.get("SOCIAL_MAX_PER_DAY") or 6)       # breaking story posts per day
+SOCIAL_BRIEFING_HOUR_UTC = int(os.environ.get("SOCIAL_BRIEFING_HOUR_UTC") or 7)
+SOCIAL_DRY_RUN = os.environ.get("SOCIAL_DRY_RUN") == "1"
+
 # Spoken briefing (Piper voice on the runner, MP3 via LAME). Generated once a day at/after this hour.
 AUDIO_VOICE = os.environ.get("AUDIO_VOICE") or "en_US-lessac-medium"
 AUDIO_HOUR_UTC = int(os.environ.get("AUDIO_HOUR_UTC") or os.environ.get("NEWSLETTER_HOUR_UTC") or 5)
