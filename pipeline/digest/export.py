@@ -29,23 +29,26 @@ def _coverage(articles: list[dict]) -> dict:
 
 
 def build_briefing(stories: list[dict], now) -> dict:
-    """Top stories that are new in the last 24 hours (48 or 96 on a quiet day), ranked by score.
+    """Today's top stories: first new ones, then developing ones only to fill empty places.
 
-    New means first published inside the window. An older story qualifies only when it has
-    developed: at least two of its articles were published inside the window. One late article
-    merging into a days-old story no longer makes that story today's news."""
+    New means first published in the last 24 hours (48 or 96 on a quiet day). A developing
+    story is older but had at least two articles published inside the window; it only enters
+    when there are not enough new stories, so the briefing always leads with fresh news."""
 
-    def fresh(s: dict, cutoff: str) -> bool:
-        if s["pinned"] or (s["firstPublishedAt"] or "") >= cutoff:
-            return True
+    def new_story(s: dict, cutoff: str) -> bool:
+        return bool(s["pinned"] or (s["firstPublishedAt"] or "") >= cutoff)
+
+    def developing(s: dict, cutoff: str) -> bool:
         return sum(1 for a in s["articles"] if (a["publishedAt"] or "") >= cutoff) >= 2
 
+    rank = lambda s: (not s["pinned"], -s["score"])  # noqa: E731
     for window in (24, 48, 96):
         cutoff = _iso(now - timedelta(hours=window))
-        pool = [s for s in stories if fresh(s, cutoff)]
-        if len(pool) >= BRIEFING_SIZE or window == 96:
+        fresh = sorted((s for s in stories if new_story(s, cutoff)), key=rank)
+        if len(fresh) >= BRIEFING_SIZE + BRIEFING_ALSO or window == 96:
             break
-    pool.sort(key=lambda s: (not s["pinned"], -s["score"]))
+    older = sorted((s for s in stories if not new_story(s, cutoff) and developing(s, cutoff)), key=rank)
+    pool = fresh + older
     top = pool[:BRIEFING_SIZE]
     also = pool[BRIEFING_SIZE : BRIEFING_SIZE + BRIEFING_ALSO]
     words = sum(word_count(s.get("summaryMd") or "") for s in top) + 25 * len(also)
