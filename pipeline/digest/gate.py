@@ -6,10 +6,10 @@ import re
 from datetime import timedelta
 
 from langdetect import DetectorFactory, LangDetectException, detect
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 
 from . import config, db
-from .textutil import hamming, word_count
+from .textutil import hamming, title_year, word_count
 
 DetectorFactory.seed = 0
 log = logging.getLogger("digest.gate")
@@ -81,6 +81,11 @@ def check(row, recent_hashes: list[tuple[int, int]]) -> str | None:
         return "published in the future"
     if pub and pub < now - timedelta(days=config.MAX_ARTICLE_AGE_DAYS):
         return "too old"
+    # "GPT2 will not be released (2019)": a community re-post of an old piece. Its submission
+    # time is recent, so only the title tells us the story is years old.
+    year = title_year(getattr(row, "raw_title", None) or row.title or "")
+    if year and year < now.year:
+        return f"too old (title says {year})"
     # Borderline pieces (score 4-6) go through; the LLM's is_ai_news check is the second gate.
     score = relevance_score(row.title or "", text)
     if score < 4:
@@ -96,9 +101,37 @@ def check(row, recent_hashes: list[tuple[int, int]]) -> str | None:
     return None
 
 
+OLD_TITLE_PATTERNS = ["%(19__)%", "%(20__)%", "%[19__]%", "%[20__]%"]
+
+
+def remove_old_published(eng, days: int = 30) -> int:
+    """One-off repair, cheap on every run: articles published before this check existed whose
+    title marks them as years old (the 2019 GPT-2 post on the front page) are rejected, so the
+    export drops them and any story left without articles."""
+    now = db.utcnow()
+    with eng.begin() as conn:
+        rows = conn.execute(
+            select(db.articles.c.id, db.articles.c.raw_title, db.articles.c.title)
+            .where(db.articles.c.status == "published", db.articles.c.created_at >= now - timedelta(days=days),
+                   or_(*[db.articles.c.raw_title.like(p) for p in OLD_TITLE_PATTERNS],
+                       *[db.articles.c.title.like(p) for p in OLD_TITLE_PATTERNS]))
+        ).all()
+        removed = 0
+        for r in rows:
+            year = title_year(r.raw_title or r.title or "")
+            if year and year < now.year:
+                conn.execute(update(db.articles).where(db.articles.c.id == r.id)
+                             .values(status="rejected", reject_reason=f"gate: too old (title says {year})"))
+                removed += 1
+    return removed
+
+
 def run() -> dict:
     stats = {"checked": 0, "passed": 0, "rejected": 0, "reasons": {}}
     eng = db.engine()
+    old = remove_old_published(eng)
+    if old:
+        stats["old_published_removed"] = old
     since = db.utcnow() - timedelta(days=7)
     with eng.connect() as conn:
         rows = conn.execute(select(db.articles).where(db.articles.c.status == "extracted")).all()

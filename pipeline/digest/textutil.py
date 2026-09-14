@@ -76,9 +76,31 @@ def domain_of(url: str) -> str:
     return netloc[4:] if netloc.startswith("www.") else netloc
 
 
+# Trailing tags such as "(2019)", "[pdf]", "[video] (2021)" that community sites append to titles.
+TRAILING_TAGS = re.compile(r"(?:\s*[\(\[][^()\[\]]{1,12}[\)\]])+\s*$")
+YEAR_TAG = re.compile(r"[\(\[]\s*((?:19|20)\d{2})\s*[\)\]]")
+
+
+def title_year(title: str) -> int | None:
+    """The year in a trailing "(2019)" / "[2021]" tag: Hacker News marks old pieces this way."""
+    m = TRAILING_TAGS.search(title or "")
+    years = [int(y) for y in YEAR_TAG.findall(m.group(0))] if m else []
+    return min(years) if years else None
+
+
+def strip_title_year(title: str) -> str:
+    m = TRAILING_TAGS.search(title or "")
+    if not m or not YEAR_TAG.search(m.group(0)):
+        return title
+    tail = re.sub(r"\s+", " ", YEAR_TAG.sub("", m.group(0))).strip()
+    head = title[: m.start()].rstrip()
+    return f"{head} {tail}" if tail else head
+
+
 def clean_title(title: str) -> str:
     title = unicodedata.normalize("NFKC", title or "").strip()
     title = re.sub(r"\s+", " ", title)
+    title = strip_title_year(title)  # never shown in a headline; fetch and the gate read raw_title
     title = re.sub(r"\s*(\.\.\.|…)$", "", title)
     stripped = SOURCE_SUFFIX.sub("", title)
     # Only strip a " - Source" suffix when what remains is still a full title.

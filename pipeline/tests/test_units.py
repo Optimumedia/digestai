@@ -213,6 +213,54 @@ def test_cluster_repairs_oversized_story_and_reclusters():
     assert all(a.slug == f"a-{a.id}" for a in arts)  # re-clustered articles keep their slugs
 
 
+def test_title_year_marks_old_reposts():
+    from types import SimpleNamespace
+
+    from digest.gate import check
+    from digest.textutil import strip_title_year, title_year
+
+    assert title_year("Better language models and their implications: GPT2 will not be released (2019)") == 2019
+    assert title_year("Attention is all you need [pdf] (2017)") == 2017
+    assert title_year("Some paper [2021] [video]") == 2021
+    assert title_year("GPT-5 (Part 2)") is None and title_year("The 2019 plan, revisited") is None
+    assert strip_title_year("GPT2 will not be released (2019)") == "GPT2 will not be released"
+    assert strip_title_year("Attention is all you need [pdf] (2017)") == "Attention is all you need [pdf]"
+    assert clean_title("OpenAI restricts GPT-2 release over malicious use concerns (2019)") == \
+        "OpenAI restricts GPT-2 release over malicious use concerns"
+
+    text = ("OpenAI said it would not release the full GPT-2 language model because of concerns about "
+            "malicious use of the AI system, releasing a smaller model to researchers instead. ") * 8
+    row = SimpleNamespace(id=1, domain="openai.com", title="Better language models and their implications",
+                          raw_title="Better language models and their implications (2019)", content_text=text,
+                          description=None, published_at=None, simhash=None)
+    assert check(row, []) == "too old (title says 2019)"
+    assert check(SimpleNamespace(**{**vars(row), "raw_title": row.title}), []) is None
+
+
+def test_page_date_replaces_recent_submission_time():
+    from datetime import datetime, timezone
+
+    from digest.extract import extract, parse_page_date, prefer_page_date
+
+    now = datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)
+    hn_time = datetime(2026, 9, 13, 20, 0, tzinfo=timezone.utc)
+    old = prefer_page_date(hn_time, "2019-02-14T08:00:00-08:00", now=now, min_gap_days=3)
+    assert old == datetime(2019, 2, 14, 16, 0, tzinfo=timezone.utc)
+    assert prefer_page_date(hn_time, "2026-09-12T09:00:00Z", now=now, min_gap_days=3) is None  # within the gap
+    assert prefer_page_date(None, "2026-09-12", now=now) is not None  # no feed date: use the page's
+    assert prefer_page_date(hn_time, "2030-01-01", now=now) is None  # implausible future
+    assert parse_page_date("Feb 14, 2019") is None and parse_page_date(None) is None
+
+    body = " ".join(["OpenAI decided not to release the full GPT-2 language model over misuse concerns."] * 40)
+    for head in ('<meta property="article:published_time" content="2019-02-14T08:00:00Z">',
+                 '<meta property="og:published_time" content="2019-02-14T08:00:00Z">', ""):
+        time_tag = "" if head else '<time datetime="2019-02-14T08:00:00Z">Feb 14, 2019</time>'
+        html = (f"<html><head><title>Better language models</title>{head}</head><body><article><header>{time_tag}"
+                f"<h1>Better language models</h1></header><p>{body}</p></article></body></html>")
+        res = extract("https://openai.com/blog/better-language-models", html, "OpenAI GPT-2 language model release")
+        assert parse_page_date(res.date) == datetime(2019, 2, 14, 8, 0, tzinfo=timezone.utc), (head, res.date)
+
+
 def test_keywords_handle_possessives():
     assert "deepmind" in keywords("Import AI 472: DeepMind’s cheating models")
 

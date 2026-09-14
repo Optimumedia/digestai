@@ -16,7 +16,7 @@ from dateutil import parser as dateparser
 from sqlalchemy import insert, select, update
 
 from . import config, db
-from .textutil import SKIP_DOMAINS, clean_title, domain_of, is_skipped_domain, normalize_url, simhash, word_count  # noqa: F401
+from .textutil import SKIP_DOMAINS, clean_title, domain_of, is_skipped_domain, normalize_url, simhash, title_year, word_count  # noqa: F401
 
 log = logging.getLogger("digest.fetch")
 
@@ -316,6 +316,7 @@ def run() -> dict:
         recent = recent_titles(conn)
 
     cutoff = db.utcnow() - timedelta(days=config.MAX_ARTICLE_AGE_DAYS)
+    this_year = db.utcnow().year
     for source, items, exc in fetch_all(source_rows):
         stats["sources"] += 1
         if exc is not None:  # one bad source must not stop the run
@@ -341,6 +342,12 @@ def run() -> dict:
                 if not dom or is_skipped_domain(dom):
                     continue
                 if item["published_at"] and item["published_at"] < cutoff:
+                    continue
+                # "... (2019)": an old piece re-posted to HN/Reddit. The submission time is new,
+                # the story is not (MAX_ARTICLE_AGE_DAYS applies to the piece, not the re-post).
+                year = title_year(item["title"])
+                if year and year < this_year:
+                    stats["too_old_title_year"] = stats.get("too_old_title_year", 0) + 1
                     continue
                 exists = conn.execute(select(db.articles.c.id).where(db.articles.c.url == url)).first()
                 if exists:
