@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import timedelta
+from urllib.parse import quote
 
 from sqlalchemy import func, select
 
 from . import config, db, history
+from . import quality as content_quality
 
 log = logging.getLogger("digest.admin")
 
@@ -284,29 +287,187 @@ def run() -> dict:
             q["recentBadRate"] = round(q["recentBad"] / q["recentTotal"], 2) if q["recentTotal"] >= 3 else None
         out["extraction"] = qual
 
-        # ---- alerts: the things that need a human today.
-        alerts = []
-        last_steps = [r for r in runs if db.as_utc(r.started_at) >= now - timedelta(hours=1)]
-        if any((r.stats or {}).get("crashed") for r in last_steps):
-            alerts.append({"level": "critical", "text": "The latest pipeline run had a crashed step. Open the Actions log."})
+        # ---- action cards: the things that need a human, each with why it matters and what to do.
+        step_rows = [{"step": r.step, "startedAt": db.as_utc(r.started_at), "stats": r.stats or {}} for r in runs]
+        actions = run_cards(step_rows, now)
         if not runs or db.as_utc(runs[0].started_at) < now - timedelta(hours=2):
-            alerts.append({"level": "critical", "text": "No pipeline run in the last 2 hours. The schedule may be paused."})
+            actions.append(_card("pipeline:silent", "critical", "No pipeline run has started in the last 2 hours.",
+                                 "The site only updates when the pipeline runs, so no new stories are appearing.",
+                                 "Start a run now. If nothing starts, the schedule may be paused in GitHub Actions.",
+                                 action={"kind": "run", "label": "Run pipeline now"}))
         for s in out["sources"]:
             if s["enabled"] and not s["discovered"] and s["errorCount"] >= 12:
-                alerts.append({"level": "warning", "text": f"Source {s['name']} has failed {s['errorCount']} runs in a row: {s['lastError'] or 'no detail'}"})
+                actions.append(_card(f"source:{s['key']}", "warning", f"{s['name']} has failed to load {s['errorCount']} runs in a row.",
+                                     "No articles arrive from it while it fails. The site keeps working, but every run wastes time retrying it.",
+                                     "If it is still failing tomorrow, pause it. You can switch it back on later in sources.yaml.",
+                                     detail=f"Last error: {s['lastError']}" if s["lastError"] else None,
+                                     action={"kind": "pause", "source": s["key"], "name": s["name"], "label": "Pause this source"}))
         for u in usage:
             if u.day == now.date().isoformat() and u.exhausted and now.hour < 12:
-                alerts.append({"level": "warning", "text": f"{u.provider} hit its daily quota before noon UTC; the rest of the day runs on fallbacks."})
+                actions.append(_card(f"quota:{u.provider}", "info", f"{u.provider.title()} used up its daily allowance before noon (UTC).",
+                                     "The rest of today's summaries are written by the backup models, which are a little less polished.",
+                                     "No action needed; the allowance resets at midnight UTC."))
         recent_pub = conn.execute(select(func.count()).select_from(db.stories).where(db.stories.c.first_published_at >= now - timedelta(hours=3), db.stories.c.status == "published")).scalar() or 0
         if recent_pub == 0 and now.hour not in (2, 3, 4, 5):
-            alerts.append({"level": "warning", "text": "No new story published in the last 3 hours."})
+            actions.append(_card("pipeline:quiet", "warning", "No new story has been published in the last 3 hours.",
+                                 "Returning readers find the same front page, which makes the site look abandoned.",
+                                 "Check the latest run in the Actions log. Quiet hours happen at night, but three hours in the daytime is unusual.",
+                                 action={"kind": "link", "url": ACTIONS_URL, "label": "Open the Actions log"}))
         for q in qual:
-            if q["recentBadRate"] is not None and q["recentBadRate"] >= 0.6 and (q["fullRate"] or 0) >= 0.5:
-                alerts.append({"level": "warning", "text": f"Extraction from {q['domain']} is failing today ({int(q['recentBadRate']*100)}% bad) after working this week; the site may have changed."})
+            if q["recentBadRate"] is not None and q["recentTotal"] >= 5 and q["recentBadRate"] >= 0.6 and (q["fullRate"] or 0) >= 0.5:
+                actions.append(_card(f"extract:{q['domain']}", "info", f"Articles from {q['domain']} could not be read in full today ({q['recentBad']} of {q['recentTotal']}).",
+                                     "Its stories show only a short summary until this works again; the publisher probably changed its pages.",
+                                     "No action needed unless it lasts several days."))
         if history_error:
-            alerts.append({"level": "warning", "text": f"The daily history behind Compare could not be updated: {history_error}"})
-        out["alerts"] = alerts
+            actions.append(_card("history", "info", "The daily history behind Compare could not be updated.",
+                                 "The Compare numbers may miss today until the next successful run.",
+                                 "No action needed unless it repeats.", detail=history_error))
+        actions += search_cards(_read_json("gsc.json"), step_rows, now)
+
+        # ---- content quality: sample older story pages that should still be online.
+        cut_hi, cut_lo = now - timedelta(days=2), now - timedelta(days=60)
+        older = conn.execute(select(db.stories.c.slug, db.stories.c.headline)
+                             .where(db.stories.c.status == "published", db.stories.c.first_published_at < cut_hi, db.stories.c.first_published_at >= cut_lo)
+                             .order_by(db.stories.c.first_published_at.desc())).all()
+        step = max(1, len(older) // content_quality.MAX_STORY_PAGES)
+        own_pages = [{"slug": r.slug, "headline": r.headline} for r in older[::step]][:content_quality.MAX_STORY_PAGES]
+        out["storyTimes"] = sorted(_iso(s.first_published_at) for s in stories if s.status == "published" and s.first_published_at)
+
+    try:
+        out["quality"] = content_quality.run(now, own_pages=own_pages)
+        actions += out["quality"]["cards"]
+    except Exception as exc:  # noqa: BLE001  (a quality check must never cost the dashboard)
+        log.warning("quality checks failed: %s", str(exc)[:200])
+        out["quality"] = {"checkedAt": _iso(now), "error": str(exc)[:120], "flags": {}, "cards": []}
+
+    order = {"critical": 0, "warning": 1, "info": 2}
+    actions.sort(key=lambda c: order.get(c["level"], 3))
+    out["actions"] = actions
+    # alerts: the older flat list notify.py turns into a GitHub issue; information cards stay out.
+    out["alerts"] = [{"level": c["level"], "text": _plain(c)} for c in actions if c["level"] in ("critical", "warning")]
 
     config.SITE_DATA_DIR.mkdir(parents=True, exist_ok=True)
     (config.SITE_DATA_DIR / "admin.json").write_text(json.dumps(out, ensure_ascii=False, default=str), encoding="utf-8")
-    return {"runs": len(out["runs"]), "sources": len(out["sources"]), "engagement": out["engagement"]["available"], "historyDays": len(out["history"])}
+    return {"runs": len(out["runs"]), "sources": len(out["sources"]), "engagement": out["engagement"]["available"], "historyDays": len(out["history"]),
+            "actions": len(actions), "qualitySeconds": out["quality"].get("seconds")}
+
+
+# ---------------------------------------------------------------------------- action cards
+
+ACTIONS_URL = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY') or 'Optimumedia/digestai'}/actions/workflows/pipeline.yml"
+FAILED_RUNS_URL = ACTIONS_URL + "?query=is%3Afailure"
+
+# What each step does, in words for someone who never reads the code.
+STEP_WORDS = {
+    "fetch": "collecting new articles", "extract": "reading the articles", "gate": "filtering out off-topic articles",
+    "enrich": "writing summaries", "cluster": "grouping articles into stories", "threads": "linking related stories",
+    "discuss": "checking online discussions", "pulse": "summing up community reactions", "rank": "ranking stories",
+    "export": "preparing the stories for the site", "push": "sending browser alerts", "topics": "updating topic pages",
+    "intros": "writing topic introductions", "images": "making share pictures", "audio": "recording the audio briefing",
+    "social": "posting to social media", "newsletter": "sending the newsletter", "gsc": "reading Google Search data",
+    "admin": "updating this dashboard", "notify": "raising alerts", "indexnow": "notifying search engines",
+}
+
+
+def _card(cid: str, level: str, what: str, why: str, todo: str, at=None, detail: str | None = None,
+          action: dict | None = None, items: list | None = None) -> dict:
+    """what may contain {at}; the page shows that time in the reader's own time zone."""
+    card = {"id": cid, "level": level, "what": what, "why": why, "todo": todo}
+    if at is not None:
+        card["at"] = _iso(at)
+    if detail:
+        card["detail"] = detail[:200]
+    if action:
+        card["action"] = action
+    if items:
+        card["items"] = items
+    return card
+
+
+def _plain(card: dict) -> str:
+    at = card.get("at")
+    return card["what"].replace("{at}", f"{at[11:16]} UTC" if at else "an earlier time")
+
+
+def _read_json(name: str):
+    try:
+        return json.loads((config.SITE_DATA_DIR / name).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def group_runs(rows: list[dict]) -> list[list[dict]]:
+    """Step rows into pipeline runs, oldest first: a run starts at fetch or after a 29-minute gap."""
+    groups: list[list[dict]] = []
+    for r in sorted(rows, key=lambda r: r["startedAt"]):
+        if groups and r["step"] != "fetch" and r["startedAt"] - groups[-1][0]["startedAt"] < timedelta(minutes=29):
+            groups[-1].append(r)
+        else:
+            groups.append([r])
+    return groups
+
+
+def run_cards(rows: list[dict], now) -> list[dict]:
+    """Failed runs in the last 24 hours, translated. A crashed step makes the workflow stop before
+    the site is built, so readers keep the previous version: one failure is information, a streak
+    is an emergency."""
+    groups = [g for g in group_runs(rows) if g[0]["startedAt"] >= now - timedelta(hours=24)]
+    crashed = lambda g: next((s for s in g if (s["stats"] or {}).get("crashed")), None)  # noqa: E731
+    failed = [(g, crashed(g)) for g in groups if crashed(g)]
+    if not failed:
+        return []
+    streak = 0
+    for g in reversed(groups):
+        if not crashed(g):
+            break
+        streak += 1
+    _, step = failed[-1]
+    doing = STEP_WORDS.get(step["step"], f"the {step['step']} step")
+    link = {"kind": "link", "url": FAILED_RUNS_URL, "label": "Open the Actions log"}
+    if streak >= 2:
+        return [_card("runs:failing", "critical", f"The last {streak} runs failed, the latest at {{at}} while {doing}.",
+                      "While runs fail the site is not updated, so readers see no new stories.",
+                      "Open the Actions log to see the error, then run the pipeline again. If it fails again it needs a fix in the code.",
+                      at=step["startedAt"], action=link)]
+    if streak == 1:
+        return [_card("runs:latest", "warning", f"The latest run failed at {{at}} while {doing}.",
+                      "The site kept the previous version, so readers saw no problem, but new stories wait for the next run.",
+                      "No action needed unless the next run fails too.", at=step["startedAt"], action=link)]
+    if len(failed) >= 3:
+        return [_card("runs:repeated", "warning", f"{len(failed)} runs failed in the last 24 hours, the latest at {{at}} while {doing}.",
+                      "Each failed run keeps the previous version of the site, so new stories arrive later than they should.",
+                      "Open the Actions log. Failures that keep coming back usually need a fix.", at=step["startedAt"], action=link)]
+    what = f"A run failed at {{at}} while {doing}." if len(failed) == 1 else f"2 runs failed in the last 24 hours, the latest at {{at}} while {doing}."
+    return [_card("runs:earlier", "info", what,
+                  "The site kept the previous version and later runs worked, so readers saw no problem.",
+                  "No action needed unless it repeats.", at=step["startedAt"], action=link)]
+
+
+def search_cards(gsc: dict | None, rows: list[dict], now) -> list[dict]:
+    """Google indexing and Search Console freshness. Needs at least 20 submitted pages before
+    calling zero indexed a problem."""
+    if not gsc:
+        return []
+    out = []
+    maps = gsc.get("sitemaps") or []
+    # A sitemap index repeats the pages of the sitemaps it lists: the largest one, not the sum.
+    submitted = max((int(m.get("submitted") or 0) for m in maps), default=0)
+    indexed = sum(int(m.get("indexed") or 0) for m in maps)
+    if submitted >= 20 and indexed == 0:
+        prop = gsc.get("property") or f"sc-domain:{config.SITE_URL.split('//', 1)[-1]}"
+        inspect = f"https://search.google.com/search-console/inspect?resource_id={quote(prop, safe='')}&id={quote(config.SITE_URL + '/', safe='')}"
+        errors = [{"headline": m.get("path"), "detail": f"This sitemap entry reports {m.get('errors')} error(s); if it is a typo, remove it in Search Console."}
+                  for m in maps if str(m.get("errors") or "0") not in ("0", "")]
+        out.append(_card("search:indexed", "warning", f"Google has indexed 0 of {submitted} submitted pages.",
+                         "Pages Google has not indexed cannot appear in its results, so search brings no visitors. New sites often wait a few weeks, but a nudge helps.",
+                         "In Search Console, inspect the home page and one recent story, then press \"Request indexing\" for each.",
+                         action={"kind": "link", "url": inspect, "label": "Inspect in Search Console"}, items=errors or None))
+    gsc_steps = sorted((r for r in rows if r["step"] == "gsc" and (r["stats"] or {}).get("configured")), key=lambda r: r["startedAt"])
+    ok = [r for r in gsc_steps if not r["stats"].get("error") and not r["stats"].get("crashed")]
+    if gsc_steps and (not ok or ok[-1]["startedAt"] < now - timedelta(hours=26)):
+        what = "Google Search numbers have not refreshed since {at}." if ok else "Google Search numbers have not refreshed in the last two weeks."
+        out.append(_card("search:stale", "warning", what,
+                         "The Search tab and the Google figures in Compare are out of date, so they can hide a drop or a rise.",
+                         "Usually the Search Console connection lost access or its key expired. The Actions log shows the error on the \"gsc\" step.",
+                         at=ok[-1]["startedAt"] if ok else None, action={"kind": "link", "url": ACTIONS_URL, "label": "Open the Actions log"}))
+    return out
