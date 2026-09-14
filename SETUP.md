@@ -6,6 +6,10 @@
 - [ ] **Kit** newsletter account, form and v4 API key → `.env` → `scripts\push-config.ps1` (section 3). Turns on the 07:00 daily email; everything else is wired.
 - [x] **Bluesky** auto-posting (14 Sep): app password pushed as BLUESKY_HANDLE / BLUESKY_APP_PASSWORD; the `social` step posts the daily briefing (from 07:00 UTC) and up to 6 breaking stories a day. Profiles: LinkedIn company page, bsky digestai.bsky.social, X @DigestAINews (X and LinkedIn posting stay manual).
 - [x] **Google News Publisher Center**: submitted 12 September 2026; approval usually takes days to two weeks. Check status at https://publishercenter.google.com; once approved, Google News and Discover traffic shows in Search Console → Performance → Discover / News tabs.
+- [x] Social profiles created (14 Sep): LinkedIn company page, Bluesky digestai.bsky.social, X @DigestAINews; linked from the site. Add digestai.news to the Bluesky bio.
+- [x] Show HN posted (14 Sep). Not visible in HN search and no visits recorded yet: check news.ycombinator.com/show; if [dead], email hn@ycombinator.com to ask for review.
+- [ ] Search Console → URL Inspection → Request indexing for /today, /models, /funding.
+- [ ] Product Hunt launch; Reddit (r/artificial, r/ArtificialInteligence) and LinkedIn posts.
 - [x] Search Console service account connected (12 Sep); the admin Search tab updates every run.
 - [x] Bing Webmaster Tools imported from Search Console (12 Sep).
 - [x] Search Console sitemaps submitted (11 Sep).
