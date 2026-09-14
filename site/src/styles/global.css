@@ -424,8 +424,9 @@ table.sortable th:hover { color: var(--ink); }
 .listen-play .i-play { margin-left: 3px; }
 .listen-play .i-pause, .listen.is-playing .listen-play .i-play { display: none; }
 .listen.is-playing .listen-play .i-pause { display: block; }
-.listen-kicker { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+.listen-kicker { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px 8px; font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
 .listen-dot { width: 8px; height: 8px; border-radius: 50%; background: #fb923c; flex: none; }
+.listen-kicker > span:not(.listen-dot) { min-width: 0; }
 .listen.is-playing .listen-dot { animation: listen-pulse 1.4s ease-in-out infinite; }
 @keyframes listen-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(251, 146, 60, .6); } 50% { box-shadow: 0 0 0 6px rgba(251, 146, 60, 0); } }
 @media (prefers-reduced-motion: reduce) { .listen.is-playing .listen-dot { animation: none; } .listen-play { transition: none; } }
