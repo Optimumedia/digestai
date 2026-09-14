@@ -205,8 +205,8 @@
     const text = encodeURIComponent(title);
     const u = encodeURIComponent(url);
     const targets = {
-      x: `https://x.com/intent/post?text=${text}&url=${u}`,
-      bluesky: `https://bsky.app/intent/compose?text=${text}%20${u}`,
+      x: `https://x.com/intent/post?text=${text}&url=${u}&via=DigestAINews`,
+      bluesky: `https://bsky.app/intent/compose?text=${text}%20${u}%20via%20%40digestai.bsky.social`,
       linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${u}`,
       whatsapp: `https://wa.me/?text=${text}%20${u}`,
       hn: `https://news.ycombinator.com/submitlink?u=${u}&t=${text}`,
