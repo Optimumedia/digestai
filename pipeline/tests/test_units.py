@@ -73,6 +73,67 @@ def test_discovery_terms_only_entities_and_not_generic():
     assert len(discovery_terms(top * 5, min_articles=1, limit=2)) == 2
 
 
+def test_enrich_time_budget_holds():
+    import time as _t
+
+    from digest import config, enrich
+
+    assert enrich.should_start_article(0, [], 600, 90)
+    assert not enrich.should_start_article(520, [], 600, 90)  # the first article's estimate would overrun
+    assert enrich.should_start_article(500, [30, 40], 600, 90)
+    assert not enrich.should_start_article(500, [30, 200], 600, 90)  # one stall raises the estimate
+    enrich._deadline = _t.monotonic() + 12
+    try:
+        assert 5.0 <= enrich._request_timeout(90) <= 12.0
+        assert enrich._request_timeout(3) == 5.0  # never below a workable floor
+    finally:
+        enrich._deadline = None
+    assert enrich._request_timeout(90) == 90
+
+    # A 25-second rate-limit window on every Groq model: skip to the error at once, never sleep.
+    saved = dict(enrich._groq_wait_until)
+    for m in [config.GROQ_MODEL, *config.GROQ_FALLBACK_MODELS]:
+        enrich._groq_wait_until[m] = _t.time() + 25
+    orig_post = enrich.requests.post
+
+    def no_request(*a, **k):
+        raise AssertionError("no request expected while rate limited")
+
+    enrich.requests.post = no_request
+    t0 = _t.monotonic()
+    try:
+        enrich.call_groq("prompt")
+        raise AssertionError("expected a rate-limit error")
+    except RuntimeError as exc:
+        assert "rate limited" in str(exc)
+    finally:
+        enrich.requests.post = orig_post
+        enrich._groq_wait_until.clear()
+        enrich._groq_wait_until.update(saved)
+    assert _t.monotonic() - t0 < 1.0
+
+
+def test_fetch_all_parallel_hosts_keep_order_and_delays():
+    from types import SimpleNamespace
+
+    from digest.fetch import fetch_all
+
+    srcs = [SimpleNamespace(key=f"s{i}", kind="rss", url=u) for i, u in enumerate([
+        "https://www.bing.com/news/search?q=a", "https://techcrunch.com/feed", "https://www.bing.com/news/search?q=b",
+        "https://www.reddit.com/r/x.rss", "https://www.reddit.com/r/y.rss", "https://bad.example/feed"])]
+    slept = []
+
+    def rss(source):
+        if "bad" in source.url:
+            raise ValueError("boom")
+        return [source.key]
+
+    out = fetch_all(srcs, fetchers={"rss": rss}, sleep=slept.append)
+    assert [s.key for s, _, _ in out] == [s.key for s in srcs]
+    assert out[5][1] is None and isinstance(out[5][2], ValueError) and out[0][1] == ["s0"]
+    assert sorted(slept) == [1.0, 4.0]  # one gap on bing.com, a longer one on reddit.com
+
+
 def test_keywords_handle_possessives():
     assert "deepmind" in keywords("Import AI 472: DeepMind’s cheating models")
 

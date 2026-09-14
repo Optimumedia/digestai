@@ -5,6 +5,7 @@ import calendar
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -271,6 +272,41 @@ def _mastodon_items(source) -> list[dict]:
 FETCHERS = {"rss": _rss_items, "hn": _hn_items, "reddit": _reddit_items, "mastodon": _mastodon_items}
 
 
+def host_delay(host: str) -> float:
+    """Politeness between requests to one host: reddit.com throttles back-to-back requests;
+    others (e.g. the Bing search feeds sharing bing.com) only need a short gap."""
+    return config.FETCH_SLOW_HOSTS.get(host, config.FETCH_HOST_DELAY)
+
+
+def fetch_all(source_rows, fetchers: dict | None = None, sleep=time.sleep) -> list[tuple]:
+    """Download every source: hosts in parallel, one host's sources in sequence with its delay.
+    Returns (source, items, error) in the original source order, so inserts stay deterministic."""
+    fetchers = fetchers or FETCHERS
+    by_host: dict[str, list] = {}
+    for s in source_rows:
+        by_host.setdefault(domain_of(s.url), []).append(s)
+
+    def work(group: list) -> list[tuple]:
+        out = []
+        for i, source in enumerate(group):
+            if i:
+                sleep(host_delay(domain_of(source.url)))
+            try:
+                out.append((source, fetchers.get(source.kind, fetchers["rss"])(source), None))
+            except Exception as exc:  # noqa: BLE001 - one bad source must not stop the run
+                out.append((source, None, exc))
+        return out
+
+    results: list[tuple] = []
+    if by_host:
+        with ThreadPoolExecutor(max_workers=max(1, min(config.FETCH_WORKERS, len(by_host)))) as pool:
+            for chunk in pool.map(work, by_host.values()):
+                results.extend(chunk)
+    order = {id(s): i for i, s in enumerate(source_rows)}
+    results.sort(key=lambda r: order[id(r[0])])
+    return results
+
+
 def run() -> dict:
     stats = {"sources": 0, "items": 0, "inserted": 0, "errors": 0}
     eng = db.engine()
@@ -280,19 +316,9 @@ def run() -> dict:
         recent = recent_titles(conn)
 
     cutoff = db.utcnow() - timedelta(days=config.MAX_ARTICLE_AGE_DAYS)
-    last_hit_by_host: dict[str, float] = {}
-    for source in source_rows:
+    for source, items, exc in fetch_all(source_rows):
         stats["sources"] += 1
-        fetcher = FETCHERS.get(source.kind, _rss_items)
-        # Politeness: hosts such as reddit.com throttle back-to-back requests.
-        host = domain_of(source.url)
-        wait = 4.0 - (time.time() - last_hit_by_host.get(host, 0.0))
-        if wait > 0:
-            time.sleep(wait)
-        last_hit_by_host[host] = time.time()
-        try:
-            items = fetcher(source)
-        except Exception as exc:  # noqa: BLE001 - one bad source must not stop the run
+        if exc is not None:  # one bad source must not stop the run
             stats["errors"] += 1
             log.warning("source %s failed: %s", source.key, exc)
             with eng.begin() as conn:

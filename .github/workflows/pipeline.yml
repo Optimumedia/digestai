@@ -126,9 +126,33 @@ jobs:
           ollama pull "$OLLAMA_MODEL" 2>&1 | tail -1
           echo "OLLAMA_URL=http://127.0.0.1:11434" >> "$GITHUB_ENV"
 
+      # The pipeline has its own limit inside the job's 28 minutes and may fail or time out
+      # without stopping the job: the build and deploy steps below still publish what was exported.
       - name: Run pipeline
+        id: pipeline
         working-directory: pipeline
+        timeout-minutes: 20
+        continue-on-error: true
         run: python -m digest.run ${{ github.event.inputs.steps || 'all' }}
+
+      # Stopped before the export step wrote the site data: export from the database as it is.
+      - name: Export after an early stop
+        if: steps.pipeline.outcome != 'success' && hashFiles('site/src/data/stories.json') == ''
+        working-directory: pipeline
+        timeout-minutes: 3
+        continue-on-error: true
+        run: python -m digest.run export
+
+      # The site builds (empty) without stories.json, so never build or deploy without real data.
+      - name: Check exported data
+        id: data
+        run: |
+          if python -c "import json,sys; sys.exit(0 if len(json.load(open('site/src/data/stories.json'))) > 0 else 1)"; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::site/src/data/stories.json is missing or empty; skipping build and deploy"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Save database
         if: env.DATABASE_URL == '' && always()
@@ -153,12 +177,14 @@ jobs:
           overwrite: true
 
       - uses: actions/setup-node@v4
+        if: steps.data.outputs.ok == 'true'
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: site/package-lock.json
 
       - name: Build site
+        if: steps.data.outputs.ok == 'true'
         working-directory: site
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.PUBLIC_SUPABASE_URL }}
@@ -174,7 +200,7 @@ jobs:
       # Cloudflare Pages when its token exists (unmetered bandwidth), otherwise GitHub Pages
       # (free, no secret, 100 GB/month soft limit) so the site is live from day one.
       - name: Deploy to Cloudflare Pages
-        if: env.CF_TOKEN != ''
+        if: steps.data.outputs.ok == 'true' && env.CF_TOKEN != ''
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -182,12 +208,12 @@ jobs:
           command: pages deploy site/dist --project-name=digestai --commit-dirty=true
 
       - name: Upload site for GitHub Pages
-        if: env.CF_TOKEN == ''
+        if: steps.data.outputs.ok == 'true' && env.CF_TOKEN == ''
         uses: actions/upload-pages-artifact@v3
         with:
           path: site/dist
 
       - name: Deploy to GitHub Pages
-        if: env.CF_TOKEN == ''
+        if: steps.data.outputs.ok == 'true' && env.CF_TOKEN == ''
         id: pages
         uses: actions/deploy-pages@v4
