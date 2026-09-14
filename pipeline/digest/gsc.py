@@ -63,6 +63,9 @@ def run() -> dict:
             log.warning("GSC site list failed: %s", str(exc)[:120])
     end = (db.utcnow() - timedelta(days=2)).date()  # GSC data lags ~2 days
     start = end - timedelta(days=27)
+    # The API keeps about 16 months of daily totals; the dashboard stores every day it gets
+    # (daily_stats), so year-over-year comparisons keep working after they age out here.
+    history_start = end - timedelta(days=480)
     out: dict = {"property": prop, "start": start.isoformat(), "end": end.isoformat()}
 
     def query(body: dict):
@@ -72,8 +75,10 @@ def run() -> dict:
         return r.json().get("rows", [])
 
     try:
-        by_day = query({"startDate": start.isoformat(), "endDate": end.isoformat(), "dimensions": ["date"], "rowLimit": 100})
-        out["perDay"] = [{"day": r["keys"][0], "clicks": r["clicks"], "impressions": r["impressions"], "ctr": round(r["ctr"], 4), "position": round(r["position"], 1)} for r in by_day]
+        by_day = query({"startDate": history_start.isoformat(), "endDate": end.isoformat(), "dimensions": ["date"], "rowLimit": 1000})
+        out["history"] = [{"day": r["keys"][0], "clicks": int(r["clicks"]), "impressions": int(r["impressions"])} for r in by_day]
+        out["perDay"] = [{"day": r["keys"][0], "clicks": r["clicks"], "impressions": r["impressions"], "ctr": round(r["ctr"], 4), "position": round(r["position"], 1)}
+                         for r in by_day if r["keys"][0] >= start.isoformat()]
         q = query({"startDate": start.isoformat(), "endDate": end.isoformat(), "dimensions": ["query"], "rowLimit": 50})
         out["queries"] = [{"query": r["keys"][0], "clicks": r["clicks"], "impressions": r["impressions"], "ctr": round(r["ctr"], 4), "position": round(r["position"], 1)} for r in q]
         p = query({"startDate": start.isoformat(), "endDate": end.isoformat(), "dimensions": ["page"], "rowLimit": 50})

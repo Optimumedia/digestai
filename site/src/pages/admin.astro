@@ -79,6 +79,10 @@ const topNow = perf.slice().sort((a, b) => b.score - a.score).slice(0, 6);
 const topReaders = perf.slice().sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 6);
 const statusText = critical.length ? `${critical.length} critical alert${critical.length > 1 ? "s" : ""}` : lastRun && !lastRun.ok ? "last run failed" : "all systems normal";
 const statusKind = critical.length || (lastRun && !lastRun.ok) ? "bad" : alerts.length ? "warn" : "good";
+// ---- Compare: the full daily history goes to the page; periods are computed in the browser.
+const history: any[] = admin?.history || [];
+const compareData = JSON.stringify({ generatedAt: admin?.generatedAt || null, history }).replace(/</g, "\\u003c");
+const periods = [["day", "Day"], ["week", "Week"], ["month", "Month"], ["year", "Year"], ["custom", "Custom"]];
 ---
 
 <Base title="Digest AI Admin" description="Pipeline health, readers, content, sources and model usage." noindex={true}>
@@ -126,6 +130,30 @@ const statusKind = critical.length || (lastRun && !lastRun.ok) ? "bad" : alerts.
           ) : (
             <div class="alerts"><div class="alert ok"><span class="st good">●</span> Nothing needs attention.</div></div>
           )}
+          <section class="card compare" id="compare" aria-labelledby="compare-title">
+            <div class="compare-head">
+              <h2 id="compare-title">Compare <span class="muted">period vs period · complete UTC days</span></h2>
+              <div class="seg" role="radiogroup" aria-label="Comparison period">
+                {periods.map(([v, l]) => <label class="seg-opt"><input type="radio" name="compare-period" value={v} checked={v === "week"} /><span>{l}</span></label>)}
+              </div>
+            </div>
+            <div class="compare-custom" data-cmp-custom hidden>
+              <fieldset>
+                <legend>Period A</legend>
+                <label>From <input type="date" data-cmp-date="a0" /></label>
+                <label>to <input type="date" data-cmp-date="a1" /></label>
+              </fieldset>
+              <fieldset>
+                <legend>Compared with period B</legend>
+                <label>From <input type="date" data-cmp-date="b0" /></label>
+                <label>to <input type="date" data-cmp-date="b1" /></label>
+              </fieldset>
+              <button type="button" class="tb" data-cmp-before>Set B to the days just before A</button>
+            </div>
+            <p class="compare-range" data-cmp-range aria-live="polite"></p>
+            <div data-cmp-body><p class="muted">{history.length ? "Loading the comparison…" : "History starts with the next pipeline run."}</p></div>
+            <script is:inline type="application/json" id="compare-data" set:html={compareData}></script>
+          </section>
           <div class="tiles">
             <div class="tile"><span class="label">Stories published today</span><span class="value">{storiesPerDay[today] ?? 0}</span><span class="sub">yesterday {storiesPerDay[yesterday] ?? 0}</span></div>
             <div class:list={["tile", { off: !eng.available }]}><span class="label">Readers, 7 days</span><span class="value">{eng.available ? views7 : "—"}</span><span class="sub">{eng.available ? (viewsPrev ? delta(views7, viewsPrev) : `${sessions7} sessions`) : "no reader data yet"}</span></div>
@@ -440,6 +468,224 @@ const statusKind = critical.length || (lastRun && !lastRun.ok) ? "bad" : alerts.
         };
       };
       connect();
+    })();
+  </script>
+  <script is:inline>
+    // Compare: period vs period from the daily history in admin.json. Rolling windows of complete
+    // UTC days ending the day before the data was generated; Custom takes any two ranges.
+    (() => {
+      const DAY = 864e5;
+      const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const ISO = /^\d{4}-\d{2}-\d{2}$/;
+      // Minimum previous-period volume for a percentage. Below it a percentage misleads (1 to 2
+      // views reads "+100%"), so the tile shows the absolute change in a neutral colour instead.
+      // count: the previous period's total; readings: reading sessions behind time on story.
+      const MIN_BASE = { count: 20, readings: 5 };
+      const add = (d, n) => new Date(Date.parse(d + "T00:00:00Z") + n * DAY).toISOString().slice(0, 10);
+      const span = (from, to) => Math.round((Date.parse(to + "T00:00:00Z") - Date.parse(from + "T00:00:00Z")) / DAY) + 1;
+      // dir: 1 = up is good, -1 = lower is better, 0 = neither.
+      const GROUPS = [
+        ["Readers", [
+          { key: "sessions", label: "Sessions", note: "visits" },
+          { key: "views", label: "Page views" },
+          { key: "dwell", num: "dwellSeconds", den: "dwellReads", label: "Time on story", unit: "time", note: "average per reading session" },
+          { key: "clicks", label: "Clicks to source" },
+          { key: "saves", label: "Saves" },
+          { key: "follows", label: "Follows" },
+          { key: "shares", label: "Shares" },
+          { key: "listens", label: "Listens" },
+          { key: "alertSignups", label: "Alert sign-ups", note: "browser push" },
+        ]],
+        ["Google Search", [
+          { key: "googleClicks", label: "Google clicks", lag: true },
+          { key: "googleImpressions", label: "Google impressions", lag: true },
+        ]],
+        ["Output", [
+          { key: "storiesPublished", label: "Stories published" },
+          { key: "articlesPublished", label: "Articles published" },
+          { key: "articlesFetched", label: "Articles fetched", dir: 0, note: "volume, neither good nor bad" },
+          { key: "socialPosts", label: "Social posts", note: "Bluesky" },
+          { key: "crashedSteps", label: "Crashed pipeline steps", dir: -1, note: "lower is better" },
+        ]],
+      ];
+      const METRICS = GROUPS.flatMap(([group, ms]) => ms.map((m) => ({ ...m, group })));
+
+      const fmtDay = (d, year = true) => { const [y, m, dd] = d.split("-").map(Number); return `${MON[m - 1]} ${dd}${year ? `, ${y}` : ""}`; };
+      const fmtRange = ([f, t]) => (f === t ? fmtDay(f) : `${fmtDay(f, f.slice(0, 4) !== t.slice(0, 4))} – ${fmtDay(t)}`);
+      const fmtTime = (s) => { s = Math.round(s); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`; };
+      const fmtNum = (v, m, perDay) => (v == null ? "—" : m.unit === "time" ? fmtTime(v) : v.toLocaleString("en-US", { maximumFractionDigits: perDay ? 1 : 0 }));
+      const fmtPct = (p) => { const a = Math.abs(p); const t = a < 10 ? a.toFixed(1).replace(/\.0$/, "") : Math.round(a).toLocaleString("en-US"); return `${p > 0 ? "+" : "−"}${t}%`; };
+
+      /** Rolling windows of complete days: the last complete day is the one before generation. */
+      function preset(name, genDay) {
+        const last = add(genDay, -1), n = { day: 1, week: 7, month: 30, year: 365 }[name];
+        return { A: [add(last, -(n - 1)), last], B: [add(last, -(2 * n - 1)), add(last, -n)] };
+      }
+      /** Custom default: this month so far vs the same days of last month (a whole month when
+          the month has just started). */
+      function customDefault(genDay) {
+        const last = add(genDay, -1);
+        const aFrom = last.slice(0, 8) + "01";
+        const [y, m] = aFrom.split("-").map(Number);
+        const bFrom = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10);
+        const prevLen = new Date(Date.UTC(y, m - 1, 0)).getUTCDate();
+        return { A: [aFrom, last], B: [bFrom, add(bFrom, Math.min(span(aFrom, last), prevLen) - 1)] };
+      }
+
+      function total(byDay, m, [from, to]) {
+        let x = 0, y = 0, missing = 0;
+        for (let d = from; d <= to; d = add(d, 1)) {
+          const r = byDay.get(d);
+          if (m.num) {
+            if (r?.[m.num] == null || r?.[m.den] == null) { missing++; continue; }
+            x += r[m.num]; y += r[m.den];
+          } else {
+            if (r?.[m.key] == null) { missing++; continue; }
+            x += r[m.key];
+          }
+        }
+        if (missing) return { missing };
+        return { value: m.num ? (y > 0 ? x / y : null) : x, base: m.num ? y : x };
+      }
+
+      /** One result per metric: both values, the change and how to read it. */
+      function compare(history, A, B) {
+        const byDay = new Map(history.map((r) => [r.day, r]));
+        const first = {}, lastSeen = {};
+        for (const r of history) for (const k in r) if (r[k] != null) { if (first[k] === undefined) first[k] = r.day; lastSeen[k] = r.day; }
+        const lenA = span(A[0], A[1]), lenB = span(B[0], B[1]);
+        const perDay = lenA !== lenB;
+        return METRICS.map((m) => {
+          const k = m.num || m.key, start = first[k];
+          // Search Console reports a couple of days late: move both windows back to its last
+          // reported day instead of showing nothing for every recent period.
+          let pa = A, pb = B, shifted = false;
+          if (m.lag && lastSeen[k] && A[1] > lastSeen[k] && span(lastSeen[k], A[1]) - 1 <= 7) {
+            const n = span(lastSeen[k], A[1]) - 1;
+            pa = [add(A[0], -n), add(A[1], -n)]; pb = [add(B[0], -n), add(B[1], -n)]; shifted = true;
+          }
+          const why = ([from]) => !start ? "no data yet"
+            : from < start ? `not enough history yet (data starts ${fmtDay(start)})`
+            : m.lag ? "Search Console has not reported these days yet"
+            : "some days in this period were not recorded";
+          const ra = total(byDay, m, pa), rb = total(byDay, m, pb);
+          const res = { key: m.key, m, a: null, b: null, state: "", pct: null, tone: "neutral", note: "", perDay, shifted: shifted ? { A: pa, B: pb } : null };
+          const scale = (v, len) => (v == null || m.num || !perDay ? v : v / len);
+          if (ra.missing) { res.state = "unavailable"; res.note = why(pa); }
+          else {
+            res.a = scale(ra.value, lenA);
+            if (rb.missing) { res.state = "unavailable"; res.note = why(pb); }
+            else res.b = scale(rb.value, lenB);
+          }
+          if (!res.state) {
+            const { a, b } = res;
+            if (a == null && b == null) { res.state = "none"; res.note = "no readings in either period"; }
+            else if (b == null || (b === 0 && a > 0)) res.state = "new";
+            else if (a == null) { res.state = "gone"; res.note = "no readings in this period"; }
+            else if (Math.abs(a - b) < 1e-9 || Math.abs(((a - b) / b) * 100) < 0.05) res.state = "same";
+            else if (rb.base < (m.num ? MIN_BASE.readings : MIN_BASE.count)) { res.state = "small"; res.diff = a - b; }
+            else { res.state = "change"; res.pct = ((a - b) / b) * 100; }
+            const sign = res.state === "new" ? 1 : res.state === "gone" ? -1 : res.state === "change" ? Math.sign(res.pct) : 0;
+            const dir = m.dir ?? 1;
+            res.tone = sign * dir > 0 ? "good" : sign * dir < 0 ? "bad" : "neutral";
+          }
+          return res;
+        });
+      }
+
+      if (typeof document === "undefined") { globalThis.digestCompare = { compare, preset, customDefault, fmtPct, fmtRange, METRICS }; return; }
+
+      const root = document.getElementById("compare");
+      if (!root) return;
+      let data = null;
+      try { data = JSON.parse(document.getElementById("compare-data").textContent); } catch {}
+      const history = (data?.history || []).filter((r) => ISO.test(r.day)).sort((x, y) => (x.day < y.day ? -1 : 1));
+      const body = root.querySelector("[data-cmp-body]");
+      const rangeEl = root.querySelector("[data-cmp-range]");
+      const customEl = root.querySelector("[data-cmp-custom]");
+      const radios = [...root.querySelectorAll('input[name="compare-period"]')];
+      const dates = Object.fromEntries([...root.querySelectorAll("[data-cmp-date]")].map((el) => [el.dataset.cmpDate, el]));
+      if (!history.length || !data?.generatedAt) {
+        body.innerHTML = '<p class="muted">History starts with the next pipeline run.</p>';
+        radios.forEach((r) => (r.disabled = true));
+        return;
+      }
+      const genDay = data.generatedAt.slice(0, 10), lastDay = add(genDay, -1), firstDay = history[0].day;
+      for (const el of Object.values(dates)) { el.min = firstDay; el.max = lastDay; }
+
+      const KEY = "admin_compare";
+      let saved = {};
+      try { saved = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch {}
+      const okRange = (r) => Array.isArray(r) && r.length === 2 && r.every((d) => ISO.test(d));
+      let period = radios.some((r) => r.value === saved.period) ? saved.period : "week";
+      let custom = saved.custom && okRange(saved.custom.A) && okRange(saved.custom.B) ? saved.custom : customDefault(genDay);
+      const persist = () => { try { localStorage.setItem(KEY, JSON.stringify({ period, custom })); } catch {} };
+
+      const LABEL = { day: "Yesterday vs the day before", week: "Last 7 days vs the 7 before", month: "Last 30 days vs the 30 before", year: "Last 365 days vs the 365 before", custom: "Period A vs period B" };
+      const days = (r) => { const n = span(r[0], r[1]); return `${n} day${n === 1 ? "" : "s"}`; };
+
+      function tile(r) {
+        const { m } = r;
+        const cls = ["tile", "cmp-tile", r.tone === "neutral" ? "" : r.tone].filter(Boolean).join(" ");
+        const unit = r.perDay && !m.num ? " a day" : "";
+        let change;
+        if (r.state === "change") {
+          const verdict = r.tone === "good" ? "improvement" : r.tone === "bad" ? "decline" : "change";
+          change = `<span class="cmp-change"><span class="cmp-arrow" aria-hidden="true">${r.pct > 0 ? "▲" : "▼"}</span>${fmtPct(r.pct)}<span class="cmp-sr"> (${verdict})</span></span>`;
+        } else if (r.state === "small") {
+          const d = r.diff, abs = m.unit === "time" ? fmtTime(Math.abs(d)) : Math.abs(d).toLocaleString("en-US", { maximumFractionDigits: r.perDay ? 1 : 0 });
+          change = `<span class="cmp-change"><span class="cmp-arrow" aria-hidden="true">${d > 0 ? "▲" : "▼"}</span>${d > 0 ? "+" : "−"}${abs}${unit} <span class="cmp-from">(from ${fmtNum(r.b, m, r.perDay)} to ${fmtNum(r.a, m, r.perDay)})</span></span>`;
+        } else if (r.state === "new") {
+          change = `<span class="cmp-change"><span class="cmp-arrow" aria-hidden="true">▲</span>new<span class="cmp-sr"> (nothing in the previous period)</span></span>`;
+        } else if (r.state === "same") {
+          change = `<span class="cmp-change"><span class="cmp-arrow" aria-hidden="true">＝</span>no change</span>`;
+        } else if (r.state === "gone") {
+          change = `<span class="cmp-change"><span class="cmp-arrow" aria-hidden="true">▼</span>none</span>`;
+        } else {
+          change = `<span class="cmp-change cmp-note">${r.note}</span>`;
+        }
+        const prev = r.state === "small" ? "too few to show as a percentage"
+          : r.b != null ? `vs ${fmtNum(r.b, m, r.perDay)}${unit}` : r.state === "unavailable" && r.a != null ? "previous period not available" : "";
+        const moved = r.shifted ? `${fmtRange(r.shifted.A)} vs ${fmtRange(r.shifted.B)}, the latest Search Console days` : "";
+        const sub = [prev, r.state === "gone" || r.state === "none" ? r.note : "", moved, m.note].filter(Boolean).join(" · ");
+        return `<div class="${cls}"><span class="label">${m.label}</span><span class="value">${fmtNum(r.a, m, r.perDay)}${r.a != null && unit ? `<small>${unit}</small>` : ""}</span>${change}<span class="sub">${sub}</span></div>`;
+      }
+
+      function render() {
+        radios.forEach((r) => (r.checked = r.value === period));
+        customEl.hidden = period !== "custom";
+        const { A, B } = period === "custom" ? custom : preset(period, genDay);
+        if (period === "custom") { dates.a0.value = A[0]; dates.a1.value = A[1]; dates.b0.value = B[0]; dates.b1.value = B[1]; }
+        const res = compare(history, A, B);
+        const perDay = res[0]?.perDay;
+        const lines = [`<span class="cmp-what">${LABEL[period]}:</span> <b>${fmtRange(A)}</b> (${days(A)}) vs <b>${fmtRange(B)}</b> (${days(B)})`];
+        if (perDay) lines.push("The periods differ in length, so counts are shown as daily averages.");
+        if (B[0] < firstDay) lines.push(`Not enough history yet for the full previous period: data starts ${fmtDay(firstDay)}.`);
+        rangeEl.innerHTML = lines.join("<br>");
+        body.innerHTML = GROUPS.map(([g]) => `<h3 class="cmp-group">${g}</h3><div class="tiles cmp-tiles">${res.filter((r) => r.m.group === g).map(tile).join("")}</div>`).join("");
+      }
+
+      radios.forEach((r) => r.addEventListener("change", () => { if (r.checked) { period = r.value; persist(); render(); } }));
+      const readCustom = () => {
+        const pair = (x, y) => {
+          let f = ISO.test(dates[x].value) ? dates[x].value : null, t = ISO.test(dates[y].value) ? dates[y].value : null;
+          if (!f || !t) return null;
+          if (f > t) [f, t] = [t, f];
+          if (t > lastDay) t = lastDay;
+          if (f > t) f = t;
+          return [f, t];
+        };
+        const A = pair("a0", "a1"), B = pair("b0", "b1");
+        if (A && B) { custom = { A, B }; persist(); }
+        render();
+      };
+      Object.values(dates).forEach((el) => el.addEventListener("change", readCustom));
+      root.querySelector("[data-cmp-before]").addEventListener("click", () => {
+        const n = span(custom.A[0], custom.A[1]);
+        custom = { A: custom.A, B: [add(custom.A[0], -n), add(custom.A[0], -1)] };
+        persist(); render();
+      });
+      render();
     })();
   </script>
   <script is:inline define:vars={{ repo }}>
