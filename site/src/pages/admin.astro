@@ -1,5 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
+import HeldReview from "../components/HeldReview.astro";
 import { columns, lines, bars, stackedBars, sinceFirst, dayLabel } from "../lib/charts";
 import { meta, categories, formatDate } from "../lib/data";
 import fs from "node:fs";
@@ -130,6 +131,7 @@ const periods = [["day", "Day"], ["week", "Week"], ["month", "Month"], ["year", 
           ) : (
             <div class="alerts"><div class="alert ok"><span class="st good">●</span> Nothing needs attention.</div></div>
           )}
+          <HeldReview />
           <section class="card compare" id="compare" aria-labelledby="compare-title">
             <div class="compare-head">
               <h2 id="compare-title">Compare <span class="muted">period vs period · complete UTC days</span></h2>

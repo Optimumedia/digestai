@@ -171,7 +171,7 @@ def run() -> dict:
             rows = conn.execute(
                 select(db.stories.c.slug, db.stories.c.headline, func.sum(db.articles.c.engagement).label("e"))
                 .join(db.articles, db.articles.c.story_id == db.stories.c.id)
-                .where(db.stories.c.updated_at >= since)
+                .where(db.stories.c.updated_at >= since, db.stories.c.status == "published")
                 .group_by(db.stories.c.id).order_by(func.sum(db.articles.c.engagement).desc()).limit(15)
             ).all()
             top_engaged = [{"slug": r.slug, "headline": r.headline, "engagement": round(float(r.e or 0), 1)} for r in rows]

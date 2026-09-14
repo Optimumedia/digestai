@@ -99,6 +99,33 @@ the pipeline step `push` sends at most one story per run and `PUSH_MAX_PER_DAY` 
 for fresh stories covered by two or more outlets or of very high importance, and prunes dead
 endpoints. If the keys are ever regenerated, readers simply re-enable alerts.
 
+## Stories held for your approval (risky-claim hold)
+
+Stories reported by a **single outlet** about crimes, weapons or military use, surveillance, hacking
+or data breaches, fraud, lawsuits, arrests, abuse or harassment, or other wrongdoing by a **named
+person or company** are not published straight away. They stay in the database with status `held`
+and are left out of everything public: story page, front page, briefing, category pages, feeds,
+sitemaps, Bluesky and browser alerts. The rules are word and pattern lists in
+`pipeline/digest/hold.py` and use no model quota. A held story is published automatically as soon as
+a second outlet reports it.
+
+**One-time setup (2 min).** Pick a long passphrase you use nowhere else (let a password manager
+generate one), put it in `.env` as `ADMIN_REVIEW_KEY=...`, and run `scripts\push-config.ps1`. The
+pipeline uses it to encrypt the held list, because the admin page and the repository are public.
+Without it stories are still held, but the admin page can only show how many.
+
+**Reviewing.** Admin page → Today → **Held for your approval**. Paste the passphrase once into
+"Unlock with your review key" (it is remembered in that browser only). Each story shows its headline,
+a link to the source, when it appeared and why it was held:
+
+- **Approve and publish** adds it to `approve` in `pipeline/digest/moderation.yaml`. It goes live
+  on the next run and can then be posted to Bluesky and sent as an alert.
+- **Keep off the site** adds it to `unpublish`. It is never published.
+
+Both buttons need the GitHub token saved on the Settings tab, like Pin and Unpublish. You can also
+edit the two lists in `moderation.yaml` on GitHub directly. If the passphrase is changed, paste the
+new one; the old one stops opening the list after the next run.
+
 ## Search Console data in the dashboard (done 12 Sep)
 
 Gives the admin "Search" tab clicks, impressions, position, indexed pages and top queries.

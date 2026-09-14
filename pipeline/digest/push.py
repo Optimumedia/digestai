@@ -26,6 +26,8 @@ MIN_IMPORTANCE = 7
 
 def _candidates(conn, now):
     since = now - timedelta(hours=FRESH_HOURS)
+    # Only "published": stories held for approval (status "held", see hold.py) and unpublished ones
+    # are never sent. The export step, which runs first, sets and clears the hold.
     rows = conn.execute(
         select(db.stories.c.id, db.stories.c.slug, db.stories.c.headline, db.stories.c.key_points,
                db.stories.c.summary_md, db.stories.c.importance, db.stories.c.score, db.stories.c.article_count)

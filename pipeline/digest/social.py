@@ -218,6 +218,12 @@ def _plan(now: datetime) -> list[dict]:
         stories_today = conn.execute(select(func.count()).select_from(db.social_posts).where(
             db.social_posts.c.network == "bluesky", db.social_posts.c.kind == "story",
             db.social_posts.c.created_at >= day_start)).scalar() or 0
+        # stories.json already leaves out held and unpublished stories; check the database as well, so
+        # a stale file can never put a story on Bluesky that is now waiting for approval.
+        live = {r.id for r in conn.execute(select(db.stories.c.id).where(
+            db.stories.c.id.in_(list(by_id) or [-1]), db.stories.c.status == "published")).all()}
+    stories = [s for s in stories if s["id"] in live]
+    by_id = {s["id"]: s for s in stories}
 
     plan: list[dict] = []
     today = now.date().isoformat()
