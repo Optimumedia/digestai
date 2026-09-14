@@ -2,6 +2,8 @@
 model usage, content mix and reader engagement, all from the database, no extra service."""
 from __future__ import annotations
 
+import re
+
 import json
 import logging
 import os
@@ -17,6 +19,40 @@ log = logging.getLogger("digest.admin")
 
 DAYS = 14
 
+
+
+# Traffic sources as people know them. Matched on the utm_source tag or the referring host.
+_SOURCE_NAMES = [
+    (("bluesky", "bsky.app", "bsky.social"), "Bluesky"),
+    (("news.ycombinator.com", "hackernews", "hn"), "Hacker News"),
+    (("reddit.com", "old.reddit.com", "reddit"), "Reddit"),
+    (("linkedin.com", "lnkd.in", "linkedin"), "LinkedIn"),
+    (("t.co", "x.com", "twitter.com", "twitter", "x"), "X"),
+    (("facebook.com", "l.facebook.com", "m.facebook.com", "facebook"), "Facebook"),
+    (("producthunt.com", "producthunt"), "Product Hunt"),
+    (("newsletter", "kit", "email"), "Newsletter"),
+    (("push", "alert"), "Browser alerts"),
+    (("podcast",), "Podcast"),
+]
+
+
+def source_name(raw: str | None) -> str:
+    """'direct', a utm_source tag or a referring host, as a readable name."""
+    s = (raw or "").strip().lower()
+    if s.startswith("www."):
+        s = s[4:]
+    if not s or s == "direct" or s.endswith("digestai.news"):
+        return "Direct"
+    for keys, name in _SOURCE_NAMES:
+        if s in keys or any("." in k and (s == k or s.endswith("." + k)) for k in keys):
+            return name
+    if re.match(r"^(?:[a-z0-9-]+\.)*google(?:\.[a-z]{2,3}){1,2}$", s) or s == "google":
+        return "Google"
+    if re.match(r"^(?:[a-z0-9-]+\.)*bing\.com$", s) or s == "bing":
+        return "Bing"
+    if "duckduckgo" in s:
+        return "DuckDuckGo"
+    return s
 
 def _iso(dt):
     dt = db.as_utc(dt)
@@ -141,7 +177,7 @@ def run() -> dict:
             .where(db.events.c.created_at >= since)
             .group_by(func.date(db.events.c.created_at), db.events.c.type)
         ).all()
-        per_day_ev: dict[str, dict] = {d: {"day": d, "views": 0, "sessions": 0, "clicks": 0, "saves": 0, "follows": 0, "shares": 0, "dwellSeconds": 0, "dwellReads": 0} for d in days}
+        per_day_ev: dict[str, dict] = {d: {"day": d, "views": 0, "sessions": 0, "visitors": 0, "clicks": 0, "saves": 0, "follows": 0, "shares": 0, "dwellSeconds": 0, "dwellReads": 0} for d in days}
         for day, etype, n, total, sessions in ev:
             d = str(day)[:10]
             if d not in per_day_ev:
@@ -159,6 +195,34 @@ def run() -> dict:
                 row["shares"] += int(n)
             elif etype == "dwell":
                 row["dwellSeconds"] += int(total or 0)
+        # Visitors: distinct visitor numbers among views (one per session for older events).
+        for day, n in conn.execute(
+            select(func.date(db.events.c.created_at), func.count(func.distinct(func.coalesce(db.events.c.visitor, db.events.c.session))))
+            .where(db.events.c.created_at >= since, db.events.c.type == "view")
+            .group_by(func.date(db.events.c.created_at))
+        ).all():
+            d = str(day)[:10]
+            if d in per_day_ev:
+                per_day_ev[d]["visitors"] = int(n or 0)
+        # Where visitors came from and which pages they opened, last 7 days.
+        since7 = db.utcnow() - timedelta(days=7)
+        who = func.coalesce(db.events.c.visitor, db.events.c.session)
+        # Grouped per visitor, so one person arriving as "bluesky" and "bsky.app" counts once.
+        by_source: dict[str, dict] = {}
+        for raw, visitor_key, n_views in conn.execute(
+            select(db.events.c.source, who, func.count())
+            .where(db.events.c.created_at >= since7, db.events.c.type == "view")
+            .group_by(db.events.c.source, who)
+        ).all():
+            row = by_source.setdefault(source_name(raw), {"name": source_name(raw), "who": set(), "views": 0})
+            row["who"].add(visitor_key); row["views"] += int(n_views or 0)
+        sources7 = sorted(({"name": r["name"], "visitors": len(r["who"]), "views": r["views"]} for r in by_source.values()),
+                          key=lambda r: (-r["visitors"], -r["views"]))
+        pages7 = [{"path": p or "/", "views": int(n), "visitors": int(v or 0)} for p, n, v in conn.execute(
+            select(db.events.c.path, func.count(), func.count(func.distinct(who)))
+            .where(db.events.c.created_at >= since7, db.events.c.type == "view")
+            .group_by(db.events.c.path).order_by(func.count().desc()).limit(10)
+        ).all()]
         # Reading sessions: distinct (session, story) pairs that reported any time on page.
         for day, n in conn.execute(
             select(func.date(db.events.c.created_at), func.count(func.distinct(db.events.c.session + "|" + func.cast(db.events.c.story_id, db.String))))
@@ -178,7 +242,8 @@ def run() -> dict:
                 .group_by(db.stories.c.id).order_by(func.sum(db.articles.c.engagement).desc()).limit(15)
             ).all()
             top_engaged = [{"slug": r.slug, "headline": r.headline, "engagement": round(float(r.e or 0), 1)} for r in rows]
-        out["engagement"] = {"available": has_events, "perDay": list(per_day_ev.values()), "topStories": top_engaged}
+        out["engagement"] = {"available": has_events, "perDay": list(per_day_ev.values()), "topStories": top_engaged,
+                             "sources7": sources7, "pages7": pages7}
 
         # ---- story performance: prediction vs what actually happened (readers, or the web).
         per_story_ev: dict[int, dict] = {}

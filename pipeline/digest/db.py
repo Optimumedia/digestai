@@ -163,7 +163,9 @@ events = Table(
     Column("story_id", Integer),
     Column("type", String(30), nullable=False),  # view | click_source | dwell | share | newsletter_click
     Column("value", Float, nullable=False, default=1.0),
-    Column("session", String(64)),
+    Column("session", String(64)),  # one browser tab
+    Column("visitor", String(40)),  # random per browser, replaced every UTC day
+    Column("source", String(60)),  # utm_source, else the referring host, else "direct"
     Column("path", Text),
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
@@ -224,6 +226,7 @@ daily_stats = Table(
     metadata,
     Column("day", String(10), primary_key=True),  # YYYY-MM-DD, UTC
     Column("sessions", Integer),
+    Column("visitors", Integer),
     Column("views", Integer),
     Column("dwell_seconds", Float),
     Column("dwell_reads", Integer),
@@ -289,6 +292,28 @@ def _normalize_url(url: str) -> str:
     return url
 
 
+EVENTS_GUARD_SQL = """create or replace function public.events_guard() returns trigger
+  language plpgsql security definer set search_path = public as $$
+begin
+  -- Page views, listens and alert sign-ups happen on pages that are not stories: story_id may be
+  -- empty, but a story_id that is given must exist.
+  if new.story_id is not null and not exists (select 1 from stories s where s.id = new.story_id) then
+    raise exception 'unknown story';
+  end if;
+  if new.created_at is null or new.created_at > now() + interval '5 minutes' or new.created_at < now() - interval '1 day' then
+    new.created_at := now();
+  end if;
+  if length(coalesce(new.session, '')) > 40 or length(coalesce(new.path, '')) > 200
+     or length(coalesce(new.visitor, '')) > 40 or length(coalesce(new.source, '')) > 60 then
+    raise exception 'payload too large';
+  end if;
+  if (select count(*) from events e where e.session = new.session and e.created_at > now() - interval '1 minute') >= 30 then
+    raise exception 'too many events';
+  end if;
+  return new;
+end $$;"""
+
+
 def _harden_postgres(eng: Engine) -> None:
     """On Supabase every table is reachable through the public REST API with the publishable
     key unless row security is on and grants are revoked. Do that for every pipeline table on
@@ -310,6 +335,15 @@ def _harden_postgres(eng: Engine) -> None:
         import logging
 
         logging.getLogger("digest.db").warning("could not harden tables: %s", str(exc)[:120])
+    # The insert guard on events (also in supabase/schema.sql). Kept here so a change reaches the
+    # database on the next run; replacing a function takes no table lock.
+    try:
+        with eng.begin() as conn:
+            conn.execute(text(EVENTS_GUARD_SQL))
+    except Exception as exc:  # noqa: BLE001
+        import logging
+
+        logging.getLogger("digest.db").warning("could not update the events guard: %s", str(exc)[:120])
 
 
 def _migrate(eng: Engine) -> None:

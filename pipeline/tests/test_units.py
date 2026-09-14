@@ -360,6 +360,7 @@ def test_daily_history_survives_event_pruning():
     two = rows[d(2)]
     assert (two["sessions"], two["views"], two["clicks"], two["alertSignups"], two["listens"]) == (2, 3, 1, 1, 1)
     assert two["dwellSeconds"] == 60 and two["dwellReads"] == 2  # 30s average per reading session
+    assert two["visitors"] == two["sessions"]  # events without a visitor number count one per session
     assert rows[d(3)]["sessions"] is None  # before the first event: not measured, not zero
     assert rows[d(1)]["sessions"] == 0  # tracking live, nobody came
     assert (rows[d(5)]["articlesFetched"], rows[d(5)]["articlesPublished"], rows[d(5)]["storiesPublished"]) == (2, 1, 1)

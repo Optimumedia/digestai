@@ -22,15 +22,32 @@
   const articleId = Number(document.body.dataset.articleId) || null;
   let sid = session.get("s");
   if (!sid) { sid = Math.random().toString(36).slice(2, 12); session.set("s", sid); }
+  // Where this visit came from, once per tab: a utm_source tag, else the referring site, else "direct".
+  let visitSource = session.get("src");
+  if (!visitSource) {
+    let host = "";
+    try { host = document.referrer ? new URL(document.referrer).hostname.replace(/^www[.]/, "") : ""; } catch {}
+    visitSource = new URLSearchParams(location.search).get("utm_source") || (host && host !== location.hostname ? host : "direct");
+    session.set("src", visitSource);
+  }
+  // One anonymous visitor number per browser per UTC day, so a reader with several tabs counts once.
+  // It is random, never leaves this browser except with the events, and is replaced every day.
+  const visitDay = new Date().toISOString().slice(0, 10);
+  let visitor = store.get("visitor", null);
+  if (!visitor || visitor.day !== visitDay || typeof visitor.id !== "string") {
+    visitor = { id: Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 8), day: visitDay };
+    store.set("visitor", visitor);
+  }
   function send(type, value) {
     if (!cfg.supabaseUrl || !cfg.supabaseKey || noTrack) return;
-    const body = JSON.stringify({ story_id: storyId, article_id: articleId, type, value: value ?? 1, session: sid, path: location.pathname, created_at: new Date().toISOString() });
+    const body = JSON.stringify({ story_id: storyId, article_id: articleId, type, value: value ?? 1, session: sid, visitor: visitor.id, source: String(visitSource).slice(0, 60), path: location.pathname, created_at: new Date().toISOString() });
     // keepalive lets the request finish after the page is gone (unlike sendBeacon, it can carry
     // the JSON content type and the API headers Supabase requires).
     fetch(`${cfg.supabaseUrl}/rest/v1/events`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey, Authorization: `Bearer ${cfg.supabaseKey}`, Prefer: "return=minimal" }, body }).catch(() => {});
   }
+  // Every page counts as a view (the admin page does not); time on page and source clicks are story-only.
+  if (!location.pathname.startsWith("/admin")) send("view", 1);
   if (storyId) {
-    send("view", 1);
     // Time on story = time the tab was actually visible. Each time the page is hidden or left,
     // the seconds since it became visible are sent; the server adds them up.
     let visibleSince = document.visibilityState === "visible" ? Date.now() : null;
@@ -227,13 +244,7 @@
   // Connected only while the tab is visible, so the free plan's concurrent-connection cap is respected.
   (() => {
     if (!cfg.supabaseUrl || !cfg.supabaseKey || noTrack || !("WebSocket" in window) || location.pathname.startsWith("/admin")) return;
-    let src = session.get("src");
-    if (!src) {
-      let host = "";
-      try { host = document.referrer ? new URL(document.referrer).hostname.replace(/^www[.]/, "") : ""; } catch {}
-      src = new URLSearchParams(location.search).get("utm_source") || (host && host !== location.hostname ? host : "direct");
-      session.set("src", src);
-    }
+    const src = visitSource;
     const topic = "realtime:live";
     const meta = { path: location.pathname, title: document.title.replace(" — Digest AI", "").slice(0, 90), src, mobile: matchMedia("(max-width: 640px)").matches, at: Date.now() };
     let ws = null, hb = null, ref = 0, hideTimer = null, retries = 0;

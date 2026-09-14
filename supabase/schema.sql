@@ -48,13 +48,16 @@ create policy "public can log events" on events
 create or replace function public.events_guard() returns trigger
   language plpgsql security definer set search_path = public as $$
 begin
-  if new.story_id is null or not exists (select 1 from stories s where s.id = new.story_id) then
+  -- Page views, listens and alert sign-ups happen on pages that are not stories: story_id may be
+  -- empty, but a story_id that is given must exist.
+  if new.story_id is not null and not exists (select 1 from stories s where s.id = new.story_id) then
     raise exception 'unknown story';
   end if;
   if new.created_at is null or new.created_at > now() + interval '5 minutes' or new.created_at < now() - interval '1 day' then
     new.created_at := now();
   end if;
-  if length(coalesce(new.session, '')) > 40 or length(coalesce(new.path, '')) > 200 then
+  if length(coalesce(new.session, '')) > 40 or length(coalesce(new.path, '')) > 200
+     or length(coalesce(new.visitor, '')) > 40 or length(coalesce(new.source, '')) > 60 then
     raise exception 'payload too large';
   end if;
   if (select count(*) from events e where e.session = new.session and e.created_at > now() - interval '1 minute') >= 30 then

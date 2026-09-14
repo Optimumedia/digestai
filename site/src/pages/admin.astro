@@ -45,7 +45,7 @@ const delta = (now: number, before: number) => { const p = pct(now, before); ret
 
 const eng = admin?.engagement || { available: false, perDay: [], topStories: [] };
 const views7 = week(eng.perDay, "views"), viewsPrev = prevWeek(eng.perDay, "views");
-const sessions7 = week(eng.perDay, "sessions");
+const visitors7 = week(eng.perDay, "visitors");
 const clicks7 = week(eng.perDay, "clicks"), saves7 = week(eng.perDay, "saves"), follows7 = week(eng.perDay, "follows"), shares7 = week(eng.perDay, "shares");
 const dwell7 = week(eng.perDay, "dwellSeconds");
 const reads7 = week(eng.perDay, "dwellReads");
@@ -82,7 +82,8 @@ const topReaders = perf.slice().sort((a, b) => (b.views || 0) - (a.views || 0)).
 const statusText = critical.length ? `${critical.length} critical alert${critical.length > 1 ? "s" : ""}` : lastRun && !lastRun.ok ? "last run failed" : "all systems normal";
 const statusKind = critical.length || (lastRun && !lastRun.ok) ? "bad" : alerts.length ? "warn" : "good";
 // ---- Compare: the full daily history goes to the page; periods are computed in the browser.
-const history: any[] = admin?.history || [];
+// Days before visitor numbers existed have no "visitors"; their sessions are the closest measure.
+const history: any[] = (admin?.history || []).map((r: any) => (r.visitors == null && r.sessions != null ? { ...r, visitors: r.sessions } : r));
 const compareData = JSON.stringify({ generatedAt: admin?.generatedAt || null, history }).replace(/</g, "\\u003c");
 const periods = [["day", "Day"], ["week", "Week"], ["month", "Month"], ["year", "Year"], ["custom", "Custom"]];
 
@@ -248,7 +249,7 @@ const homeData = JSON.stringify({
           </section>
           <div class="tiles">
             <div class="tile"><span class="label">Stories published today</span><span class="value">{storiesPerDay[today] ?? 0}</span><span class="sub">yesterday {storiesPerDay[yesterday] ?? 0}</span></div>
-            <div class:list={["tile", { off: !eng.available }]}><span class="label">Views, 7 days</span><span class="value">{eng.available ? views7 : "—"}</span><span class="sub">{eng.available ? (viewsPrev ? delta(views7, viewsPrev) : `${sessions7} sessions`) : "no reader data yet"}</span></div>
+            <div class:list={["tile", { off: !eng.available }]}><span class="label">Views, 7 days</span><span class="value">{eng.available ? views7 : "—"}</span><span class="sub">{eng.available ? (viewsPrev ? delta(views7, viewsPrev) : `${visitors7} visitors`) : "no reader data yet"}</span></div>
             <div class:list={["tile", { off: !eng.available }]}><span class="label">Time on story</span><span class="value">{avgDwell != null ? `${avgDwell}s` : "—"}</span><span class="sub">average per reading session, 7 days</span></div>
             <div class:list={["tile", { warn: failing.length > 0 }]}><span class="label">Sources fetching</span><span class="value">{healthy}/{curatedSources.length}</span><span class="sub">{failing.length ? `${failing.length} failing` : "all fetching"}</span></div>
             <div class:list={["tile", { bad: lastRun && !lastRun.ok }]}><span class="label">Last run</span><span class="value">{lastRun ? (lastRun.ok ? "OK" : "Failed") : "—"}</span><span class="sub">{lastRun ? <><time datetime={lastRun.startedAt} data-static data-ago>{rel(lastRun.startedAt)}</time> · {Math.round(lastRun.seconds / 60)} min</> : ""}</span></div>
@@ -273,18 +274,33 @@ const homeData = JSON.stringify({
 
         <!-- ============ READERS ============ -->
         <section class="tab" data-tab="readers" hidden>
-          {!eng.available && <div class="alerts"><div class="alert warning"><span class="st warn">●</span> No reader events yet. They appear as soon as people open story pages.</div></div>}
+          {!eng.available && <div class="alerts"><div class="alert warning"><span class="st warn">●</span> No reader events yet. They appear as soon as people open any page.</div></div>}
           <div class="tiles">
             <div class="tile"><span class="label">Views, 7 days</span><span class="value">{views7}</span><span class="sub">{delta(views7, viewsPrev) || "first week"}</span></div>
-            <div class="tile"><span class="label">Sessions, 7 days</span><span class="value">{sessions7}</span><span class="sub">{sessions7 ? `${(views7 / sessions7).toFixed(1)} views per session` : ""}</span></div>
+            <div class="tile"><span class="label">Visitors, 7 days</span><span class="value">{visitors7}</span><span class="sub">{visitors7 ? `${(views7 / visitors7).toFixed(1)} pages per visitor · one per browser per day` : "one per browser per day"}</span></div>
             <div class="tile"><span class="label">Time on story</span><span class="value">{avgDwell != null ? `${avgDwell}s` : "—"}</span><span class="sub">average per reading session</span></div>
             <div class="tile"><span class="label">Actions, 7 days</span><span class="value">{engagedActions7}</span><span class="sub">{clicks7} to source · {saves7} saved · {follows7} follows · {shares7} shares</span></div>
           </div>
           <div class="cards">
             <article class="card wide">
-              <h2>Views, sessions and clicks to source <span class="muted">per day, since the first reader · hover a day for exact numbers</span></h2>
-              <div class="legend"><span><i style={`background:${C.s1}`}></i>Views</span><span><i style={`background:${C.s2}`}></i>Sessions</span><span><i style={`background:${C.s3}`}></i>Clicks to source</span></div>
-              <Fragment set:html={columns(sinceFirst(eng.perDay, ["views", "sessions", "clicks"]), "day", [{ key: "views", label: "Views", color: C.s1 }, { key: "sessions", label: "Sessions", color: C.s2 }, { key: "clicks", label: "Clicks to source", color: C.s3 }], { grouped: true, w: 1100, h: 240, xFormat: dayLabel() })} />
+              <h2>Views, visitors and clicks to source <span class="muted">per day, since the first reader · hover a day for exact numbers</span></h2>
+              <div class="legend"><span><i style={`background:${C.s1}`}></i>Views</span><span><i style={`background:${C.s2}`}></i>Visitors</span><span><i style={`background:${C.s3}`}></i>Clicks to source</span></div>
+              <Fragment set:html={columns(sinceFirst(eng.perDay, ["views", "visitors", "clicks"]), "day", [{ key: "views", label: "Views", color: C.s1 }, { key: "visitors", label: "Visitors", color: C.s2 }, { key: "clicks", label: "Clicks to source", color: C.s3 }], { grouped: true, w: 1100, h: 240, xFormat: dayLabel() })} />
+            </article>
+          </div>
+          <div class="cards">
+            <article class="card">
+              <h2>Where visitors came from <span class="muted">7 days</span></h2>
+              {(eng.sources7 || []).length ? (
+                <ol class="ranked">{eng.sources7.map((s: any) => <li><span>{s.name}</span><span class="mono muted">{s.visitors} visitor{s.visitors === 1 ? "" : "s"} · {s.views} view{s.views === 1 ? "" : "s"}</span></li>)}</ol>
+              ) : <p class="muted">Appears with the first counted visit.</p>}
+              <p class="muted">From the link a visitor followed: a tag on our own posts (Bluesky, the newsletter), else the site they came from. Direct means typed in, bookmarked or an app that hides where it came from.</p>
+            </article>
+            <article class="card">
+              <h2>Most viewed pages <span class="muted">7 days</span></h2>
+              {(eng.pages7 || []).length ? (
+                <ol class="ranked">{eng.pages7.map((p: any) => <li><a href={p.path}>{p.path}</a><span class="mono muted">{p.views} view{p.views === 1 ? "" : "s"} · {p.visitors} visitor{p.visitors === 1 ? "" : "s"}</span></li>)}</ol>
+              ) : <p class="muted">Appears with the first counted visit.</p>}
             </article>
           </div>
           <section class="card">
@@ -578,7 +594,7 @@ const homeData = JSON.stringify({
       // dir: 1 = up is good, -1 = lower is better, 0 = neither.
       const GROUPS = [
         ["Readers", [
-          { key: "sessions", label: "Sessions", note: "visits" },
+          { key: "visitors", label: "Visitors", note: "one per browser per day" },
           { key: "views", label: "Page views" },
           { key: "dwell", num: "dwellSeconds", den: "dwellReads", label: "Time on story", unit: "time", note: "average per reading session" },
           { key: "clicks", label: "Clicks to source" },
@@ -868,8 +884,8 @@ const homeData = JSON.stringify({
         const end = addDay(d.launch, d.goalDays - 1);
         const today = new Date(now).toISOString().slice(0, 10);
         const rows = history.filter((r) => r.day >= d.launch && r.day <= end);
-        const measured = rows.some((r) => r.sessions != null);
-        const total = rows.reduce((n, r) => n + (Number(r.sessions) || 0), 0);
+        const measured = rows.some((r) => r.visitors != null);
+        const total = rows.reduce((n, r) => n + (Number(r.visitors) || 0), 0);
         const countEl = root.querySelector("[data-goal-count]"), pace = root.querySelector("[data-goal-pace]");
         const bar = root.querySelector("[data-goal-bar]"), mark = root.querySelector("[data-goal-mark]");
         countEl.textContent = measured ? num(total) : "–";
@@ -887,7 +903,7 @@ const homeData = JSON.stringify({
           mark.style.left = `${Math.min(100, ((elapsed - 1) / d.goalDays) * 100)}%`;
           mark.title = `Where the count should be at the start of today: ${num(Math.round((d.goal * (elapsed - 1)) / d.goalDays))}`;
         }
-        renderSince(now, history.reduce((n, r) => n + (Number(r.sessions) || 0), 0));
+        renderSince(now, history.reduce((n, r) => n + (Number(r.visitors) || 0), 0));
       }
 
       // Since your last visit. A visit ends after 30 minutes away, so reloading keeps the comparison.

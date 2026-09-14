@@ -25,7 +25,7 @@ EVENT_RETENTION_DAYS = 89
 
 EVENT_TYPES = {"view": "views", "click_source": "clicks", "save": "saves", "follow": "follows",
                "share": "shares", "listen": "listens", "push_on": "alert_signups"}
-EVENT_COLS = ["sessions", "views", "dwell_seconds", "dwell_reads", "clicks", "saves", "follows", "shares", "listens", "alert_signups"]
+EVENT_COLS = ["sessions", "visitors", "views", "dwell_seconds", "dwell_reads", "clicks", "saves", "follows", "shares", "listens", "alert_signups"]
 CONTENT_COLS = ["stories_published", "articles_published", "articles_fetched"]
 GOOGLE_COLS = ["google_clicks", "google_impressions"]
 GROUPS = {"events": EVENT_COLS, "content": CONTENT_COLS, "social": ["social_posts"], "runs": ["crashed_steps"]}
@@ -134,6 +134,14 @@ def update(eng: Engine, now: datetime | None = None, google: dict[str, tuple[int
                         put(day, "dwell_seconds", round(float(total or 0), 1))
                     elif etype in EVENT_TYPES:
                         put(day, EVENT_TYPES[etype], int(n))
+                # Visitors: distinct visitor numbers among views; events from before visitor numbers
+                # existed count one per session.
+                for day, n in conn.execute(
+                    select(d_ev, func.count(func.distinct(func.coalesce(e.visitor, e.session))))
+                    .where(e.created_at >= lo("events"), e.created_at < hi, e.type == "view")
+                    .group_by(d_ev)
+                ).all():
+                    put(day, "visitors", int(n or 0))
                 # Reading sessions: distinct (session, story) pairs that reported time on page.
                 for day, n in conn.execute(
                     select(d_ev, func.count(func.distinct(e.session + "|" + func.cast(e.story_id, db.String))))
