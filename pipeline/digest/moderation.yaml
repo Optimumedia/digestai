@@ -6,7 +6,9 @@
 # block_domains: publishers whose articles are never shown.
 # block_title_words: a story whose headline contains any of these words is rejected.
 
-unpublish: []
+unpublish:
+  # 2019 OpenAI post re-shared on Hacker News with "(2019)" in the title; shown as new by mistake.
+  - openai-restricts-gpt-2-release-over-malicious-use-concerns
 pin: []
 block_domains: []
 block_title_words: []
