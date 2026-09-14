@@ -209,14 +209,18 @@ p { margin: 0 0 1em; }
 @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
 
 /* ---- briefing ---- */
-.briefing { padding-bottom: 8px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
-.briefing-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; padding: 22px 0 14px; border-bottom: 2px solid var(--ink); margin-bottom: 20px; }
-.briefing-head h2 { font-size: 22px; }
+/* Today's briefing sits in its own tinted panel so it reads as a separate edition from the river below. */
+.briefing { background: color-mix(in srgb, var(--accent-soft) 62%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line)); border-top: 4px solid var(--accent); border-radius: 6px; padding: 0 24px 10px; margin: 18px 0 20px; }
+@media (max-width: 640px) { .briefing { padding: 0 16px 8px; margin: 12px -4px 18px; } }
+.briefing-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 16px; padding: 18px 0 14px; border-bottom: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); margin-bottom: 20px; }
+.briefing-title { display: flex; flex-direction: column; gap: 4px; }
+.briefing-date { color: var(--accent); }
+.briefing-head h2 { font-size: 26px; }
 .briefing-head .more { margin-left: auto; color: var(--accent); }
 .briefing .hero { border-bottom: 0; margin-bottom: 4px; padding-bottom: 12px; }
 .briefing-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; counter-reset: b 1; }
 @media (max-width: 640px) { .briefing-list { grid-template-columns: minmax(0, 1fr); } }
-.briefing-list li { position: relative; padding: 16px 0 16px 34px; border-top: 1px solid var(--line); counter-increment: b; }
+.briefing-list li { position: relative; padding: 16px 0 16px 34px; border-top: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line)); counter-increment: b; }
 .briefing-list li::before { content: counter(b); position: absolute; left: 0; top: 18px; font-family: var(--font-display); font-size: 22px; color: var(--ink-3); line-height: 1; }
 .briefing-list h3 { font-size: 21px; margin: 6px 0 6px; }
 .briefing-list h3 a:hover { color: var(--accent); }

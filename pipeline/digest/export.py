@@ -29,10 +29,20 @@ def _coverage(articles: list[dict]) -> dict:
 
 
 def build_briefing(stories: list[dict], now) -> dict:
-    """Top stories of the last 24 hours (48 on a quiet day), ranked by score."""
+    """Top stories that are new in the last 24 hours (48 or 96 on a quiet day), ranked by score.
+
+    New means first published inside the window. An older story qualifies only when it has
+    developed: at least two of its articles were published inside the window. One late article
+    merging into a days-old story no longer makes that story today's news."""
+
+    def fresh(s: dict, cutoff: str) -> bool:
+        if s["pinned"] or (s["firstPublishedAt"] or "") >= cutoff:
+            return True
+        return sum(1 for a in s["articles"] if (a["publishedAt"] or "") >= cutoff) >= 2
+
     for window in (24, 48, 96):
-        cutoff = (now - timedelta(hours=window)).isoformat()
-        pool = [s for s in stories if (s["updatedAt"] or "") >= cutoff]
+        cutoff = _iso(now - timedelta(hours=window))
+        pool = [s for s in stories if fresh(s, cutoff)]
         if len(pool) >= BRIEFING_SIZE or window == 96:
             break
     pool.sort(key=lambda s: (not s["pinned"], -s["score"]))

@@ -25,7 +25,10 @@ const jsonLd = {
       {lead && (
         <section class="briefing" aria-labelledby="briefing-h">
           <div class="briefing-head">
-            <h2 id="briefing-h">Today's briefing</h2>
+            <div class="briefing-title">
+              <span class="eyebrow briefing-date">{formatDate(briefing.date + "T12:00:00Z", { weekday: "long", day: "numeric", month: "long" })} · updated <time datetime={briefing.generatedAt}></time></span>
+              <h2 id="briefing-h">Today's briefing</h2>
+            </div>
             <span class="eyebrow">{briefing.stats.stories} stories · {briefing.stats.articles} articles · {briefing.stats.minutes} min read</span>
             <span class="eyebrow new-count" id="new-count" hidden></span>
             {episodes[0] && <a class="eyebrow more" href="/listen">Listen ({Math.max(1, Math.round(episodes[0].seconds / 60))} min)</a>}

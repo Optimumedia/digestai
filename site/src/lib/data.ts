@@ -332,7 +332,9 @@ export function storiesByDay(): Map<string, Story[]> {
     map.get(key)!.push(s);
   }
   for (const list of map.values()) list.sort((a, b) => b.score - a.score);
-  return map;
+  // Newest day first. Map order alone followed the most recently *updated* story, which put an
+  // older day on top whenever a new article landed in an older story.
+  return new Map([...map.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)));
 }
 
 export function related(story: Story, limit = 5): Story[] {

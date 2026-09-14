@@ -23,7 +23,7 @@ from datetime import timedelta
 from urllib.parse import quote_plus
 
 import numpy as np
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import bindparam, func, insert, select, update
 
 from . import config, db
 from .textutil import keywords
@@ -87,7 +87,8 @@ def train_and_predict(conn) -> dict:
     since = now - timedelta(days=30)
     arts = conn.execute(
         select(db.articles.c.id, db.articles.c.embedding, db.articles.c.published_at, db.articles.c.importance,
-               db.articles.c.discussion_points, db.articles.c.trend_score, db.articles.c.story_id, db.articles.c.domain)
+               db.articles.c.discussion_points, db.articles.c.trend_score, db.articles.c.story_id, db.articles.c.domain,
+               db.articles.c.engagement, db.articles.c.predicted_score)
         .where(db.articles.c.status == "published", db.articles.c.created_at >= since, db.articles.c.embedding.isnot(None))
     ).all()
     if not arts:
@@ -106,13 +107,18 @@ def train_and_predict(conn) -> dict:
     use_engagement = len(engaged) >= MIN_TRAINING_ARTICLES
     stats["target"] = "engagement" if use_engagement else "web popularity"
     y_by_id: dict[int, float] = {}
+    eng_rows: list[dict] = []
     for a in arts:
         if use_engagement:
             age_days = max(0.25, (now - (db.as_utc(a.published_at) or now)).total_seconds() / 86400)
             y_by_id[a.id] = math.log1p(raw.get(a.id, 0.0) / age_days)
         else:
             y_by_id[a.id] = popularity(a.discussion_points, a.trend_score)
-        conn.execute(update(db.articles).where(db.articles.c.id == a.id).values(engagement=raw.get(a.id, 0.0)))
+        if abs((a.engagement or 0.0) - raw.get(a.id, 0.0)) > 1e-9:
+            eng_rows.append({"aid": a.id, "eng": raw.get(a.id, 0.0)})
+    # One batched write instead of a round trip per article (this loop was most of the step's time).
+    if eng_rows:
+        conn.execute(update(db.articles).where(db.articles.c.id == bindparam("aid")).values(engagement=bindparam("eng")), eng_rows)
 
     train = engaged if use_engagement else [a for a in arts if y_by_id[a.id] > 0]
     weights = None
@@ -125,6 +131,7 @@ def train_and_predict(conn) -> dict:
         y_max = max(float(y.max()), 1e-6)
         stats.update(trained=True, training_rows=len(train))
 
+    pred_rows: list[dict] = []
     for a in arts:
         if weights is not None:
             x = np.asarray(list(a.embedding) + _features(a, story_size[a.story_id], story_primary.get(a.story_id, False)), dtype=np.float64)
@@ -132,46 +139,68 @@ def train_and_predict(conn) -> dict:
             pred = max(0.0, min(1.0, pred / y_max))
         else:
             pred = min(1.0, 0.5 * (a.importance or 5) / 10.0 + 0.5 * popularity(a.discussion_points, a.trend_score) / 6.0)
-        conn.execute(update(db.articles).where(db.articles.c.id == a.id).values(predicted_score=pred))
+        if a.predicted_score is None or abs(a.predicted_score - pred) > 1e-4:
+            pred_rows.append({"aid": a.id, "pred": pred})
+    if pred_rows:
+        conn.execute(update(db.articles).where(db.articles.c.id == bindparam("aid")).values(predicted_score=bindparam("pred")), pred_rows)
+    stats["predictions_changed"] = len(pred_rows)
     return stats
 
 
 def score_stories(conn) -> int:
     now = db.utcnow()
     since = now - timedelta(days=config.EXPORT_DAYS)
-    stories_rows = conn.execute(select(db.stories).where(db.stories.c.updated_at >= since)).all()
+    stories_rows = conn.execute(
+        select(db.stories.c.id, db.stories.c.importance, db.stories.c.first_published_at, db.stories.c.score)
+        .where(db.stories.c.updated_at >= since)
+    ).all()
+    # One query for every member article instead of one query per story.
+    members_by_story: dict[int, list] = {}
+    for m in conn.execute(
+        select(db.articles.c.story_id, db.articles.c.predicted_score, db.articles.c.engagement, db.articles.c.published_at,
+               db.articles.c.discussion_points, db.articles.c.trend_score, db.articles.c.content_type,
+               db.sources.c.source_type)
+        .join(db.sources, db.articles.c.source_id == db.sources.c.id, isouter=True)
+        .join(db.stories, db.articles.c.story_id == db.stories.c.id)
+        .where(db.stories.c.updated_at >= since, db.articles.c.status == "published")
+    ).all():
+        members_by_story.setdefault(m.story_id, []).append(m)
+
+    updates: list[dict] = []
     n = 0
     for s in stories_rows:
-        members = conn.execute(
-            select(db.articles.c.predicted_score, db.articles.c.engagement, db.articles.c.published_at,
-                   db.articles.c.discussion_points, db.articles.c.trend_score, db.articles.c.content_type,
-                   db.sources.c.source_type)
-            .join(db.sources, db.articles.c.source_id == db.sources.c.id, isouter=True)
-            .where(db.articles.c.story_id == s.id, db.articles.c.status == "published")
-        ).all()
+        members = members_by_story.get(s.id)
         if not members:
             continue
+        n += 1
         predicted = max((m.predicted_score or 0.0) for m in members)
         engagement = sum((m.engagement or 0.0) for m in members)
         latest = max((db.as_utc(m.published_at) or now) for m in members)
+        first = min(db.as_utc(s.first_published_at) or latest, latest)
         # Breaking news earns its freshness; a daily digest or a tutorial published this morning
         # is not "new" in the same sense, so its recency counts for less.
         breaking = any((m.content_type in (None, "news", "product", "research")) and m.source_type != "newsletter" for m in members)
         recency_weight = 1.0 if breaking else 0.55
         breadth = min(1.0, math.log1p(len(members)) / math.log(6))
         pop = max(popularity(m.discussion_points, m.trend_score) for m in members)
-        age_h = max(1.0, (now - latest).total_seconds() / 3600)
+        age_h = max(1.0, (now - first).total_seconds() / 3600)
         velocity = min(1.0, (pop / 6.0) * (24.0 / max(age_h, 6.0)))  # popularity gained fast counts more
-        score = (
+        # Freshness belongs to when the story broke. A new article on a days-old story is a
+        # development, worth at most half the freshness of genuinely new news.
+        freshness = max(_recency(first, now), 0.5 * _recency(latest, now))
+        score = round(
             0.30 * predicted
             + 0.20 * (s.importance or 5) / 10.0
-            + 0.22 * _recency(latest, now) * recency_weight
+            + 0.22 * freshness * recency_weight
             + 0.10 * breadth
             + 0.10 * velocity
-            + 0.08 * min(1.0, math.log1p(engagement) / 6.0)
+            + 0.08 * min(1.0, math.log1p(engagement) / 6.0),
+            4,
         )
-        conn.execute(update(db.stories).where(db.stories.c.id == s.id).values(score=round(score, 4)))
-        n += 1
+        if s.score is None or abs(s.score - score) > 1e-4:
+            updates.append({"sid": s.id, "sc": score})
+    if updates:
+        conn.execute(update(db.stories).where(db.stories.c.id == bindparam("sid")).values(score=bindparam("sc")), updates)
     return n
 
 

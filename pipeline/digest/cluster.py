@@ -89,7 +89,9 @@ def run() -> dict:
 
     with eng.begin() as conn:
         recent = conn.execute(
-            select(db.stories).where(db.stories.c.updated_at >= since, db.stories.c.embedding.isnot(None))
+            # Candidates are stories that broke inside the window. Filtering on updated_at let a
+            # popular story absorb new articles forever, because every merge refreshed it.
+            select(db.stories).where(db.stories.c.first_published_at >= since, db.stories.c.embedding.isnot(None))
         ).all()
         story_vecs = {s.id: np.asarray(s.embedding, dtype=np.float32) for s in recent}
         story_meta = {s.id: {"count": s.article_count, "importance": s.importance, "lead": s.lead_article_id} for s in recent}
