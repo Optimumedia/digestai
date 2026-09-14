@@ -111,6 +111,16 @@ const statusKind = critical.length || (lastRun && !lastRun.ok) ? "bad" : alerts.
       <>
         <!-- ============ TODAY: the 30-second read ============ -->
         <section class="tab" data-tab="today">
+          <article class="card live" id="live-now" aria-live="polite">
+            <div class="live-head"><span class="live-dot" aria-hidden="true"></span><span class="eyebrow" data-live-status>Connecting…</span></div>
+            <div class="live-body">
+              <div class="live-count"><span class="value" data-live-count>–</span><span class="muted" data-live-label>people on the site right now</span></div>
+              <div class="live-cols">
+                <div><div class="eyebrow">Reading now</div><ol class="ranked" data-live-pages><li class="muted">Waiting for the first reader…</li></ol></div>
+                <div><div class="eyebrow">Came from</div><p data-live-sources>—</p><div class="eyebrow">Devices</div><p data-live-devices>—</p></div>
+              </div>
+            </div>
+          </article>
           {alerts.length > 0 ? (
             <div class="alerts">{alerts.map((a) => <div class:list={["alert", a.level]}><span class:list={["st", a.level === "critical" ? "bad" : "warn"]}>●</span> {a.text}</div>)}</div>
           ) : (
@@ -366,6 +376,72 @@ const statusKind = critical.length || (lastRun && !lastRun.ok) ? "bad" : alerts.
     )}
   </div>
 
+  <script is:inline>
+    // Live now: listens to the anonymous presence channel the site's pages join (public/app.js).
+    (() => {
+      const box = document.getElementById("live-now");
+      if (!box) return;
+      const cfg = window.DIGEST || {};
+      const status = box.querySelector("[data-live-status]");
+      if (!cfg.supabaseUrl || !cfg.supabaseKey || !("WebSocket" in window)) { status.textContent = "Live tracking needs the Supabase settings"; return; }
+      const topic = "realtime:live";
+      const state = new Map();
+      const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+      const tally = (items, fn) => {
+        const m = new Map();
+        for (const x of items) { const k = fn(x); m.set(k, (m.get(k) || 0) + 1); }
+        return [...m.entries()].sort((a, b) => b[1] - a[1]);
+      };
+      const render = () => {
+        const metas = [...state.values()].flat();
+        const n = metas.length;
+        box.querySelector("[data-live-count]").textContent = String(n);
+        box.querySelector("[data-live-label]").textContent = n === 1 ? "person on the site right now" : "people on the site right now";
+        const pages = tally(metas, (x) => JSON.stringify([x.path || "/", x.title || x.path || "/"]));
+        box.querySelector("[data-live-pages]").innerHTML = pages.length
+          ? pages.slice(0, 8).map(([k, c]) => { const [path, title] = JSON.parse(k); return `<li><a href="${esc(path)}">${esc(title)}</a><span class="mono muted">${c} reading</span></li>`; }).join("")
+          : '<li class="muted">Nobody on the site right now.</li>';
+        const sources = tally(metas, (x) => x.src || "direct");
+        box.querySelector("[data-live-sources]").textContent = sources.length ? sources.map(([name, c]) => `${name} ${c}`).join(" · ") : "—";
+        const phones = metas.filter((x) => x.mobile).length;
+        box.querySelector("[data-live-devices]").textContent = n ? `${phones} on phones · ${n - phones} on larger screens` : "—";
+      };
+      let ws = null, hb = null, ref = 0, retry = 0;
+      const send = (t, event, payload) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ topic: t, event, payload, ref: String(++ref) })); };
+      const connect = () => {
+        ws = new WebSocket(`${cfg.supabaseUrl.replace(/^http/, "ws")}/realtime/v1/websocket?apikey=${encodeURIComponent(cfg.supabaseKey)}&vsn=1.0.0`);
+        ws.onopen = () => {
+          retry = 0;
+          send(topic, "phx_join", { config: { broadcast: { self: false }, presence: { key: "admin-" + Math.random().toString(36).slice(2, 8) }, postgres_changes: [] }, access_token: cfg.supabaseKey });
+          hb = setInterval(() => send("phoenix", "heartbeat", {}), 25000);
+          status.textContent = "Live · updates as people arrive and leave";
+          box.classList.add("is-live");
+          render();
+        };
+        ws.onmessage = (e) => {
+          let m;
+          try { m = JSON.parse(e.data); } catch { return; }
+          if (m.topic !== topic) return;
+          if (m.event === "presence_state") {
+            state.clear();
+            for (const [k, v] of Object.entries(m.payload || {})) state.set(k, v.metas || []);
+            render();
+          } else if (m.event === "presence_diff") {
+            for (const [k, v] of Object.entries((m.payload || {}).joins || {})) state.set(k, v.metas || []);
+            for (const k of Object.keys((m.payload || {}).leaves || {})) state.delete(k);
+            render();
+          }
+        };
+        ws.onclose = () => {
+          clearInterval(hb);
+          box.classList.remove("is-live");
+          if (retry++ < 20) { status.textContent = "Reconnecting…"; setTimeout(connect, Math.min(30000, 2000 * retry)); }
+          else status.textContent = "Disconnected · reload to retry";
+        };
+      };
+      connect();
+    })();
+  </script>
   <script is:inline define:vars={{ repo }}>
     // Tabs, remembered in the URL hash.
     const tabs = [...document.querySelectorAll(".tabs a[data-tab]")];

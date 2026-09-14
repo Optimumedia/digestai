@@ -222,6 +222,52 @@
     send("share", 1);
   }));
 
+  /* ---------- live presence: who is on the site right now (read by the admin page) ---------- */
+  // Anonymous and not stored: the page, its title, the traffic source and whether it is a phone.
+  // Connected only while the tab is visible, so the free plan's concurrent-connection cap is respected.
+  (() => {
+    if (!cfg.supabaseUrl || !cfg.supabaseKey || noTrack || !("WebSocket" in window) || location.pathname.startsWith("/admin")) return;
+    let src = session.get("src");
+    if (!src) {
+      let host = "";
+      try { host = document.referrer ? new URL(document.referrer).hostname.replace(/^www[.]/, "") : ""; } catch {}
+      src = new URLSearchParams(location.search).get("utm_source") || (host && host !== location.hostname ? host : "direct");
+      session.set("src", src);
+    }
+    const topic = "realtime:live";
+    const meta = { path: location.pathname, title: document.title.replace(" — Digest AI", "").slice(0, 90), src, mobile: matchMedia("(max-width: 640px)").matches, at: Date.now() };
+    let ws = null, hb = null, ref = 0, hideTimer = null, retries = 0;
+    const send = (t, event, payload) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ topic: t, event, payload, ref: String(++ref) })); };
+    const connect = () => {
+      if (ws || document.visibilityState !== "visible") return;
+      const sock = new WebSocket(`${cfg.supabaseUrl.replace(/^http/, "ws")}/realtime/v1/websocket?apikey=${encodeURIComponent(cfg.supabaseKey)}&vsn=1.0.0`);
+      ws = sock;
+      sock.onopen = () => {
+        retries = 0;
+        send(topic, "phx_join", { config: { broadcast: { self: false }, presence: { key: sid }, postgres_changes: [] }, access_token: cfg.supabaseKey });
+        send(topic, "presence", { type: "presence", event: "track", payload: meta });
+        hb = setInterval(() => send("phoenix", "heartbeat", {}), 25000);
+      };
+      sock.onclose = () => {
+        if (ws !== sock) return;  // closed on purpose
+        clearInterval(hb); ws = null;
+        if (document.visibilityState === "visible" && retries++ < 5) setTimeout(connect, 3000 * retries);
+      };
+      sock.onerror = () => {};
+    };
+    const disconnect = () => {
+      if (!ws) return;
+      const sock = ws; ws = null; clearInterval(hb);
+      try { sock.close(); } catch {}
+    };
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") { clearTimeout(hideTimer); connect(); }
+      else hideTimer = setTimeout(disconnect, 60000);
+    });
+    addEventListener("pagehide", disconnect);
+    connect();
+  })();
+
   /* ---------- audio briefing player ([data-listen]) ---------- */
   const clock = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
   const SPEEDS = [1, 1.25, 1.5, 1.75, 0.75];
