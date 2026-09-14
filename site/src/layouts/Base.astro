@@ -33,7 +33,11 @@ const {
 } = Astro.props;
 
 const site = (Astro.site?.toString() || meta.siteUrl).replace(/\/$/, "");
-const url = canonical || new URL(Astro.url.pathname, site).toString();
+// The static build serves every page as a .html file, so Astro.url carries ".html". The public
+// address (sitemaps, internal links) has no extension; the canonical must match it exactly or
+// search engines treat the sitemap URL as a duplicate of a different page and skip indexing it.
+const cleanPath = Astro.url.pathname.replace(/\.html$/, "").replace(/\/index$/, "/").replace(/(.)\/$/, "$1");
+const url = canonical || new URL(cleanPath, site).toString();
 const ogImage = image || `${site}/og-default.png`;
 const fullTitle = title === "Digest AI" ? "Digest AI — AI news, digested" : `${title} — Digest AI`;
 // Broadcast-style ticker: the hottest stories interleaved with the newest, no repeats.
@@ -59,7 +63,7 @@ const clientConfig = {
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
     <meta name="google-site-verification" content="1HVcSBsyJYBfZLnj_r85TRK8n70zv2rexCrkXu6Bbyw" />
-    <link rel="canonical" href={url} />
+    {!noindex && <link rel="canonical" href={url} />}
     <meta name="robots" content={noindex ? "noindex, nofollow" : "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"} />
     <meta name="googlebot-news" content={noindex ? "noindex" : "index"} />
     <meta name="theme-color" content="#0e1116" />

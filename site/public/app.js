@@ -199,7 +199,8 @@
 
   /* ---------- share ---------- */
   document.querySelectorAll("[data-share]").forEach((btn) => btn.addEventListener("click", async () => {
-    const url = location.href.split("#")[0];
+    // Share the canonical address: no ".html", no tracking parameters from the visit.
+    const url = (document.querySelector('link[rel="canonical"]')?.href || location.href).split("#")[0];
     const title = document.title.replace(/ — Digest AI$/, "");
     const text = encodeURIComponent(title);
     const u = encodeURIComponent(url);
