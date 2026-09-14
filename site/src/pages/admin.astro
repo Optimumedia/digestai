@@ -83,16 +83,45 @@ const statusKind = critical.length || (lastRun && !lastRun.ok) ? "bad" : alerts.
 const history: any[] = admin?.history || [];
 const compareData = JSON.stringify({ generatedAt: admin?.generatedAt || null, history }).replace(/</g, "\\u003c");
 const periods = [["day", "Day"], ["week", "Week"], ["month", "Month"], ["year", "Year"], ["custom", "Custom"]];
+
+// ---- Home header and action list. Times and counts that age are computed in the browser.
+let held: any = null;
+try { held = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "src/data/held.json"), "utf-8")); } catch {}
+type CardAction = { kind: string; label: string; url?: string; slug?: string; source?: string; name?: string };
+type Card = { id: string; level: string; what: string; why?: string; todo?: string; at?: string; detail?: string; action?: CardAction; items?: any[]; more?: number };
+const actionCards: Card[] = (admin?.actions || alerts.map((a, i) => ({ id: `alert:${i}`, level: a.level, what: a.text }))).slice();
+const heldCount = Number(held?.count) || 0;
+if (heldCount > 0) {
+  actionCards.unshift({
+    id: "held", level: "warning",
+    what: heldCount === 1 ? "1 story is waiting for your review." : `${heldCount} stories are waiting for your review.`,
+    why: "The pipeline held them back because they make claims that could be risky to publish unchecked. Readers do not see them until you decide.",
+    todo: "Open the list, read each story and choose to publish it or keep it hidden.",
+    action: { kind: "link", url: "#held", label: "Review held stories" },
+  });
+}
+const LEVEL: Record<string, string> = { critical: "Needs you now", warning: "Worth a look", info: "For your information" };
+const whatParts = (c: Card) => c.what.split("{at}");
+const actionsUrl = `https://github.com/${repo}/actions/workflows/pipeline.yml`;
+const qualityRun = admin?.quality;
+const genMs = Date.parse(admin?.generatedAt || "") || 0;
+const homeData = JSON.stringify({
+  generatedAt: admin?.generatedAt || null,
+  launch: "2026-09-11", goal: 1000, goalDays: 30,
+  runs: runs.filter((r) => genMs - Date.parse(r.startedAt) <= 48 * 3600 * 1000).map((r) => ({ startedAt: r.startedAt, ok: r.ok })),
+  storyTimes: admin?.storyTimes || [],
+  cards: actionCards.map((c) => ({ id: c.id, level: c.level })),
+}).replace(/</g, "\\u003c");
 ---
 
 <Base title="Digest AI Admin" description="Pipeline health, readers, content, sources and model usage." noindex={true}>
   <div class="admin" data-pagefind-ignore>
     <header class="admin-head">
       <div>
-        <div class="eyebrow">Admin · data <time datetime={admin?.generatedAt}></time>{nextRunMin != null && ` · next run in about ${nextRunMin} min`}</div>
+        <div class="eyebrow">Admin · data from <time datetime={admin?.generatedAt} data-static data-ago>{admin?.generatedAt ? `${admin.generatedAt.slice(0, 16).replace("T", " ")} UTC` : "never"}</time></div>
         <h1>Newsroom</h1>
       </div>
-      <div class="statusline"><span class:list={["st", statusKind]}>●</span> {statusText}</div>
+      <div class="statusline" id="head-status"><span class:list={["st", statusKind]}>●</span> <span data-head-text>{statusText}</span></div>
       <div class="admin-actions">
         <button class="tb primary" id="run-now">Run pipeline now</button>
         <a class="tb" href={`https://github.com/${repo}/actions`} target="_blank" rel="noopener">Actions log ↗</a>
@@ -115,6 +144,71 @@ const periods = [["day", "Day"], ["week", "Week"], ["month", "Month"], ["year", 
       <>
         <!-- ============ TODAY: the 30-second read ============ -->
         <section class="tab" data-tab="today">
+          <section class="home" id="home" data-kind={statusKind} aria-labelledby="home-sentence">
+            <div class="home-status">
+              <span class="home-dot" aria-hidden="true"></span>
+              <p class="home-sentence" id="home-sentence" data-home-sentence aria-live="polite">{critical.length ? `${critical.length} thing${critical.length > 1 ? "s need" : " needs"} your attention now (below).` : actionCards.some((c) => c.level === "warning") ? "The site is running. A few things below are worth a look." : "Everything is fine."}</p>
+            </div>
+            <p class="home-clock" data-home-clock>Data from {admin.generatedAt?.slice(0, 16).replace("T", " ")} UTC</p>
+            <div class="home-stale" data-home-stale hidden>
+              <button type="button" class="tb primary" data-run>Run pipeline now</button>
+              <a class="tb" href={`${actionsUrl}`} target="_blank" rel="noopener">Actions log ↗</a>
+            </div>
+            <div class="home-grid">
+              <div class="home-goal">
+                <div class="eyebrow">Visitors in the first 30 days</div>
+                <div class="home-goal-num"><span class="value" data-goal-count>–</span><span class="muted">of 1,000</span></div>
+                <div class="goal-bar" aria-hidden="true"><i data-goal-bar></i><b data-goal-mark hidden></b></div>
+                <p class="home-p" data-goal-pace></p>
+                <p class="home-note">A visitor is one visit on one day: someone who comes back tomorrow counts again.</p>
+              </div>
+              <div class="home-since">
+                <div class="eyebrow">Since your last visit</div>
+                <p class="home-p" data-since>Shown once the page has loaded.</p>
+              </div>
+            </div>
+            <script is:inline type="application/json" id="home-data" set:html={homeData}></script>
+          </section>
+
+          <section class="action-list" aria-labelledby="actions-title">
+            <h2 id="actions-title" class="ac-title">What needs you <span class="muted">{actionCards.length ? `${actionCards.length} item${actionCards.length > 1 ? "s" : ""}, most urgent first` : ""}</span></h2>
+            {actionCards.length === 0 ? (
+              <p class="ac-empty"><span class="st good">●</span> Nothing needs your attention.</p>
+            ) : (
+              <ul class="ac-list">
+                {actionCards.map((c) => (
+                  <li class:list={["ac", c.level]} data-card={c.id}>
+                    <span class="ac-badge"><i aria-hidden="true"></i>{LEVEL[c.level] || c.level}</span>
+                    <p class="ac-what">{whatParts(c).map((part, i) => (i && c.at ? <><time datetime={c.at} data-static data-clock>{c.at.slice(11, 16)} UTC</time>{part}</> : i ? <>an earlier time{part}</> : part))}</p>
+                    {c.why && <p class="ac-why"><b>Why it matters:</b> {c.why}</p>}
+                    {c.todo && <p class="ac-todo"><b>What to do:</b> {c.todo}</p>}
+                    {c.detail && <p class="ac-detail">{c.detail}</p>}
+                    {c.items && c.items.length > 0 && (
+                      <ul class="ac-items">
+                        {c.items.map((it: any) => (
+                          <li>
+                            <span class="ac-item-text">{it.slug ? <a href={`/story/${it.slug}`}>{it.headline}</a> : <b>{it.headline}</b>}<span class="muted">{it.detail}</span></span>
+                            {it.action?.kind === "unpublish" && <button type="button" class="tb danger" data-mod="unpublish" data-slug={it.action.slug}>Unpublish</button>}
+                          </li>
+                        ))}
+                        {(c.more || 0) > 0 && <li class="muted">and {c.more} more</li>}
+                      </ul>
+                    )}
+                    {c.action && (
+                      <div class="ac-actions">
+                        {c.action.kind === "link" && <a class="tb primary" href={c.action.url} target={c.action.url?.startsWith("http") ? "_blank" : undefined} rel="noopener">{c.action.label}{c.action.url?.startsWith("http") ? " ↗" : ""}</a>}
+                        {c.action.kind === "run" && <button type="button" class="tb primary" data-run>{c.action.label}</button>}
+                        {c.action.kind === "pause" && <button type="button" class="tb danger" data-pause={c.action.source} data-name={c.action.name}>{c.action.label}</button>}
+                        {c.action.kind === "unpublish" && <button type="button" class="tb danger" data-mod="unpublish" data-slug={c.action.slug}>{c.action.label}</button>}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {qualityRun?.checked && <p class="ac-foot">Content checks ran at <time datetime={qualityRun.checkedAt} data-static data-clock>{String(qualityRun.checkedAt).slice(11, 16)} UTC</time>: {qualityRun.checked.stories} stories, {qualityRun.checked.images} pictures and {qualityRun.checked.links} links checked. They run with every pipeline run, every 30 minutes.</p>}
+          </section>
+
           <article class="card live" id="live-now" aria-live="polite">
             <div class="live-head"><span class="live-dot" aria-hidden="true"></span><span class="eyebrow" data-live-status>Connecting…</span></div>
             <div class="live-body">
@@ -125,11 +219,6 @@ const periods = [["day", "Day"], ["week", "Week"], ["month", "Month"], ["year", 
               </div>
             </div>
           </article>
-          {alerts.length > 0 ? (
-            <div class="alerts">{alerts.map((a) => <div class:list={["alert", a.level]}><span class:list={["st", a.level === "critical" ? "bad" : "warn"]}>●</span> {a.text}</div>)}</div>
-          ) : (
-            <div class="alerts"><div class="alert ok"><span class="st good">●</span> Nothing needs attention.</div></div>
-          )}
           <section class="card compare" id="compare" aria-labelledby="compare-title">
             <div class="compare-head">
               <h2 id="compare-title">Compare <span class="muted">period vs period · complete UTC days</span></h2>
@@ -156,10 +245,10 @@ const periods = [["day", "Day"], ["week", "Week"], ["month", "Month"], ["year", 
           </section>
           <div class="tiles">
             <div class="tile"><span class="label">Stories published today</span><span class="value">{storiesPerDay[today] ?? 0}</span><span class="sub">yesterday {storiesPerDay[yesterday] ?? 0}</span></div>
-            <div class:list={["tile", { off: !eng.available }]}><span class="label">Readers, 7 days</span><span class="value">{eng.available ? views7 : "—"}</span><span class="sub">{eng.available ? (viewsPrev ? delta(views7, viewsPrev) : `${sessions7} sessions`) : "no reader data yet"}</span></div>
+            <div class:list={["tile", { off: !eng.available }]}><span class="label">Views, 7 days</span><span class="value">{eng.available ? views7 : "—"}</span><span class="sub">{eng.available ? (viewsPrev ? delta(views7, viewsPrev) : `${sessions7} sessions`) : "no reader data yet"}</span></div>
             <div class:list={["tile", { off: !eng.available }]}><span class="label">Time on story</span><span class="value">{avgDwell != null ? `${avgDwell}s` : "—"}</span><span class="sub">average per reading session, 7 days</span></div>
             <div class:list={["tile", { warn: failing.length > 0 }]}><span class="label">Sources fetching</span><span class="value">{healthy}/{curatedSources.length}</span><span class="sub">{failing.length ? `${failing.length} failing` : "all fetching"}</span></div>
-            <div class:list={["tile", { bad: lastRun && !lastRun.ok }]}><span class="label">Last run</span><span class="value">{lastRun ? (lastRun.ok ? "OK" : "Failed") : "—"}</span><span class="sub">{lastRun ? `${rel(lastRun.startedAt)} · ${Math.round(lastRun.seconds / 60)} min` : ""}</span></div>
+            <div class:list={["tile", { bad: lastRun && !lastRun.ok }]}><span class="label">Last run</span><span class="value">{lastRun ? (lastRun.ok ? "OK" : "Failed") : "—"}</span><span class="sub">{lastRun ? <><time datetime={lastRun.startedAt} data-static data-ago>{rel(lastRun.startedAt)}</time> · {Math.round(lastRun.seconds / 60)} min</> : ""}</span></div>
           </div>
           <div class="cards">
             <article class="card">
@@ -296,7 +385,7 @@ const periods = [["day", "Day"], ["week", "Week"], ["month", "Month"], ["year", 
         <!-- ============ PIPELINE ============ -->
         <section class="tab" data-tab="pipeline" hidden>
           <div class="tiles">
-            <div class:list={["tile", { bad: lastRun && !lastRun.ok }]}><span class="label">Last run</span><span class="value">{lastRun ? (lastRun.ok ? "OK" : "Failed") : "—"}</span><span class="sub">{lastRun ? `${rel(lastRun.startedAt)} · ${Math.round(lastRun.seconds / 60)} min` : ""}</span></div>
+            <div class:list={["tile", { bad: lastRun && !lastRun.ok }]}><span class="label">Last run</span><span class="value">{lastRun ? (lastRun.ok ? "OK" : "Failed") : "—"}</span><span class="sub">{lastRun ? <><time datetime={lastRun.startedAt} data-static data-ago>{rel(lastRun.startedAt)}</time> · {Math.round(lastRun.seconds / 60)} min</> : ""}</span></div>
             <div class="tile"><span class="label">Runs today</span><span class="value">{runs.filter((r) => r.startedAt.slice(0, 10) === today).length}</span><span class="sub">{runs.filter((r) => r.startedAt.slice(0, 10) === today && !r.ok).length} failed</span></div>
             <div class="tile"><span class="label">Model calls today</span><span class="value">{usageToday.reduce((n: number, u: any) => n + u.requests, 0)}</span><span class="sub">{Object.keys(budgets).map((p) => `${p} ${usageToday.find((u: any) => u.provider === p)?.requests ?? 0}/${budgets[p]}`).join(" · ")}</span></div>
             <div class="tile"><span class="label">Links fetched today</span><span class="value">{funnel[funnel.length - 1]?.fetched ?? 0}</span><span class="sub">{funnel[funnel.length - 1]?.pending ?? 0} waiting for a summary</span></div>
@@ -688,6 +777,151 @@ const periods = [["day", "Day"], ["week", "Week"], ["month", "Month"], ["year", 
       render();
     })();
   </script>
+  <script is:inline>
+    // Home header: whether everything is fine over the last 24 hours, run times, the visitor goal
+    // and what changed since the last visit. Everything that ages is computed here, from
+    // timestamps, and refreshed every 30 seconds while the tab stays open.
+    (() => {
+      const root = document.getElementById("home");
+      let d = null, history = [];
+      try { d = JSON.parse(document.getElementById("home-data").textContent); } catch {}
+      try { history = JSON.parse(document.getElementById("compare-data").textContent).history || []; } catch {}
+      const MIN = 6e4, HOUR = 36e5, DAY = 864e5;
+      const num = (x) => Number(x).toLocaleString("en-US");
+      const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const dur = (ms) => {
+        const m = Math.max(0, Math.round(ms / MIN));
+        if (m < 60) return `${m} min`;
+        const h = Math.floor(m / 60);
+        if (h < 48) return m % 60 ? `${h} h ${m % 60} min` : `${h} h`;
+        return `${Math.round(h / 24)} days`;
+      };
+      const ago = (iso) => { const ms = Date.now() - Date.parse(iso); return ms < MIN ? "just now" : `${dur(ms)} ago`; };
+      const when = (iso) => {
+        const t = new Date(iso), now = new Date();
+        if (t.toDateString() === now.toDateString()) return `today at ${clock(iso)}`;
+        if (t.toDateString() === new Date(now - DAY).toDateString()) return `yesterday at ${clock(iso)}`;
+        return `${t.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })} at ${clock(iso)}`;
+      };
+      const addDay = (day, n) => new Date(Date.parse(day + "T00:00:00Z") + n * DAY).toISOString().slice(0, 10);
+      const spanDays = (a, b) => Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / DAY) + 1;
+      const fmtDay = (day) => new Date(day + "T12:00:00Z").toLocaleDateString([], { day: "numeric", month: "long" });
+
+      function tick() {
+        // A time on an earlier day carries its date, so "since 15:59" never hides that it was yesterday.
+        document.querySelectorAll("time[data-clock]").forEach((t) => {
+          const iso = t.getAttribute("datetime"), dt = new Date(iso);
+          t.textContent = dt.toDateString() === new Date().toDateString() ? clock(iso) : `${dt.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })}, ${clock(iso)}`;
+        });
+        document.querySelectorAll("time[data-ago]").forEach((t) => { const v = t.getAttribute("datetime"); if (v) t.textContent = ago(v); });
+      }
+
+      function status(now) {
+        const gen = Date.parse(d.generatedAt || "");
+        const stale = !gen || now - gen > 90 * MIN;
+        const day = d.runs.filter((r) => now - Date.parse(r.startedAt) <= 24 * HOUR);
+        const failed = day.filter((r) => !r.ok);
+        const crit = d.cards.filter((c) => c.level === "critical").length;
+        const warn = d.cards.filter((c) => c.level === "warning").length;
+        const latest = d.runs[0];
+        let kind = "good", first;
+        if (stale) { kind = "bad"; first = gen ? `Something is wrong: the site has not been updated for ${dur(now - gen)}, so the pipeline may have stopped.` : "There is no pipeline data yet."; }
+        else if (crit) { kind = "bad"; first = crit === 1 ? "One thing needs your attention now (below)." : `${crit} things need your attention now (below).`; }
+        else if (warn) { kind = "warn"; first = warn === 1 ? "The site is running. One thing below is worth a look." : `The site is running. ${warn} things below are worth a look.`; }
+        else first = "Everything is fine.";
+        let second = "";
+        if (day.length && !failed.length) second = day.length === 1 ? "The one run in the last 24 hours finished." : `All ${num(day.length)} runs in the last 24 hours finished.`;
+        else if (failed.length === 1) second = `One of ${num(day.length)} runs in the last 24 hours failed, at ${clock(failed[0].startedAt)}; the site kept the previous version${latest && latest.ok ? " and later runs worked" : ""}.`;
+        else if (failed.length > 1) second = `${failed.length} of ${num(day.length)} runs in the last 24 hours failed, the latest at ${clock(failed[0].startedAt)}; each time the site kept the previous version.`;
+        else if (!stale) second = "No runs recorded in the last 24 hours.";
+        if (kind === "good" && failed.length === 0 && day.length) { first = "Everything is fine:"; second = second.charAt(0).toLowerCase() + second.slice(1).replace(/\.$/, "") + " and nothing needs your attention."; }
+        return { kind, text: `${first} ${second}`.trim(), stale, latest, gen };
+      }
+
+      function render() {
+        tick();
+        if (!root || !d) return;
+        const now = Date.now();
+        const s = status(now);
+        root.dataset.kind = s.kind;
+        root.querySelector("[data-home-sentence]").textContent = s.text;
+        root.querySelector("[data-home-stale]").hidden = !s.stale;
+        const head = document.getElementById("head-status");
+        if (head) {
+          head.querySelector(".st").className = `st ${s.kind}`;
+          head.querySelector("[data-head-text]").textContent = s.kind === "good" ? "everything is fine" : s.stale ? "site not updating" : s.kind === "bad" ? "needs attention" : "running, a few things to check";
+        }
+        // Clock line. The schedule starts runs on the hour and half hour (UTC); GitHub often starts them a few minutes late.
+        const parts = [];
+        if (s.latest) {
+          parts.push(`Last run started <b>${ago(s.latest.startedAt)}</b> (${clock(s.latest.startedAt)})`);
+          const next = Math.ceil((now + MIN) / (30 * MIN)) * 30 * MIN;
+          parts.push(now - Date.parse(s.latest.startedAt) > 45 * MIN ? "<b>next run is overdue</b>" : `next run due about <b>${clock(new Date(next).toISOString())}</b>`);
+        }
+        if (s.gen) parts.push(`page data from <b>${ago(d.generatedAt)}</b>`);
+        root.querySelector("[data-home-clock]").innerHTML = parts.join(" · ") || "No pipeline data yet.";
+
+        // Visitors toward the goal: daily visits added up from launch day.
+        const end = addDay(d.launch, d.goalDays - 1);
+        const today = new Date(now).toISOString().slice(0, 10);
+        const rows = history.filter((r) => r.day >= d.launch && r.day <= end);
+        const measured = rows.some((r) => r.sessions != null);
+        const total = rows.reduce((n, r) => n + (Number(r.sessions) || 0), 0);
+        const countEl = root.querySelector("[data-goal-count]"), pace = root.querySelector("[data-goal-pace]");
+        const bar = root.querySelector("[data-goal-bar]"), mark = root.querySelector("[data-goal-mark]");
+        countEl.textContent = measured ? num(total) : "–";
+        bar.style.width = `${Math.min(100, (total / d.goal) * 100)}%`;
+        if (!measured) pace.textContent = "Visitor counts appear after the first tracked visit.";
+        else if (today < d.launch) pace.textContent = `The count starts on ${fmtDay(d.launch)}.`;
+        else if (total >= d.goal) pace.innerHTML = `<strong>Goal reached:</strong> ${num(total)} visitors${today > end ? ` in the 30 days to ${fmtDay(end)}` : " so far"}.`;
+        else if (today > end) pace.innerHTML = `The 30 days ended on ${fmtDay(end)} with <strong>${num(total)} visitors</strong>, ${num(d.goal - total)} short of the goal.`;
+        else {
+          const elapsed = spanDays(d.launch, today), left = spanDays(today, end), remaining = d.goal - total;
+          const avg = total / elapsed, need = Math.ceil(remaining / left);
+          const perDay = (x) => (x < 10 ? x.toFixed(1).replace(/\.0$/, "") : num(Math.round(x)));
+          pace.innerHTML = `<strong>${num(remaining)} to go in ${left} day${left > 1 ? "s" : ""}</strong> (until ${fmtDay(end)}): about <strong>${num(need)} a day</strong> from now on. So far about ${perDay(avg)} a day.`;
+          mark.hidden = false;
+          mark.style.left = `${Math.min(100, ((elapsed - 1) / d.goalDays) * 100)}%`;
+          mark.title = `Where the count should be at the start of today: ${num(Math.round((d.goal * (elapsed - 1)) / d.goalDays))}`;
+        }
+        renderSince(now, history.reduce((n, r) => n + (Number(r.sessions) || 0), 0));
+      }
+
+      // Since your last visit. A visit ends after 30 minutes away, so reloading keeps the comparison.
+      let since = null;
+      function renderSince(now, visitors) {
+        const el = root.querySelector("[data-since]");
+        if (!since) {
+          const KEY = "admin_last_visit";
+          let store = {};
+          try { store = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch {}
+          const snap = { seen: new Date(now).toISOString(), visitors, cards: d.cards.map((c) => c.id) };
+          const cur = store.cur && Date.parse(store.cur.seen) ? store.cur : null;
+          const prev = cur && now - Date.parse(cur.seen) > 30 * MIN ? cur : store.prev || null;
+          since = { prev };
+          try { localStorage.setItem(KEY, JSON.stringify({ prev, cur: snap })); } catch {}
+        }
+        const prev = since.prev;
+        if (!prev || !Date.parse(prev.seen)) { el.textContent = "This is your first visit from this browser. Next time, this shows what changed in between."; return; }
+        const stories = d.storyTimes.filter((t) => Date.parse(t) > Date.parse(prev.seen)).length;
+        const dv = typeof prev.visitors === "number" ? visitors - prev.visitors : null;
+        const seenIds = new Set(prev.cards || []);
+        const fresh = d.cards.filter((c) => !seenIds.has(c.id) && c.level !== "info").length;
+        const cleared = (prev.cards || []).filter((id) => !d.cards.some((c) => c.id === id)).length;
+        const bits = [
+          `<strong>${stories === 0 ? "no new stories" : stories === 1 ? "1 new story" : `${num(stories)} new stories`}</strong>`,
+          dv == null ? "" : dv > 0 ? `<strong>${num(dv)} more visitor${dv > 1 ? "s" : ""}</strong>` : "no new visitors counted yet",
+          fresh ? `<strong>${fresh} new alert${fresh > 1 ? "s" : ""}</strong>` : "no new alerts",
+          cleared ? `${cleared} item${cleared > 1 ? "s" : ""} cleared` : "",
+        ].filter(Boolean);
+        el.innerHTML = `Since ${when(prev.seen)} (${ago(prev.seen)}): ${bits.join(" · ")}.`;
+      }
+
+      render();
+      setInterval(render, 30000);
+      document.addEventListener("visibilitychange", () => { if (!document.hidden) render(); });
+    })();
+  </script>
   <script is:inline define:vars={{ repo }}>
     // Tabs, remembered in the URL hash.
     const tabs = [...document.querySelectorAll(".tabs a[data-tab]")];
@@ -719,10 +953,39 @@ const periods = [["day", "Day"], ["week", "Week"], ["month", "Month"], ["year", 
       if (!r.ok) throw new Error(`${method} ${path}: ${r.status} ${(await r.text()).slice(0, 120)}`);
       return r.status === 204 ? null : r.json();
     };
-    document.getElementById("run-now")?.addEventListener("click", async () => {
+    const runNow = async () => {
       try { await api("actions/workflows/pipeline.yml/dispatches", "POST", { ref: "main" }); alert("Run started. It takes 8 to 15 minutes; the site updates when it finishes."); }
       catch (e) { status(e.message, true); }
-    });
+    };
+    document.getElementById("run-now")?.addEventListener("click", runNow);
+    document.querySelectorAll("[data-run]").forEach((b) => b.addEventListener("click", runNow));
+    // Pause a source: add "enabled: false" to its entry in sources.yaml; the fetcher skips it from the next run.
+    function pauseInYaml(yaml, key) {
+      const eol = yaml.includes("\r\n") ? "\r\n" : "\n";
+      const lines = yaml.split(/\r?\n/);
+      const esc = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const start = lines.findIndex((l) => new RegExp(`^\\s*-\\s+key:\\s*["']?${esc}["']?\\s*(#.*)?$`).test(l));
+      if (start < 0) return null;
+      const indent = lines[start].indexOf("-") + 2;
+      let end = start + 1;
+      while (end < lines.length && lines[end].trim() && /^\s*/.exec(lines[end])[0].length >= indent) end++;
+      const pad = " ".repeat(indent);
+      for (let i = start + 1; i < end; i++) if (/^\s*enabled\s*:/.test(lines[i])) { lines[i] = `${pad}enabled: false`; return lines.join(eol); }
+      lines.splice(start + 1, 0, `${pad}enabled: false`);
+      return lines.join(eol);
+    }
+    document.querySelectorAll("[data-pause]").forEach((btn) => btn.addEventListener("click", async () => {
+      const key = btn.dataset.pause, name = btn.dataset.name || key;
+      if (!confirm(`Pause ${name}? It is skipped from the next run. To switch it back on, delete "enabled: false" under its entry in sources.yaml.`)) return;
+      try {
+        const file = await api("contents/pipeline/digest/sources.yaml");
+        const yaml = pauseInYaml(fromB64(file.content), key);
+        if (yaml == null) throw new Error(`Could not find the source "${key}" in sources.yaml`);
+        await api("contents/pipeline/digest/sources.yaml", "PUT", { message: `admin: pause source ${key}`, content: toB64(yaml), sha: file.sha });
+        btn.textContent = "Paused from the next run";
+        btn.disabled = true;
+      } catch (e) { status(e.message, true); }
+    }));
     const toB64 = (s) => btoa(unescape(encodeURIComponent(s)));
     const fromB64 = (s) => decodeURIComponent(escape(atob(s.replace(/\n/g, ""))));
     const listRe = (key) => new RegExp(`^${key}:\\s*(\\[[^\\]]*\\]|(?:\\n\\s*-\\s*.*)*)`, "m");
