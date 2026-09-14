@@ -8,6 +8,7 @@ import path from "node:path";
 
 let admin: any = null;
 try { admin = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "src/data/admin.json"), "utf-8")); } catch {}
+const holdOn = fs.existsSync(path.resolve(process.cwd(), "src/data/held.json"));
 let gsc: any = null;
 try { gsc = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "src/data/gsc.json"), "utf-8")); } catch {}
 
@@ -220,7 +221,7 @@ const homeData = JSON.stringify({
               </div>
             </div>
           </article>
-          <HeldReview />
+          {holdOn && <HeldReview />}
           <section class="card compare" id="compare" aria-labelledby="compare-title">
             <div class="compare-head">
               <h2 id="compare-title">Compare <span class="muted">period vs period · complete UTC days</span></h2>

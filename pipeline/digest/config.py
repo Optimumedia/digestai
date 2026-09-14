@@ -142,3 +142,7 @@ CATEGORIES: dict[str, str] = {
     "robotics": "Robotics & Physical AI",
     "society": "Society & Work",
 }
+
+# Risky-claim hold (hold.py). Off: Martin decided on 14 Sep that news is published without waiting for
+# approval. Set HOLD_RISKY_CLAIMS=1 to hold single-source allegations for review again.
+HOLD_RISKY_CLAIMS = os.environ.get("HOLD_RISKY_CLAIMS", "0") == "1"

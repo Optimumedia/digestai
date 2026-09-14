@@ -101,6 +101,11 @@ endpoints. If the keys are ever regenerated, readers simply re-enable alerts.
 
 ## Stories held for your approval (risky-claim hold)
 
+**Switched off (14 Sep): news is published without waiting for approval.** Everything below applies
+only if you turn it back on with the GitHub variable or secret `HOLD_RISKY_CLAIMS=1` (added to the
+workflow env). With it off, the export step publishes any story still held and the review card is
+hidden.
+
 Stories reported by a **single outlet** about crimes, weapons or military use, surveillance, hacking
 or data breaches, fraud, lawsuits, arrests, abuse or harassment, or other wrongdoing by a **named
 person or company** are not published straight away. They stay in the database with status `held`

@@ -5,7 +5,7 @@ import json
 import logging
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from . import config, db, hold
 from .textutil import word_count
@@ -117,8 +117,17 @@ def run() -> dict:
     moderation = apply_moderation(eng, rules)
     # Risky single-source stories get status "held" (and are released again when a second publisher
     # or an `approve` entry arrives) before the query below, which exports only "published" ones.
-    held, moderation["hold"] = hold.review(eng, since, [s for s in rules.get("approve") or [] if s])
-    moderation["hold"].update(hold.write_review(out_dir, held, _iso(now)))
+    if config.HOLD_RISKY_CLAIMS:
+        held, moderation["hold"] = hold.review(eng, since, [s for s in rules.get("approve") or [] if s])
+        moderation["hold"].update(hold.write_review(out_dir, held, _iso(now)))
+    else:
+        # Hold switched off: publish anything still held and drop the review files, so the admin page
+        # shows no review card.
+        with eng.begin() as conn:
+            released = conn.execute(update(db.stories).where(db.stories.c.status == hold.HELD).values(status="published")).rowcount
+        for name in ("held.json", "held.enc.json"):
+            (out_dir / name).unlink(missing_ok=True)
+        moderation["hold"] = {"enabled": False, "released": released or 0}
 
     with eng.connect() as conn:
         src_rows = conn.execute(select(db.sources)).all()
