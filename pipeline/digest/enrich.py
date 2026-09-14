@@ -287,16 +287,27 @@ def heuristic(row, category_hint: str | None) -> dict:
     }
 
 
+def _as_list(value) -> list:
+    """Models sometimes return a single string, a number or null where a list belongs."""
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    if isinstance(value, str) and value.strip():
+        return [value]
+    return []
+
+
 def _clean(result: dict, row, category_hint: str | None) -> dict:
+    if not isinstance(result, dict):
+        result = {}
     cats = set(config.CATEGORIES)
     category = str(result.get("category", "")).strip().lower()
     if category not in cats:
         category = category_hint if category_hint in cats else "models"
     headline = str(result.get("headline") or row.title).strip()[:160]
-    key_points = [str(k).strip() for k in (result.get("key_points") or []) if str(k).strip()][:3]
-    entities = result.get("entities") or {}
+    key_points = [str(k).strip() for k in _as_list(result.get("key_points")) if str(k).strip()][:3]
+    entities = result.get("entities") if isinstance(result.get("entities"), dict) else {}
     entities = {
-        k: [str(v).strip() for v in (entities.get(k) or []) if str(v).strip()][:6]
+        k: [str(v).strip() for v in _as_list(entities.get(k)) if str(v).strip()][:6]
         for k in ("companies", "models", "people")
     }
     try:
@@ -332,7 +343,7 @@ def _clean(result: dict, row, category_hint: str | None) -> dict:
             "company": str(funding.get("company")).strip()[:120],
             "amount_usd": _num(funding.get("amount_usd")),
             "round": str(funding.get("round") or "other").strip().lower(),
-            "investors": [str(i).strip()[:80] for i in (funding.get("investors") or []) if str(i).strip()][:10],
+            "investors": [str(i).strip()[:80] for i in _as_list(funding.get("investors")) if str(i).strip()][:10],
             "valuation_usd": _num(funding.get("valuation_usd")),
         }
     else:
@@ -398,7 +409,13 @@ def run() -> dict:
             .limit(limit)
         ).all()
 
+    started = time.monotonic()
     for row in rows:
+        if time.monotonic() - started > config.ENRICH_TIME_BUDGET_SECONDS:
+            # Leave the rest for the next run: slow or rate-limited providers must not push the
+            # whole run past the workflow's time limit, because a cancelled run publishes nothing.
+            stats["stopped_for_time"] = True
+            break
         text = row.content_text or row.description or ""
         prompt = PROMPT.format(
             categories=", ".join(f'"{k}" ({v})' for k, v in config.CATEGORIES.items()),
@@ -445,7 +462,12 @@ def run() -> dict:
                 break  # every provider's share for this run is spent; the rest waits for the next run
             result = heuristic(row, row.category_hint)
         stats["model"] = model_used
-        clean = _clean(result, row, row.category_hint)
+        try:
+            clean = _clean(result, row, row.category_hint)
+        except Exception as exc:  # noqa: BLE001 - one malformed answer must not stop the batch
+            stats["errors"] += 1
+            log.warning("could not use the answer for #%s from %s: %s", row.id, model_used, exc)
+            continue  # the article stays pending and is retried next run
         with eng.begin() as conn:
             if not clean["is_ai_news"]:
                 stats["rejected"] += 1

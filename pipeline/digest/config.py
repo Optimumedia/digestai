@@ -69,6 +69,9 @@ NEWSLETTER_HOUR_UTC = int(os.environ.get("NEWSLETTER_HOUR_UTC", "5"))
 # spread over the day's runs; unused allowance rolls forward within the day.
 # ~30 s per Gemini call on long articles: 20 per run keeps the job well inside the 30-minute cadence.
 MAX_ENRICH_PER_RUN = int(os.environ.get("MAX_ENRICH_PER_RUN") or "20")
+# Stop summarising after this many seconds and leave the rest for the next run. Rate-limited
+# providers once stretched the step past the workflow's 28-minute limit and got runs cancelled.
+ENRICH_TIME_BUDGET_SECONDS = int(os.environ.get("ENRICH_TIME_BUDGET_SECONDS") or "600")
 RUNS_PER_DAY = int(os.environ.get("RUNS_PER_DAY") or "48")
 DAILY_BUDGET = {
     "gemini": int(os.environ.get("GEMINI_DAILY_BUDGET") or "54"),

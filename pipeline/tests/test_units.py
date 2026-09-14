@@ -59,6 +59,21 @@ def test_validate_flags_mismatch():
     assert validate("Anthropic releases the Claude model update today. " * 60, "Anthropic releases Claude model update", 250, 8000) is None
 
 
+def test_enrich_clean_survives_malformed_answers():
+    from types import SimpleNamespace
+
+    from digest.enrich import _clean
+
+    row = SimpleNamespace(title="OpenAI ships a model")
+    # The answer that crashed the step on 14 September: key_points as a number.
+    out = _clean({"key_points": 3, "entities": ["OpenAI"], "importance": "high",
+                  "funding": {"company": "X", "investors": "Sequoia"}}, row, "models")
+    assert out["key_points"] == [] and out["entities"]["companies"] == [] and out["importance"] == 5
+    assert out["funding"]["investors"] == ["Sequoia"]
+    assert _clean(["not", "a", "dict"], row, None)["headline"] == "OpenAI ships a model"
+    assert _clean({"key_points": "One point"}, row, None)["key_points"] == ["One point"]
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):
