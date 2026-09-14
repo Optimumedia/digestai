@@ -471,3 +471,13 @@ table.sortable th:hover { color: var(--ink); }
 .live-cols p { margin: 2px 0 12px; font-size: 14px; color: var(--ink-2); }
 @media (max-width: 720px) { .live-body, .live-cols { grid-template-columns: minmax(0, 1fr); } }
 
+/* ---------- Official social profiles ---------- */
+.social { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.social-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); margin-right: 2px; }
+.social-link { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; min-width: 34px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink-2); text-decoration: none; transition: color .15s ease, border-color .15s ease; }
+.social-link:hover, .footer .social-link:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.social-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.social-footer .social-link { width: 34px; }
+.social-rail .social-link { padding: 0 13px 0 11px; font-size: 14px; font-weight: 500; }
+@media (prefers-reduced-motion: reduce) { .social-link { transition: none; } }
+

@@ -1,0 +1,35 @@
+---
+/* Official Digest AI profiles as icon links. Icons: Simple Icons (CC0). */
+interface Props {
+  variant?: "footer" | "rail";
+}
+
+const { variant = "footer" } = Astro.props;
+const links = [
+  {
+    name: "LinkedIn",
+    href: "https://www.linkedin.com/company/digestai-news/",
+    path: "M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28zM5.34 7.43a2.06 2.06 0 1 1 0-4.13 2.06 2.06 0 0 1 0 4.13zM7.12 20.45H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.73v20.54C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.73V1.73C24 .77 23.2 0 22.22 0z",
+  },
+  {
+    name: "Bluesky",
+    href: "https://bsky.app/profile/digestai.bsky.social",
+    path: "M5.2 2.8C7.95 4.87 10.9 9.05 12 11.3c1.1-2.25 4.05-6.43 6.8-8.5 1.98-1.49 5.2-2.64 5.2 1.03 0 .73-.42 6.16-.67 7.04-.86 3.06-3.98 3.84-6.76 3.37 4.86.83 6.1 3.57 3.43 6.31-5.07 5.2-7.29-1.3-7.86-2.97-.1-.3-.15-.45-.14-.33 0-.12-.05.03-.14.33-.57 1.67-2.79 8.17-7.86 2.97-2.67-2.74-1.43-5.48 3.43-6.31-2.78.47-5.9-.31-6.76-3.37C.42 9.99 0 4.56 0 3.83 0 .16 3.22 1.31 5.2 2.8z",
+  },
+  {
+    name: "X",
+    href: "https://x.com/DigestAINews",
+    path: "M18.9 1.15h3.68l-8.04 9.19L24 22.85h-7.41l-5.8-7.59-6.64 7.59H.47l8.6-9.83L0 1.15h7.59l5.24 6.93 6.07-6.93zm-1.29 19.49h2.04L6.49 3.24H4.3l13.31 17.4z",
+  },
+];
+---
+
+<div class={`social social-${variant}`}>
+  {variant === "footer" && <span class="social-label">Follow</span>}
+  {links.map((l) => (
+    <a class="social-link" href={l.href} rel="me noopener" target="_blank" aria-label={`Digest AI on ${l.name}`} title={`Digest AI on ${l.name}`}>
+      <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d={l.path} fill="currentColor" /></svg>
+      {variant === "rail" && <span>{l.name}</span>}
+    </a>
+  ))}
+</div>

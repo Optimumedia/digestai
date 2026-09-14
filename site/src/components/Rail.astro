@@ -1,5 +1,6 @@
 ---
 import { byScore, byRecency, entities, entitySlug, categories, threads, trackers } from "../lib/data";
+import SocialLinks from "./SocialLinks.astro";
 
 interface Props { exclude?: number }
 const { exclude } = Astro.props;
@@ -49,6 +50,10 @@ const topics = entities.slice(0, 18);
       <a href="/week">Weekly recaps</a>
       <a href="/river">River</a>
     </div>
+  </section>
+  <section class="rail-follow">
+    <h2>Follow Digest AI</h2>
+    <SocialLinks variant="rail" />
   </section>
   <section>
     <h2>Just in</h2>

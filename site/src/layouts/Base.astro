@@ -1,4 +1,5 @@
 ---
+import SocialLinks from "../components/SocialLinks.astro";
 import "../styles/global.css";
 import { categories, meta, byScore, byRecency } from "../lib/data";
 
@@ -187,11 +188,7 @@ const clientConfig = {
         <a href="/saved">Saved</a>
         <a href="/rss.xml">RSS</a>
         <a href="/search">Search</a>
-        <span class="follow-us">Follow:
-          <a href="https://www.linkedin.com/company/digestai-news/" rel="me noopener" target="_blank">LinkedIn</a>
-          <a href="https://bsky.app/profile/digestai.bsky.social" rel="me noopener" target="_blank">Bluesky</a>
-          <a href="https://x.com/DigestAINews" rel="me noopener" target="_blank">X</a>
-        </span>
+        <SocialLinks variant="footer" />
         <span class="gen">Updated <time datetime={meta.generatedAt}></time> · {meta.storyCount} stories from {meta.articleCount} articles</span>
       </div>
     </footer>
