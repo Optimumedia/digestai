@@ -1,0 +1,184 @@
+---
+/* Held for your approval: the private review list for the risky-claim hold (pipeline/digest/hold.py).
+   The admin page is public, so the list arrives encrypted (held.enc.json, AES-GCM with a PBKDF2 key
+   from ADMIN_REVIEW_KEY). Only the count is public. The owner pastes the key once; the browser
+   decrypts with WebCrypto and the decisions go to moderation.yaml through the GitHub API, the same way
+   Pin and Unpublish do. */
+import fs from "node:fs";
+import path from "node:path";
+
+const read = (name: string) => {
+  try { return JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "src/data", name), "utf-8")); } catch { return null; }
+};
+const summary = read("held.json");
+const sealed = read("held.enc.json");
+const count = Number(summary?.count) || 0;
+const repo = import.meta.env.PUBLIC_GISCUS_REPO || "Optimumedia/digestai";
+const ok = sealed && sealed.salt && sealed.iv && sealed.data;
+const sealedJson = ok ? JSON.stringify({ v: sealed.v, iter: sealed.iter, salt: sealed.salt, iv: sealed.iv, data: sealed.data }).replace(/</g, "\\u003c") : "";
+const waiting = count === 1 ? "1 story is waiting" : `${count} stories are waiting`;
+---
+
+<section class:list={["card", "held-review", { "has-held": count > 0 }]} id="held" aria-labelledby="held-title">
+  <h2 id="held-title">Held for your approval <span class="held-count" aria-label={`${count} held`}>{count}</span></h2>
+  <p class="held-intro">
+    {count > 0 ? `${waiting}. ` : "Nothing is waiting. "}
+    Stories reported by a single outlet about crimes, weapons, surveillance or wrongdoing by named people or companies stay off the site, Bluesky and alerts until you approve them. If a second outlet reports the story, it is published automatically.
+  </p>
+  {ok ? (
+    <form class="held-unlock" data-held-unlock>
+      <label for="held-key">Unlock with your review key</label>
+      <div class="held-keyrow">
+        <input type="password" id="held-key" name="held-key" autocomplete="off" spellcheck="false" required aria-describedby="held-key-help" />
+        <button type="submit" class="tb primary">Unlock</button>
+      </div>
+      <p class="held-help" id="held-key-help">The list is encrypted because this page is public. Paste the review key once; it stays in this browser only.</p>
+    </form>
+  ) : (
+    <p class="held-help">The list can be read here once the review key (the ADMIN_REVIEW_KEY secret) is set for the pipeline. See SETUP.md.</p>
+  )}
+  <div class="held-list" data-held-list tabindex="-1" hidden></div>
+  <p class="held-status" data-held-status role="status" aria-live="polite"></p>
+  <script is:inline type="application/json" id="held-data" set:html={sealedJson}></script>
+</section>
+
+<script is:inline define:vars={{ repo }}>
+  (() => {
+    const bytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    /** Reverse of hold.encrypt: PBKDF2-SHA256 -> AES-256-GCM (tag appended to data). */
+    async function open(sealed, pass) {
+      const subtle = globalThis.crypto.subtle;
+      const base = await subtle.importKey("raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveKey"]);
+      const key = await subtle.deriveKey({ name: "PBKDF2", hash: "SHA-256", salt: bytes(sealed.salt), iterations: sealed.iter || 600000 },
+        base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+      const plain = await subtle.decrypt({ name: "AES-GCM", iv: bytes(sealed.iv) }, key, bytes(sealed.data));
+      return JSON.parse(new TextDecoder().decode(plain));
+    }
+    if (typeof document === "undefined") { globalThis.digestHeld = { open }; return; }
+
+    const root = document.getElementById("held");
+    if (!root) return;
+    const $ = (s) => root.querySelector(s);
+    const form = $("[data-held-unlock]"), list = $("[data-held-list]"), statusEl = $("[data-held-status]");
+    const KEY = "admin_review_key", TOKEN = "admin_gh_token", FILE = "contents/pipeline/digest/moderation.yaml";
+    const store = {
+      get: (k) => { try { return localStorage.getItem(k) || ""; } catch { return ""; } },
+      set: (k, v) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch {} },
+    };
+    const say = (msg, bad) => { statusEl.textContent = msg; statusEl.classList.toggle("bad", !!bad); };
+    const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    let sealed = null;
+    try { const t = document.getElementById("held-data")?.textContent.trim(); sealed = t ? JSON.parse(t) : null; } catch {}
+    if (!sealed || !form) return;
+    if (!globalThis.crypto?.subtle) { say("This browser cannot decrypt the list here. Open the admin page over https.", true); return; }
+
+    const when = (iso) => {
+      const t = Date.parse(iso || "");
+      if (!t) return "time unknown";
+      const h = Math.round((Date.now() - t) / 36e5);
+      const ago = h < 1 ? "less than an hour ago" : h < 48 ? `${h} hours ago` : `${Math.round(h / 24)} days ago`;
+      return `first seen ${ago} (${new Date(t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })})`;
+    };
+    const item = (s) => {
+      const url = /^https?:\/\//i.test(s.url || "") ? s.url : "";
+      const source = url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(s.source || "Read the source")} ↗</a>` : esc(s.source || "");
+      return `<li class="held-item" data-slug="${esc(s.slug)}">
+        <h3>${esc(s.headline)}</h3>
+        <p class="held-meta">${source} · <time datetime="${esc(s.firstPublishedAt)}">${esc(when(s.firstPublishedAt))}</time></p>
+        <p class="held-reason">Why it is held: ${esc(s.reason)}</p>
+        <div class="held-acts">
+          <button type="button" class="tb primary" data-held-act="approve" aria-label="Approve and publish: ${esc(s.headline)}">Approve and publish</button>
+          <button type="button" class="tb" data-held-act="unpublish" aria-label="Keep off the site: ${esc(s.headline)}">Keep off the site</button>
+        </div>
+        <p class="held-done" role="status" aria-live="polite"></p>
+      </li>`;
+    };
+    function render(data) {
+      const items = data?.stories || [];
+      const at = Date.parse(data?.generatedAt || "");
+      form.hidden = true;
+      list.hidden = false;
+      list.innerHTML = (items.length ? `<ul class="held-items">${items.map(item).join("")}</ul>` : '<p class="held-help">Nothing is held right now.</p>')
+        + `<div class="held-foot"><span>List from the pipeline run of ${at ? new Date(at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "unknown time"}. Decisions apply on the next run.</span>`
+        + '<button type="button" class="tb" data-held-forget>Lock and forget the key</button></div>';
+    }
+    async function unlock(pass, remember) {
+      say("Unlocking…");
+      try {
+        const data = await open(sealed, pass);
+        if (remember) store.set(KEY, pass);
+        render(data);
+        say("");
+        return true;
+      } catch { say(""); return false; }
+    }
+
+    // Moderation edits: the same GitHub contents API calls, token and commit messages as Pin and Unpublish.
+    const api = async (p, method = "GET", body) => {
+      const t = store.get(TOKEN);
+      if (!t) throw new Error("Save a GitHub token first (Settings tab)");
+      const r = await fetch(`https://api.github.com/repos/${repo}/${p}`, { method, headers: { Authorization: `Bearer ${t}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+      if (!r.ok) throw new Error(`${method} ${p}: ${r.status} ${(await r.text()).slice(0, 120)}`);
+      return r.status === 204 ? null : r.json();
+    };
+    const toB64 = (s) => btoa(unescape(encodeURIComponent(s)));
+    const fromB64 = (s) => decodeURIComponent(escape(atob(s.replace(/\n/g, ""))));
+    const listRe = (key) => new RegExp(`^${key}:\\s*(\\[[^\\]]*\\]|(?:\\n\\s*-\\s*.*)*)`, "m");
+    function readList(yaml, key) {
+      const m = yaml.match(listRe(key)); if (!m) return [];
+      const body = m[1].trim();
+      if (body.startsWith("[")) return body.slice(1, -1).split(",").map((x) => x.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+      return body.split("\n").map((l) => l.replace(/^\s*-\s*/, "").trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+    }
+    function writeList(yaml, key, items) { const rendered = `${key}: [${items.map((i) => JSON.stringify(i)).join(", ")}]`; return yaml.match(listRe(key)) ? yaml.replace(listRe(key), rendered) : yaml + `\n${rendered}\n`; }
+    async function decide(slug, key) {
+      const other = key === "approve" ? "unpublish" : "approve";
+      const file = await api(FILE);
+      let yaml = fromB64(file.content);
+      const mine = readList(yaml, key), theirs = readList(yaml, other);
+      const had = mine.includes(slug), clash = theirs.indexOf(slug);
+      if (had && clash < 0) return;
+      if (!had) { mine.push(slug); yaml = writeList(yaml, key, mine); }
+      if (clash >= 0) { theirs.splice(clash, 1); yaml = writeList(yaml, other, theirs); }
+      await api(FILE, "PUT", { message: `admin: add ${slug} in ${key}`, content: toB64(yaml), sha: file.sha });
+    }
+
+    list.addEventListener("click", async (e) => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      if (btn.hasAttribute("data-held-forget")) {
+        store.set(KEY, "");
+        list.innerHTML = ""; list.hidden = true; form.hidden = false;
+        say("Locked. The key was removed from this browser.");
+        form.querySelector("input")?.focus();
+        return;
+      }
+      const li = btn.closest(".held-item"), act = btn.dataset.heldAct;
+      if (!li || !act) return;
+      const headline = li.querySelector("h3")?.textContent || li.dataset.slug;
+      if (act === "approve" && !confirm(`Publish "${headline}" on the next run? It can then be posted to Bluesky and sent as an alert.`)) return;
+      const done = li.querySelector(".held-done"), buttons = [...li.querySelectorAll("[data-held-act]")];
+      buttons.forEach((b) => (b.disabled = true));
+      done.classList.remove("bad");
+      done.textContent = "Saving…";
+      try {
+        await decide(li.dataset.slug, act === "approve" ? "approve" : "unpublish");
+        done.textContent = act === "approve" ? "✓ Approved. It goes live on the next run, within about 30 minutes." : "✓ Kept off the site. It will not be published.";
+      } catch (err) {
+        buttons.forEach((b) => (b.disabled = false));
+        done.classList.add("bad");
+        done.textContent = `Not saved: ${err.message}`;
+      }
+    });
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const input = form.querySelector("input");
+      const pass = input.value;
+      input.value = "";
+      if (await unlock(pass, true)) list.focus();
+      else { say("That key did not open the list. It must be exactly the ADMIN_REVIEW_KEY passphrase.", true); input.focus(); }
+    });
+    const saved = store.get(KEY);
+    if (saved) unlock(saved, false).then((opened) => { if (!opened) { store.set(KEY, ""); say("The saved key no longer opens the list (the key may have changed). Paste the current key.", true); } });
+  })();
+</script>
