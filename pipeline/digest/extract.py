@@ -5,6 +5,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from html import unescape as html_unescape
 from pathlib import Path
 
@@ -12,11 +13,12 @@ import requests
 import trafilatura
 import yaml
 from bs4 import BeautifulSoup
+from dateutil import parser as dateparser
 from readability import Document
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 
 from . import config, db
-from .textutil import domain_of, keywords, word_count
+from .textutil import domain_of, is_skipped_domain, keywords, normalize_url, word_count
 
 log = logging.getLogger("digest.extract")
 
@@ -156,6 +158,55 @@ def _meta(soup: BeautifulSoup, *names: str) -> str | None:
     return None
 
 
+ISO_DATE = re.compile(r"^\s*\d{4}-\d{2}-\d{2}")
+
+
+def parse_page_date(raw) -> datetime | None:
+    """ISO 8601 dates only: free-text dates ("Sept 3", "2 hours ago") parse to the wrong year."""
+    if not isinstance(raw, str) or not ISO_DATE.match(raw):
+        return None
+    try:
+        dt = dateparser.isoparse(raw.strip())
+    except (ValueError, OverflowError):
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def prefer_page_date(current: datetime | None, raw_page_date, now: datetime | None = None,
+                     min_gap_days: float | None = None) -> datetime | None:
+    """The date to store instead of the feed/submission date, or None to keep it.
+
+    A page that says it was published well before the feed or HN submission is an old piece
+    re-shared: its own date is the real one, so the gate's age check sees it."""
+    page = parse_page_date(raw_page_date)
+    if page is None:
+        return None
+    now = now or db.utcnow()
+    gap = timedelta(days=config.PAGE_DATE_MIN_GAP_DAYS if min_gap_days is None else min_gap_days)
+    if page > now + timedelta(days=1) or page.year < 1995:
+        return None  # implausible
+    current = db.as_utc(current)
+    if current is None or page < current - gap:
+        return page
+    return None
+
+
+def _page_date(soup: BeautifulSoup, html: str) -> str | None:
+    """Publication date from the page: meta tags, then <time datetime> in the article header."""
+    date = _meta(soup, "article:published_time", "og:published_time", "datePublished", "parsely-pub-date",
+                 "article:published", "pubdate", "publishdate", "dc.date.issued")
+    if date:
+        return date
+    tag = soup.find(attrs={"itemprop": "datePublished"})
+    if tag is not None and (tag.get("content") or tag.get("datetime")):
+        return (tag.get("content") or tag.get("datetime")).strip()
+    scope = soup.find("article") or soup.find("header")
+    t = scope.find("time", attrs={"datetime": True}) if scope is not None else None
+    if t is not None:
+        return t["datetime"].strip()
+    return None
+
+
 def _markdown_from_html(html: str, url: str, precision: bool = True) -> str | None:
     try:
         return trafilatura.extract(
@@ -269,6 +320,23 @@ def _same_title(a: str, b: str) -> bool:
     return bool(na and nb) and (na == nb or na.startswith(nb) or nb.startswith(na))
 
 
+def _fill_date(result: "Extraction", soup: BeautifulSoup, html: str) -> None:
+    if parse_page_date(result.date):
+        return
+    jd = None
+    node = _jsonld_article(soup)
+    if node and isinstance(node.get("datePublished"), str):
+        jd = node["datePublished"]
+    result.date = jd or _page_date(soup, html)
+    if parse_page_date(result.date):
+        return
+    try:  # last resort: trafilatura's metadata (htmldate heuristics)
+        meta = trafilatura.extract_metadata(html)
+        result.date = getattr(meta, "date", None) or result.date
+    except Exception:  # noqa: BLE001
+        pass
+
+
 # --------------------------------------------------------------------- main
 
 def extract(url: str, html: str | None, title: str, feed_content: str | None = None,
@@ -299,9 +367,11 @@ def extract(url: str, html: str | None, title: str, feed_content: str | None = N
     result.image = _meta(soup, "og:image", "twitter:image")
     result.title = _meta(soup, "og:title") or (soup.title.string.strip() if soup.title and soup.title.string else None)
     result.author = _meta(soup, "author", "article:author", "parsely-author")
-    result.date = _meta(soup, "article:published_time", "datePublished", "parsely-pub-date")
+    result.date = _meta(soup, "article:published_time", "og:published_time", "datePublished", "parsely-pub-date",
+                        "article:published", "pubdate", "publishdate", "dc.date.issued")
 
     candidates: list[tuple[str, str]] = []
+    _fill_date(result, soup, html)
 
     # 2. Structured data: JSON-LD articleBody is never polluted by sidebars.
     node = _jsonld_article(soup)
@@ -314,7 +384,8 @@ def extract(url: str, html: str | None, title: str, feed_content: str | None = N
             a = a[0] if isinstance(a, list) and a else a
             if isinstance(a, dict) and a.get("name"):
                 result.author = str(a["name"])[:300]
-        result.date = result.date or node.get("datePublished")
+        jd = node.get("datePublished")
+        result.date = result.date or (jd if isinstance(jd, str) else None)
         img = node.get("image")
         if not result.image and img:
             img = img[0] if isinstance(img, list) and img else img
@@ -389,18 +460,44 @@ def extract(url: str, html: str | None, title: str, feed_content: str | None = N
 def run() -> dict:
     stats = {"processed": 0, "ok": 0, "failed": 0, "methods": {}}
     eng = db.engine()
+    cutoff = db.utcnow() - timedelta(days=config.MAX_ARTICLE_AGE_DAYS)
+    with eng.begin() as conn:
+        # Items that waited in the queue past the age limit would only be rejected by the gate.
+        expired = conn.execute(
+            update(db.articles)
+            .where(db.articles.c.status == "new",
+                   or_(db.articles.c.published_at < cutoff,
+                       and_(db.articles.c.published_at.is_(None), db.articles.c.created_at < cutoff)))
+            .values(status="rejected", reject_reason="extract: too old (waited in queue)")
+        ).rowcount
+        if expired:
+            stats["expired"] = expired
     with eng.connect() as conn:
         rows = conn.execute(
             select(db.articles, db.sources.c.content_from_feed, db.sources.c.fulltext)
             .join(db.sources, db.articles.c.source_id == db.sources.c.id)
             .where(db.articles.c.status == "new")
-            .order_by(db.articles.c.created_at.desc())
+            # Curated, heavier sources first, then oldest first: newest-first starved the queue,
+            # because about as many items arrived each run as were processed.
+            .order_by(db.sources.c.weight.desc(), db.articles.c.created_at.asc(), db.articles.c.id.asc())
             .limit(config.MAX_EXTRACT_PER_RUN)
         ).all()
 
     last_para_by_domain: dict[str, str] = {}
     for row in rows:
         stats["processed"] += 1
+        try:
+            real_domain = domain_of(normalize_url(row.url))
+        except ValueError:
+            real_domain = row.domain or ""
+        if is_skipped_domain(real_domain):
+            # Rows stored before redirect unwrapping (Bing click links to msn.com): never fetchable.
+            with eng.begin() as conn:
+                conn.execute(update(db.articles).where(db.articles.c.id == row.id)
+                             .values(status="rejected", reject_reason=f"extract: skipped domain {real_domain}"[:200]))
+            stats["failed"] += 1
+            stats["skipped_domain"] = stats.get("skipped_domain", 0) + 1
+            continue
         rule = domain_rule(row.url)
         html, err = (None, None)
         if not row.content_from_feed:
@@ -410,6 +507,11 @@ def run() -> dict:
             res.reason = err
 
         values: dict = {"extraction_method": res.method, "extraction_ok": res.ok}
+        page_dt = prefer_page_date(row.published_at, res.date)
+        if page_dt is not None:
+            values["published_at"] = page_dt
+            if row.published_at is not None:
+                stats["older_page_date"] = stats.get("older_page_date", 0) + 1
         if res.ok:
             # Sidebar fingerprint: identical last paragraph across articles of one domain.
             paras = res.markdown.split("\n\n")

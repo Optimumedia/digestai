@@ -5,6 +5,7 @@ import calendar
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from dateutil import parser as dateparser
 from sqlalchemy import insert, select, update
 
 from . import config, db
-from .textutil import clean_title, domain_of, normalize_url, simhash, word_count
+from .textutil import SKIP_DOMAINS, clean_title, domain_of, is_skipped_domain, normalize_url, simhash, title_year, word_count  # noqa: F401
 
 log = logging.getLogger("digest.fetch")
 
@@ -24,8 +25,37 @@ SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": config.USER_AGENT, "Accept": "*/*"})
 
 HN_QUERIES = ["AI", "LLM", "OpenAI", "Anthropic", "Claude", "GPT", "Gemini", "language model", "agents"]
-SKIP_DOMAINS = {"news.google.com", "google.com", "youtube.com", "youtu.be", "x.com", "twitter.com",
-                "facebook.com", "instagram.com", "tiktok.com", "linkedin.com"}
+# Same threshold as the gate: syndicated copies sit at 0-8, distinct titles at 13+.
+TITLE_DUPLICATE_DISTANCE = 10
+
+
+def recent_titles(conn) -> list[dict]:
+    """Title fingerprints of recent articles that are still alive (not rejected)."""
+    since = db.utcnow() - timedelta(days=config.MAX_ARTICLE_AGE_DAYS)
+    rows = conn.execute(
+        select(db.articles.c.id, db.articles.c.simhash, db.articles.c.domain,
+               db.articles.c.discussion_url, db.articles.c.discussion_points)
+        .where(db.articles.c.created_at >= since, db.articles.c.status != "rejected", db.articles.c.simhash.isnot(None))
+    ).all()
+    return [{"id": r.id, "hash": db.from_signed64(r.simhash), "domain": r.domain,
+             "discussion_url": r.discussion_url, "points": r.discussion_points} for r in rows]
+
+
+def near_duplicate(h: int, recent: list[dict], max_distance: int = TITLE_DUPLICATE_DISTANCE) -> dict | None:
+    for other in recent:
+        if (h ^ other["hash"]).bit_count() <= max_distance:
+            return other
+    return None
+
+
+def should_merge_discussion(disc: tuple | None, existing: dict) -> bool:
+    """A community item repeating a known article hands over its thread when the article has
+    none yet, or when this thread has more points."""
+    if not disc or not disc[0] or not disc[1]:
+        return False
+    if not existing.get("discussion_url"):
+        return True
+    return (disc[2] or 0) > (existing.get("points") or 0)
 
 
 def sync_sources(conn) -> None:
@@ -63,6 +93,11 @@ def sync_sources(conn) -> None:
         .where(db.sources.c.discovered.is_(True), db.sources.c.expires_at < db.utcnow())
         .values(enabled=False)
     )
+    # And keep at most MAX_DISCOVERED_SOURCES of them (rank prefers its latest picks; here the
+    # newest win), so a backlog of search feeds can never dominate a run again.
+    from .rank import cap_discovered_sources
+
+    cap_discovered_sources(conn)
 
 
 _SOURCE_CFG: dict[str, dict] | None = None
@@ -237,27 +272,54 @@ def _mastodon_items(source) -> list[dict]:
 FETCHERS = {"rss": _rss_items, "hn": _hn_items, "reddit": _reddit_items, "mastodon": _mastodon_items}
 
 
+def host_delay(host: str) -> float:
+    """Politeness between requests to one host: reddit.com throttles back-to-back requests;
+    others (e.g. the Bing search feeds sharing bing.com) only need a short gap."""
+    return config.FETCH_SLOW_HOSTS.get(host, config.FETCH_HOST_DELAY)
+
+
+def fetch_all(source_rows, fetchers: dict | None = None, sleep=time.sleep) -> list[tuple]:
+    """Download every source: hosts in parallel, one host's sources in sequence with its delay.
+    Returns (source, items, error) in the original source order, so inserts stay deterministic."""
+    fetchers = fetchers or FETCHERS
+    by_host: dict[str, list] = {}
+    for s in source_rows:
+        by_host.setdefault(domain_of(s.url), []).append(s)
+
+    def work(group: list) -> list[tuple]:
+        out = []
+        for i, source in enumerate(group):
+            if i:
+                sleep(host_delay(domain_of(source.url)))
+            try:
+                out.append((source, fetchers.get(source.kind, fetchers["rss"])(source), None))
+            except Exception as exc:  # noqa: BLE001 - one bad source must not stop the run
+                out.append((source, None, exc))
+        return out
+
+    results: list[tuple] = []
+    if by_host:
+        with ThreadPoolExecutor(max_workers=max(1, min(config.FETCH_WORKERS, len(by_host)))) as pool:
+            for chunk in pool.map(work, by_host.values()):
+                results.extend(chunk)
+    order = {id(s): i for i, s in enumerate(source_rows)}
+    results.sort(key=lambda r: order[id(r[0])])
+    return results
+
+
 def run() -> dict:
     stats = {"sources": 0, "items": 0, "inserted": 0, "errors": 0}
     eng = db.engine()
     with eng.begin() as conn:
         sync_sources(conn)
         source_rows = conn.execute(select(db.sources).where(db.sources.c.enabled.is_(True))).all()
+        recent = recent_titles(conn)
 
     cutoff = db.utcnow() - timedelta(days=config.MAX_ARTICLE_AGE_DAYS)
-    last_hit_by_host: dict[str, float] = {}
-    for source in source_rows:
+    this_year = db.utcnow().year
+    for source, items, exc in fetch_all(source_rows):
         stats["sources"] += 1
-        fetcher = FETCHERS.get(source.kind, _rss_items)
-        # Politeness: hosts such as reddit.com throttle back-to-back requests.
-        host = domain_of(source.url)
-        wait = 4.0 - (time.time() - last_hit_by_host.get(host, 0.0))
-        if wait > 0:
-            time.sleep(wait)
-        last_hit_by_host[host] = time.time()
-        try:
-            items = fetcher(source)
-        except Exception as exc:  # noqa: BLE001 - one bad source must not stop the run
+        if exc is not None:  # one bad source must not stop the run
             stats["errors"] += 1
             log.warning("source %s failed: %s", source.key, exc)
             with eng.begin() as conn:
@@ -267,7 +329,7 @@ def run() -> dict:
                 )
             continue
 
-        limit = _max_items(source.key) if not source.discovered else 15
+        limit = _max_items(source.key) if not source.discovered else config.MAX_DISCOVERED_ITEMS
         inserted = 0
         with eng.begin() as conn:
             for item in items[:limit]:
@@ -277,9 +339,15 @@ def run() -> dict:
                 except ValueError:
                     continue
                 dom = domain_of(url)
-                if dom in SKIP_DOMAINS or not dom:
+                if not dom or is_skipped_domain(dom):
                     continue
                 if item["published_at"] and item["published_at"] < cutoff:
+                    continue
+                # "... (2019)": an old piece re-posted to HN/Reddit. The submission time is new,
+                # the story is not (MAX_ARTICLE_AGE_DAYS applies to the piece, not the re-post).
+                year = title_year(item["title"])
+                if year and year < this_year:
+                    stats["too_old_title_year"] = stats.get("too_old_title_year", 0) + 1
                     continue
                 exists = conn.execute(select(db.articles.c.id).where(db.articles.c.url == url)).first()
                 if exists:
@@ -288,7 +356,21 @@ def run() -> dict:
                 if len(title) < 15:
                     continue
                 disc = item.get("discussion") or (None, None, None)
-                conn.execute(insert(db.articles).values(
+                h = simhash(title)
+                dup = near_duplicate(h, recent)
+                if dup is not None:
+                    if should_merge_discussion(item.get("discussion"), dup):
+                        conn.execute(update(db.articles).where(db.articles.c.id == dup["id"]).values(
+                            discussion_site=disc[0], discussion_url=disc[1], discussion_points=disc[2],
+                            discussion_checked_at=db.utcnow()))
+                        dup.update(discussion_url=disc[1], points=disc[2])
+                        stats["discussions_merged"] = stats.get("discussions_merged", 0) + 1
+                    # A repeat from the same publisher, or any search-feed repeat, is never fetched.
+                    # Other publishers' copies still go through (the gate keeps the first one).
+                    if dup["domain"] == dom or source.discovered:
+                        stats["title_duplicates"] = stats.get("title_duplicates", 0) + 1
+                        continue
+                res = conn.execute(insert(db.articles).values(
                     discussion_site=disc[0],
                     discussion_url=disc[1],
                     discussion_points=disc[2],
@@ -306,10 +388,12 @@ def run() -> dict:
                     feed_content=item["feed_content"],
                     image_url=item["image_url"],
                     show_fulltext=bool(source.fulltext),
-                    simhash=db.to_signed64(simhash(title)),
+                    simhash=db.to_signed64(h),
                     status="new",
                     created_at=db.utcnow(),
                 ))
+                recent.append({"id": res.inserted_primary_key[0], "hash": h, "domain": dom,
+                               "discussion_url": disc[1], "points": disc[2]})
                 inserted += 1
             conn.execute(
                 update(db.sources).where(db.sources.c.id == source.id)

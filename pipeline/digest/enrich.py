@@ -59,6 +59,31 @@ class QuotaExhausted(Exception):
     pass
 
 
+# ----------------------------------------------------------------- time budget
+# The step's deadline (time.monotonic()); provider calls size their timeouts and rate-limit
+# waits to it, so one slow call cannot carry the step far past ENRICH_TIME_BUDGET_SECONDS.
+_deadline: float | None = None
+GROQ_MAX_WAIT_SECONDS = 20.0  # longer rate-limit windows go to a fallback model instead
+
+
+def _time_left() -> float:
+    return float("inf") if _deadline is None else _deadline - time.monotonic()
+
+
+def _request_timeout(cap: float) -> float:
+    return max(5.0, min(cap, _time_left()))
+
+
+def should_start_article(elapsed: float, durations: list[float], budget: float, first_estimate: float) -> bool:
+    """Start another article only if it is expected to finish inside the budget. The estimate is
+    the running average, raised toward the slowest article so far (rate-limit stalls come in runs)."""
+    if durations:
+        estimate = max(sum(durations) / len(durations), 0.5 * max(durations))
+    else:
+        estimate = first_estimate
+    return elapsed + estimate <= budget
+
+
 # ----------------------------------------------------------------- budget
 
 def _today() -> str:
@@ -125,7 +150,7 @@ def call_gemini(prompt: str) -> dict:
         body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen}
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         # The key travels in a header, never in the URL, so it can never appear in an error message.
-        resp = requests.post(url, headers={"x-goog-api-key": config.GEMINI_API_KEY}, json=body, timeout=90)
+        resp = requests.post(url, headers={"x-goog-api-key": config.GEMINI_API_KEY}, json=body, timeout=_request_timeout(90))
         if resp.status_code in (404, 429):
             _gemini_dead.add(model)
             detail = ""
@@ -181,7 +206,8 @@ def call_groq(prompt: str) -> dict:
             continue
         wait = _groq_wait_until.get(model, 0.0) - time.time()
         if wait > 0:
-            if wait > 45:
+            # Sleeping through a long window, once per model, used to cost 2-3 minutes per article.
+            if wait > min(GROQ_MAX_WAIT_SECONDS, _time_left() - 30.0):
                 # Rate limited for a while: let a fallback take this one. This is a retry
                 # condition, never a daily-quota one, so the day must not be marked exhausted.
                 last = RuntimeError(f"groq {model} rate limited for {wait:.0f}s")
@@ -197,7 +223,7 @@ def call_groq(prompt: str) -> dict:
                 "response_format": {"type": "json_object"},
                 "max_tokens": 3000,
             },
-            timeout=90,
+            timeout=_request_timeout(90),
         )
         h = resp.headers
         if resp.status_code == 429:
@@ -252,7 +278,7 @@ def call_ollama(prompt: str) -> dict:
             "stream": False,
             "options": {"temperature": 0.3, "num_ctx": 4096, "num_predict": 900},
         },
-        timeout=240,
+        timeout=_request_timeout(240),
     )
     resp.raise_for_status()
     return _parse_json(resp.json()["message"]["content"])
@@ -364,6 +390,8 @@ def _clean(result: dict, row, category_hint: str | None) -> dict:
 
 
 def run() -> dict:
+    global _deadline
+    _deadline = None
     stats = {"enriched": 0, "rejected": 0, "errors": 0, "model": None}
     eng = db.engine()
 
@@ -409,13 +437,22 @@ def run() -> dict:
             .limit(limit)
         ).all()
 
+    budget = float(config.ENRICH_TIME_BUDGET_SECONDS)
     started = time.monotonic()
+    _deadline = started + budget
+    durations: list[float] = []
+    last_start: float | None = None
     for row in rows:
-        if time.monotonic() - started > config.ENRICH_TIME_BUDGET_SECONDS:
+        now_m = time.monotonic()
+        if last_start is not None:
+            durations.append(now_m - last_start)
+        if not should_start_article(now_m - started, durations, budget, config.ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS):
             # Leave the rest for the next run: slow or rate-limited providers must not push the
             # whole run past the workflow's time limit, because a cancelled run publishes nothing.
+            # Checked before an article starts, with its expected duration, so the budget holds.
             stats["stopped_for_time"] = True
             break
+        last_start = now_m
         text = row.content_text or row.description or ""
         prompt = PROMPT.format(
             categories=", ".join(f'"{k}" ({v})' for k, v in config.CATEGORIES.items()),
@@ -492,4 +529,6 @@ def run() -> dict:
         if model_used.startswith("gemini"):
             time.sleep(4.2)  # 15 requests per minute on the free tier
         # Groq paces itself from its rate-limit headers inside call_groq.
+    _deadline = None
+    stats["seconds_used"] = round(time.monotonic() - started, 1)
     return stats

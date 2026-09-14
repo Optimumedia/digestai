@@ -21,6 +21,246 @@ def test_normalize_url_drops_tracking_and_www():
     assert normalize_url("https://www.example.com/a/b/?utm_source=x&id=3#frag") == "https://example.com/a/b?id=3"
 
 
+BING_LINK = ("http://www.bing.com/news/apiclick.aspx?ref=FexRss&aid=&tid=6aa82acf439047288f023edceb8b9cef"
+             "&url=https%3a%2f%2fwww.theverge.com%2fai%2f123%2fopenai-model%3futm_source%3dbing&c=18124483902249883319&mkt=en-ww")
+
+
+def test_normalize_url_unwraps_bing_click_links():
+    from digest.textutil import is_skipped_domain, unwrap_redirect
+
+    assert normalize_url(BING_LINK) == "https://theverge.com/ai/123/openai-model"
+    # tid and c change on every fetch; the same article must normalise to the same URL.
+    again = BING_LINK.replace("6aa82acf439047288f023edceb8b9cef", "ffff").replace("18124483902249883319", "42")
+    assert normalize_url(again) == normalize_url(BING_LINK)
+    assert unwrap_redirect("https://bing.com/news/search?q=x") == "https://bing.com/news/search?q=x"
+    assert unwrap_redirect("http://bing.com/news/apiclick.aspx?url=javascript%3aalert(1)").startswith("http://bing.com")
+    assert is_skipped_domain("msn.com") and is_skipped_domain("en.msn.com") and is_skipped_domain("bing.com")
+    assert not is_skipped_domain("research.google.com") and not is_skipped_domain("notmsn.com")
+
+
+def test_fetch_near_duplicate_merges_discussion():
+    from digest.fetch import near_duplicate, should_merge_discussion
+
+    title = simhash("OpenAI restricts GPT-2 release over malicious use concerns")
+    recent = [{"id": 7, "hash": simhash("Humanoid robots enter the warehouse"), "domain": "a.com", "discussion_url": None, "points": None},
+              {"id": 9, "hash": title, "domain": "openai.com", "discussion_url": None, "points": None}]
+    dup = near_duplicate(simhash("OpenAI restricts GPT-2 release over malicious use concerns, report says"), recent)
+    assert dup is not None and dup["id"] == 9
+    assert near_duplicate(simhash("Nvidia ships a new data center GPU"), recent) is None
+    hn = ("hn", "https://news.ycombinator.com/item?id=1", 120)
+    assert should_merge_discussion(hn, dup)  # no thread yet
+    assert not should_merge_discussion(hn, {**dup, "discussion_url": "x", "points": 300})
+    assert should_merge_discussion(hn, {**dup, "discussion_url": "x", "points": 50})
+    assert not should_merge_discussion(None, dup)
+
+
+def test_discovery_terms_only_entities_and_not_generic():
+    from types import SimpleNamespace
+
+    from digest.rank import discovery_key, discovery_terms, is_discovery_term
+
+    def art(companies, models=(), points=100):
+        return SimpleNamespace(entities={"companies": list(companies), "models": list(models)}, engagement=0.0,
+                               discussion_points=points, trend_score=0, headline="Some headline about agents")
+    top = [art(["Mistral AI", "Scaleup Europe Fund"]), art(["Mistral AI", "The Information"]),
+           art(["Samsung Electronics"], ["GPT‑6 Astra"]), art(["Anthropic"], ["GPT‑6 Astra"]), art(["Anthropic"])]
+    terms = discovery_terms(top, min_articles=2, limit=8)
+    assert "Mistral AI" in terms and "Anthropic" in terms and "GPT-6 Astra" in terms
+    assert "Scaleup Europe Fund" not in terms and "The Information" not in terms
+    assert "Samsung Electronics" not in terms  # a single article is not a trend
+    assert not is_discovery_term("EU AI Act") and is_discovery_term("Nvidia")
+    assert discovery_key("GPT‑6 Astra") == "discover-gpt-6-astra"
+    assert len(discovery_terms(top * 5, min_articles=1, limit=2)) == 2
+
+
+def test_enrich_time_budget_holds():
+    import time as _t
+
+    from digest import config, enrich
+
+    assert enrich.should_start_article(0, [], 600, 90)
+    assert not enrich.should_start_article(520, [], 600, 90)  # the first article's estimate would overrun
+    assert enrich.should_start_article(500, [30, 40], 600, 90)
+    assert not enrich.should_start_article(500, [30, 200], 600, 90)  # one stall raises the estimate
+    enrich._deadline = _t.monotonic() + 12
+    try:
+        assert 5.0 <= enrich._request_timeout(90) <= 12.0
+        assert enrich._request_timeout(3) == 5.0  # never below a workable floor
+    finally:
+        enrich._deadline = None
+    assert enrich._request_timeout(90) == 90
+
+    # A 25-second rate-limit window on every Groq model: skip to the error at once, never sleep.
+    saved = dict(enrich._groq_wait_until)
+    for m in [config.GROQ_MODEL, *config.GROQ_FALLBACK_MODELS]:
+        enrich._groq_wait_until[m] = _t.time() + 25
+    orig_post = enrich.requests.post
+
+    def no_request(*a, **k):
+        raise AssertionError("no request expected while rate limited")
+
+    enrich.requests.post = no_request
+    t0 = _t.monotonic()
+    try:
+        enrich.call_groq("prompt")
+        raise AssertionError("expected a rate-limit error")
+    except RuntimeError as exc:
+        assert "rate limited" in str(exc)
+    finally:
+        enrich.requests.post = orig_post
+        enrich._groq_wait_until.clear()
+        enrich._groq_wait_until.update(saved)
+    assert _t.monotonic() - t0 < 1.0
+
+
+def test_fetch_all_parallel_hosts_keep_order_and_delays():
+    from types import SimpleNamespace
+
+    from digest.fetch import fetch_all
+
+    srcs = [SimpleNamespace(key=f"s{i}", kind="rss", url=u) for i, u in enumerate([
+        "https://www.bing.com/news/search?q=a", "https://techcrunch.com/feed", "https://www.bing.com/news/search?q=b",
+        "https://www.reddit.com/r/x.rss", "https://www.reddit.com/r/y.rss", "https://bad.example/feed"])]
+    slept = []
+
+    def rss(source):
+        if "bad" in source.url:
+            raise ValueError("boom")
+        return [source.key]
+
+    out = fetch_all(srcs, fetchers={"rss": rss}, sleep=slept.append)
+    assert [s.key for s, _, _ in out] == [s.key for s in srcs]
+    assert out[5][1] is None and isinstance(out[5][2], ValueError) and out[0][1] == ["s0"]
+    assert sorted(slept) == [1.0, 4.0]  # one gap on bing.com, a longer one on reddit.com
+
+
+def _unit(v):
+    import numpy as np
+
+    v = np.asarray(v, dtype=np.float32)
+    return v / np.linalg.norm(v)
+
+
+def test_cluster_merge_rule_resists_drift_and_caps():
+    from digest.cluster import pick_story, split_members
+
+    lead = _unit([1, 0, 0, 0])
+    drifted_mean = _unit([1, 1, 0, 0])  # a big story's mean, pulled toward the generic topic
+    stories = {1: {"vec": drifted_mean, "lead_vec": lead, "count": 30}}
+    on_topic_only = _unit([0.55, 1, 0, 0])  # 0.96 to the mean, 0.48 to the lead
+    assert pick_story(on_topic_only, stories, 0.82, 0.79, 40) == (None, -1.0)
+    same_event = _unit([1, 0.3, 0, 0])  # 0.88 to the mean, 0.96 to the lead
+    sid, sim = pick_story(same_event, stories, 0.82, 0.79, 40)
+    assert sid == 1 and 0.82 <= sim < 0.9
+    stories[1]["count"] = 40
+    assert pick_story(same_event, stories, 0.82, 0.79, 40)[0] is None  # full: a new story starts
+    assert pick_story(same_event, {2: {"vec": drifted_mean, "lead_vec": None, "count": 3}}, 0.82, 0.79, 40)[0] == 2
+
+    members = ([(1, lead)] + [(10 + i, _unit([1, 0.1 * i, 0, 0])) for i in range(5)]
+               + [(20 + i, _unit([0.2, 0, 1, 0.1 * i])) for i in range(3)] + [(30, None)])
+    keep, detach = split_members(1, lead, members, 0.79, 4)
+    assert keep == [1, 10, 11, 12]
+    assert detach == [22, 21, 20, 30, 14, 13]  # far from the lead first, then the overflow
+
+
+def test_cluster_repairs_oversized_story_and_reclusters():
+    import tempfile
+    from datetime import datetime, timedelta, timezone
+
+    import numpy as np
+    from sqlalchemy import create_engine, insert, select
+
+    from digest import cluster, db
+
+    tmp = Path(tempfile.mkdtemp()) / "cluster.db"
+    eng = create_engine(f"sqlite:///{tmp.as_posix()}", future=True)
+    db.metadata.create_all(eng)
+    now = datetime.now(timezone.utc)
+    rng = np.random.default_rng(0)
+
+    def vec(base):
+        v = np.asarray(base, dtype=np.float32) + 0.05 * rng.standard_normal(8).astype(np.float32)
+        return (v / np.linalg.norm(v)).tolist()
+
+    event, topic = [1, 0, 0, 0, 0, 0, 0, 0], [0.3, 0, 0, 0, 1, 0, 0, 0]
+    with eng.begin() as conn:
+        conn.execute(insert(db.sources).values(id=1, key="s", name="S", url="https://s.test/feed"))
+        conn.execute(insert(db.stories).values(
+            id=1, slug="mistral", headline="Mistral", lead_article_id=1, article_count=50, importance=8,
+            embedding=vec([0.8, 0, 0, 0, 0.6, 0, 0, 0]), status="published",
+            first_published_at=now - timedelta(hours=2), updated_at=now))
+        conn.execute(insert(db.articles), [
+            {"id": i, "url": f"https://s.test/{i}", "source_id": 1, "story_id": 1, "slug": f"a-{i}",
+             "title": f"Article {i}", "headline": f"Article {i}", "importance": 8 if i == 1 else 5,
+             "embedding": vec(event if i <= 30 else topic), "status": "published",
+             "published_at": now - timedelta(hours=1), "fetched_at": now, "created_at": now}
+            for i in range(1, 51)])
+
+    saved = (db._engine, cluster._MODEL, cluster._MODEL_NAME)
+    db._engine, cluster._MODEL, cluster._MODEL_NAME = eng, False, "fallback-hash"  # no model download
+    try:
+        stats = cluster.run()
+    finally:
+        db._engine, cluster._MODEL, cluster._MODEL_NAME = saved
+    assert (stats["stories_repaired"], stats["articles_detached"]) == (1, 20), stats
+    assert (stats["embedded"], stats["new_stories"], stats["merged"]) == (0, 1, 19), stats
+    with eng.connect() as conn:
+        assert conn.execute(select(db.stories.c.article_count).where(db.stories.c.id == 1)).scalar() == 30
+        arts = conn.execute(select(db.articles)).all()
+    assert all(a.status == "published" for a in arts)
+    assert {a.story_id for a in arts if a.id <= 30} == {1}
+    assert len({a.story_id for a in arts if a.id > 30} - {1}) == 1 and all(a.story_id != 1 for a in arts if a.id > 30)
+    assert all(a.slug == f"a-{a.id}" for a in arts)  # re-clustered articles keep their slugs
+
+
+def test_title_year_marks_old_reposts():
+    from types import SimpleNamespace
+
+    from digest.gate import check
+    from digest.textutil import strip_title_year, title_year
+
+    assert title_year("Better language models and their implications: GPT2 will not be released (2019)") == 2019
+    assert title_year("Attention is all you need [pdf] (2017)") == 2017
+    assert title_year("Some paper [2021] [video]") == 2021
+    assert title_year("GPT-5 (Part 2)") is None and title_year("The 2019 plan, revisited") is None
+    assert strip_title_year("GPT2 will not be released (2019)") == "GPT2 will not be released"
+    assert strip_title_year("Attention is all you need [pdf] (2017)") == "Attention is all you need [pdf]"
+    assert clean_title("OpenAI restricts GPT-2 release over malicious use concerns (2019)") == \
+        "OpenAI restricts GPT-2 release over malicious use concerns"
+
+    text = ("OpenAI said it would not release the full GPT-2 language model because of concerns about "
+            "malicious use of the AI system, releasing a smaller model to researchers instead. ") * 8
+    row = SimpleNamespace(id=1, domain="openai.com", title="Better language models and their implications",
+                          raw_title="Better language models and their implications (2019)", content_text=text,
+                          description=None, published_at=None, simhash=None)
+    assert check(row, []) == "too old (title says 2019)"
+    assert check(SimpleNamespace(**{**vars(row), "raw_title": row.title}), []) is None
+
+
+def test_page_date_replaces_recent_submission_time():
+    from datetime import datetime, timezone
+
+    from digest.extract import extract, parse_page_date, prefer_page_date
+
+    now = datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)
+    hn_time = datetime(2026, 9, 13, 20, 0, tzinfo=timezone.utc)
+    old = prefer_page_date(hn_time, "2019-02-14T08:00:00-08:00", now=now, min_gap_days=3)
+    assert old == datetime(2019, 2, 14, 16, 0, tzinfo=timezone.utc)
+    assert prefer_page_date(hn_time, "2026-09-12T09:00:00Z", now=now, min_gap_days=3) is None  # within the gap
+    assert prefer_page_date(None, "2026-09-12", now=now) is not None  # no feed date: use the page's
+    assert prefer_page_date(hn_time, "2030-01-01", now=now) is None  # implausible future
+    assert parse_page_date("Feb 14, 2019") is None and parse_page_date(None) is None
+
+    body = " ".join(["OpenAI decided not to release the full GPT-2 language model over misuse concerns."] * 40)
+    for head in ('<meta property="article:published_time" content="2019-02-14T08:00:00Z">',
+                 '<meta property="og:published_time" content="2019-02-14T08:00:00Z">', ""):
+        time_tag = "" if head else '<time datetime="2019-02-14T08:00:00Z">Feb 14, 2019</time>'
+        html = (f"<html><head><title>Better language models</title>{head}</head><body><article><header>{time_tag}"
+                f"<h1>Better language models</h1></header><p>{body}</p></article></body></html>")
+        res = extract("https://openai.com/blog/better-language-models", html, "OpenAI GPT-2 language model release")
+        assert parse_page_date(res.date) == datetime(2019, 2, 14, 8, 0, tzinfo=timezone.utc), (head, res.date)
+
+
 def test_keywords_handle_possessives():
     assert "deepmind" in keywords("Import AI 472: DeepMind’s cheating models")
 

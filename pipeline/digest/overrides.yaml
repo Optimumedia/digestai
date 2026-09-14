@@ -3,9 +3,10 @@
 # `fulltext: false` shows the digest only for that publisher; `agent: browser` sends a
 # browser-like user agent for sites that serve an empty shell to bots.
 
+# msn.com is not listed: its pages are script-only shells, so fetch skips the domain entirely
+# (textutil.SKIP_DOMAIN_SUFFIXES).
+
 domains:
-  msn.com:
-    selector: "article, .article-body, [data-testid='article-body']"
   medium.com:
     selector: "article"
   substack.com:

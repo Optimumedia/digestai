@@ -108,6 +108,29 @@ CLUSTER_THRESHOLD_FALLBACK = float(os.environ.get("CLUSTER_THRESHOLD_FALLBACK", 
 CLUSTER_WINDOW_HOURS = int(os.environ.get("CLUSTER_WINDOW_HOURS", "72"))
 EXPORT_DAYS = int(os.environ.get("EXPORT_DAYS", "120"))
 
+# --- Phase 0 data fixes (appended) ---
+# Discovery: Bing News search feeds for hot companies and models. Bounded in total, not only per
+# run: unbounded they produced 93% of inserted rows, mostly repeats and unextractable pages.
+MAX_DISCOVERED_SOURCES = int(os.environ.get("MAX_DISCOVERED_SOURCES") or "8")
+DISCOVERY_MIN_ARTICLES = int(os.environ.get("DISCOVERY_MIN_ARTICLES") or "2")  # a term must lead 2+ top articles
+MAX_DISCOVERED_ITEMS = int(os.environ.get("MAX_DISCOVERED_ITEMS") or "10")  # items taken per discovered feed
+# Fetch politeness per host in seconds; hosts not listed wait FETCH_HOST_DELAY between requests.
+FETCH_HOST_DELAY = float(os.environ.get("FETCH_HOST_DELAY") or "1.0")
+FETCH_SLOW_HOSTS = {"reddit.com": 4.0}
+FETCH_WORKERS = int(os.environ.get("FETCH_WORKERS") or "8")  # hosts fetched in parallel
+EXTRACT_WORKERS = int(os.environ.get("EXTRACT_WORKERS") or "6")  # article pages downloaded in parallel
+# A page's own publication date replaces the feed/submission date when it is this much older.
+PAGE_DATE_MIN_GAP_DAYS = float(os.environ.get("PAGE_DATE_MIN_GAP_DAYS") or "3")
+# Clustering: a story stops absorbing articles at this size (threads link related stories), and
+# oversized stories are split back on later runs, at most this many articles detached per run.
+CLUSTER_MAX_ARTICLES = int(os.environ.get("CLUSTER_MAX_ARTICLES") or "40")
+CLUSTER_REPAIR_MAX_PER_RUN = int(os.environ.get("CLUSTER_REPAIR_MAX_PER_RUN") or "300")
+# An article must also be this close to the story's lead article: the merge threshold minus this
+# margin (0.82 - 0.03 = 0.79 with the embedding model). Stops the mean drifting to a generic topic.
+CLUSTER_LEAD_MARGIN = float(os.environ.get("CLUSTER_LEAD_MARGIN") or "0.03")
+# Enrichment: time assumed for one article before any has finished in this run.
+ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS = float(os.environ.get("ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS") or "90")
+
 CATEGORIES: dict[str, str] = {
     "models": "Generative AI & Models",
     "agents": "Agents & Tools",
