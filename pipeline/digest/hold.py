@@ -135,10 +135,13 @@ def assess(headline: str, key_points: list | None, summary: str | None, entities
     if not names_someone(headline, entities):
         return None
     head = find_risks(headline)
-    body_text = " ".join([*(str(p) for p in (key_points or []) if p), summary or ""])
+    # Beyond the headline only the lede counts (first key point and first summary sentence), and it
+    # takes two different risky words there: background mentions further down ("the new board member
+    # once handled a breach") held routine news when the whole summary was scanned.
+    points = [str(p) for p in (key_points or []) if p]
+    first_sentence = re.split(r"(?<=[.!?])\s+", (summary or "").strip(), maxsplit=1)[0]
+    body_text = " ".join([points[0] if points else "", first_sentence])
     body = [r for r in find_risks(body_text) if r[1] not in {t for _, t in head}]
-    # A risky word in the headline is enough; in the body it takes two different ones, so a passing
-    # mention ("the company also faces a lawsuit") does not hold routine news.
     if not head and len(body) < 2:
         return None
     hits = head or body
