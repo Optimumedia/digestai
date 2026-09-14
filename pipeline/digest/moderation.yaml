@@ -13,6 +13,6 @@ unpublish:
   # 2019 OpenAI post re-shared on Hacker News with "(2019)" in the title; shown as new by mistake.
   - openai-restricts-gpt-2-release-over-malicious-use-concerns
 pin: []
-approve: []
+approve: ["cohere-ceo-warns-ai-models-are-most-powerful-cyber-weapon-yet"]
 block_domains: []
 block_title_words: []
