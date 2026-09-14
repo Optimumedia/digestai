@@ -3,11 +3,14 @@ import Base from "../layouts/Base.astro";
 import StoryRow from "../components/StoryRow.astro";
 import Coverage from "../components/Coverage.astro";
 import Rail from "../components/Rail.astro";
+import ListenPlayer from "../components/ListenPlayer.astro";
 import { briefing, briefingStories, storiesByDay, plain, firstSentence, categories, meta, formatDate, episodes } from "../lib/data";
 
 const lead = briefingStories[0];
 const rest = briefingStories.slice(1);
 const briefingIds = new Set(briefingStories.map((s) => s.id));
+const episode = episodes[0];
+const episodeIsToday = episode?.date === briefing.date;
 const days = [...storiesByDay().entries()].slice(0, 4);
 const today = new Date().toISOString().slice(0, 10);
 const jsonLd = {
@@ -31,10 +34,16 @@ const jsonLd = {
               <span class="eyebrow briefing-stats">{briefing.stats.stories} stories · {briefing.stats.articles} articles · {briefing.stats.minutes} min read <span class="new-count" id="new-count" hidden></span></span>
             </div>
             <div class="briefing-actions">
-              {episodes[0] && <a class="eyebrow more" href="/listen">Listen · {Math.max(1, Math.round(episodes[0].seconds / 60))} min</a>}
               <a class="eyebrow more" href="/today">Read the briefing →</a>
             </div>
           </div>
+          {episode && (
+            <ListenPlayer
+              episode={episode}
+              heading={episodeIsToday ? "Listen to today's briefing" : "Listen to the latest briefing"}
+              note={episodeIsToday ? `The top ${episode.stories.length} stories, read aloud in ${Math.max(1, Math.round(episode.seconds / 60))} minutes. Press play and keep browsing.` : undefined}
+            />
+          )}
           <article class="hero" data-published={lead.updatedAt}>
             <div>
               <div class="meta-row">

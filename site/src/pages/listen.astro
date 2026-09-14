@@ -2,6 +2,7 @@
 import Base from "../layouts/Base.astro";
 import Rail from "../components/Rail.astro";
 import Breadcrumbs from "../components/Breadcrumbs.astro";
+import ListenPlayer from "../components/ListenPlayer.astro";
 import { episodes, meta, formatDate } from "../lib/data";
 
 const latest = episodes[0];
@@ -31,6 +32,16 @@ const jsonLd = {
         <h1>The briefing, read aloud</h1>
         <p>The same five stories as the morning briefing, in about five minutes, every day. Play it here or add the feed to your podcast app.</p>
       </header>
+
+      {latest && (
+        <ListenPlayer
+          episode={latest}
+          variant="hero"
+          link={false}
+          heading={latest.title.replace(/^AI briefing, [^:]+: /, "")}
+          note={latest.stories.length > 1 ? `Plus ${latest.stories.length - 1} more: ${latest.stories.slice(1, 3).map((s) => s.headline).join(" · ")}${latest.stories.length > 3 ? " …" : ""}` : undefined}
+        />
+      )}
 
       <section class="podbox">
         <div class="eyebrow">Subscribe in a podcast app</div>

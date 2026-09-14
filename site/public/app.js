@@ -222,6 +222,76 @@
     send("share", 1);
   }));
 
+  /* ---------- audio briefing player ([data-listen]) ---------- */
+  const clock = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
+  const SPEEDS = [1, 1.25, 1.5, 1.75, 0.75];
+  document.querySelectorAll("[data-listen]").forEach((box) => {
+    const audio = box.querySelector("audio");
+    const btn = box.querySelector(".listen-play");
+    const bar = box.querySelector(".listen-bar");
+    const fill = box.querySelector(".listen-fill");
+    const cur = box.querySelector("[data-current]");
+    const speedBtn = box.querySelector(".listen-speed");
+    const total = Number(box.dataset.duration) || 0;
+    if (!audio || !btn) return;
+    let speed = Number(store.get("listenSpeed", 1)) || 1;
+    const length = () => (Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : total);
+    const paint = () => {
+      const d = length(), t = audio.currentTime || 0;
+      if (fill) fill.style.width = d ? `${Math.min(100, (t / d) * 100)}%` : "0";
+      if (cur) cur.textContent = clock(t);
+      bar?.setAttribute("aria-valuenow", String(Math.round(t)));
+    };
+    const setSpeed = (v) => {
+      speed = v; audio.playbackRate = v; store.set("listenSpeed", v);
+      if (speedBtn) speedBtn.textContent = `${v}×`;
+    };
+    setSpeed(speed);
+    const seekTo = (seconds) => {
+      const apply = () => { audio.currentTime = Math.max(0, Math.min(length(), seconds)); paint(); };
+      if (audio.readyState >= 1) apply();
+      else { audio.addEventListener("loadedmetadata", apply, { once: true }); audio.preload = "metadata"; audio.load(); }
+    };
+    btn.addEventListener("click", () => {
+      if (audio.paused) {
+        document.querySelectorAll("[data-listen] audio").forEach((other) => { if (other !== audio) other.pause(); });
+        audio.play().catch(() => {});
+      } else audio.pause();
+    });
+    audio.addEventListener("play", () => {
+      box.classList.add("is-playing");
+      btn.setAttribute("aria-pressed", "true");
+      btn.setAttribute("aria-label", "Pause the audio briefing");
+      audio.playbackRate = speed;
+      if ("mediaSession" in navigator) {
+        try {
+          navigator.mediaSession.metadata = new MediaMetadata({ title: box.dataset.title || "Digest AI briefing", artist: "Digest AI", album: "Daily AI briefing", artwork: [{ src: "/logo-512.png", sizes: "512x512", type: "image/png" }] });
+          navigator.mediaSession.setActionHandler("play", () => audio.play());
+          navigator.mediaSession.setActionHandler("pause", () => audio.pause());
+          navigator.mediaSession.setActionHandler("seekbackward", () => seekTo(audio.currentTime - 15));
+          navigator.mediaSession.setActionHandler("seekforward", () => seekTo(audio.currentTime + 15));
+        } catch {}
+      }
+    });
+    audio.addEventListener("pause", () => {
+      box.classList.remove("is-playing");
+      btn.setAttribute("aria-pressed", "false");
+      btn.setAttribute("aria-label", "Play the audio briefing");
+    });
+    audio.addEventListener("timeupdate", paint);
+    audio.addEventListener("ended", () => { audio.currentTime = 0; paint(); });
+    bar?.addEventListener("click", (e) => {
+      const r = bar.getBoundingClientRect();
+      seekTo(((e.clientX - r.left) / r.width) * length());
+    });
+    bar?.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      e.preventDefault();
+      seekTo((audio.currentTime || 0) + (e.key === "ArrowRight" ? 10 : -10));
+    });
+    speedBtn?.addEventListener("click", () => setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length]));
+  });
+
   /* ---------- audio ---------- */
   document.querySelectorAll("audio[data-episode]").forEach((a) => a.addEventListener("play", () => send("listen", 1), { once: true }));
 

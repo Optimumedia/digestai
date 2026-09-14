@@ -404,8 +404,6 @@ table.sortable th:hover { color: var(--ink); }
 .pushbox p:empty { display: none; }
 .pushbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; margin: 0 0 16px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); font-size: 14px; }
 .pushbar span { flex: 1 1 200px; }
-.player { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 16px; margin: 0 0 20px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 4px; background: var(--surface); }
-.player audio { flex: 1 1 260px; max-width: 100%; height: 36px; }
 .podbox { padding: 14px 18px; margin: 0 0 24px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); max-width: 68ch; }
 .podbox p { margin: 8px 0; }
 .feedurl { display: inline-block; font-family: var(--font-mono); font-size: 13px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 3px; user-select: all; word-break: break-all; }
@@ -415,3 +413,45 @@ table.sortable th:hover { color: var(--ink); }
 .episodes audio { width: 100%; max-width: 560px; height: 36px; margin: 0 0 10px; }
 .episodes details { margin-top: 10px; font-size: 14.5px; color: var(--ink-2); max-width: 68ch; }
 .episodes details p { margin: 8px 0; }
+
+/* ---------- Audio briefing player: a signature element in brand colours ----------
+   Accent blue play button, the logo's orange dot as the "on air" light, progress in accent. */
+.listen { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 18px; align-items: center; background: var(--surface); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); border-radius: 10px; padding: 14px 18px 14px 14px; margin: 0 0 22px; box-shadow: 0 10px 28px -20px color-mix(in srgb, var(--accent) 70%, transparent); }
+.listen-play { width: 58px; height: 58px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; cursor: pointer; box-shadow: 0 8px 18px -8px color-mix(in srgb, var(--accent) 80%, transparent); transition: transform .15s ease, box-shadow .15s ease; }
+.listen-play:hover { transform: scale(1.05); box-shadow: 0 10px 22px -8px color-mix(in srgb, var(--accent) 90%, transparent); }
+.listen-play:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 3px; }
+.listen-play svg { width: 26px; height: 26px; }
+.listen-play .i-play { margin-left: 3px; }
+.listen-play .i-pause, .listen.is-playing .listen-play .i-play { display: none; }
+.listen.is-playing .listen-play .i-pause { display: block; }
+.listen-kicker { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+.listen-dot { width: 8px; height: 8px; border-radius: 50%; background: #fb923c; flex: none; }
+.listen.is-playing .listen-dot { animation: listen-pulse 1.4s ease-in-out infinite; }
+@keyframes listen-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(251, 146, 60, .6); } 50% { box-shadow: 0 0 0 6px rgba(251, 146, 60, 0); } }
+@media (prefers-reduced-motion: reduce) { .listen.is-playing .listen-dot { animation: none; } .listen-play { transition: none; } }
+.listen-more { margin-left: auto; color: var(--ink-3); text-decoration: none; }
+.listen-more:hover { color: var(--accent); }
+.listen-title { font-family: var(--font-display); font-size: 22px; line-height: 1.2; color: var(--ink); margin: 3px 0 6px; }
+.listen-note { font-size: 14.5px; color: var(--ink-2); margin: 0 0 8px; }
+.listen-track { display: flex; align-items: center; gap: 10px; }
+.listen-time { font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); min-width: 34px; font-variant-numeric: tabular-nums; }
+.listen-bar { position: relative; flex: 1; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--accent) 16%, var(--surface-2)); cursor: pointer; }
+.listen-bar::before { content: ""; position: absolute; inset: -8px 0; }
+.listen-bar:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.listen-fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 3px; background: var(--accent); }
+.listen-speed { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 2px 7px; min-width: 44px; cursor: pointer; }
+.listen-speed:hover { color: var(--ink); border-color: var(--ink-3); }
+.listen-hero { padding: 22px 26px 22px 22px; gap: 22px; margin-bottom: 26px; }
+.listen-hero .listen-play { width: 76px; height: 76px; }
+.listen-hero .listen-play svg { width: 34px; height: 34px; }
+.listen-hero .listen-title { font-size: clamp(22px, 3vw, 30px); }
+@media (max-width: 560px) {
+  .listen { gap: 12px; padding: 12px; }
+  .listen-play, .listen-hero .listen-play { width: 50px; height: 50px; }
+  .listen-play svg, .listen-hero .listen-play svg { width: 22px; height: 22px; }
+  .listen-title { font-size: 18px; }
+  .listen-hero .listen-title { font-size: 20px; }
+  .listen-more { display: none; }
+}
+.icon-btn.listen-btn { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+

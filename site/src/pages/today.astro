@@ -2,6 +2,7 @@
 import Base from "../layouts/Base.astro";
 import Coverage from "../components/Coverage.astro";
 import Rail from "../components/Rail.astro";
+import ListenPlayer from "../components/ListenPlayer.astro";
 import { briefing, briefingStories, briefingAlso, newsletters, renderMarkdown, categories, formatDate, sourceNames, meta, episodes } from "../lib/data";
 
 const episode = episodes.find((e) => e.date === briefing.date) || episodes[0];
@@ -21,11 +22,11 @@ const kitForm = import.meta.env.PUBLIC_KIT_FORM_URL || "";
       </header>
 
       {episode && (
-        <section class="player">
-          <div class="eyebrow">Listen · {Math.max(1, Math.round(episode.seconds / 60))} min{episode.date !== briefing.date ? ` · ${formatDate(episode.date + "T00:00:00Z", { day: "numeric", month: "short" })} edition` : ""}</div>
-          <audio controls preload="none" src={`/audio/${episode.file}`} data-episode={episode.date}></audio>
-          <a class="eyebrow more" href="/listen">All episodes and the podcast feed →</a>
-        </section>
+        <ListenPlayer
+          episode={episode}
+          heading={episode.date === briefing.date ? "Listen to today's briefing" : "Listen to the latest briefing"}
+          note="Every story on this page, read aloud. Also in your podcast app."
+        />
       )}
 
       <ol class="today-list">
