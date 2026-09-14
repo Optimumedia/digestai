@@ -14,5 +14,6 @@ fastembed>=0.4
 pillow>=10.1
 google-auth>=2.30
 pywebpush>=2.0
+cryptography>=42
 piper-tts>=1.3
 lameenc>=1.8

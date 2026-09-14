@@ -3,10 +3,14 @@
 #
 # unpublish: story slugs (the part after /story/) that must disappear from the site.
 # pin:       story slugs to keep at the top of the front page and the briefing.
+# approve:   held story slugs you checked and want published. Single-source stories about crimes,
+#            weapons, surveillance or wrongdoing by named people or companies wait for approval
+#            (admin page, Today tab, "Held for your approval"); a second publisher releases them too.
 # block_domains: publishers whose articles are never shown.
 # block_title_words: a story whose headline contains any of these words is rejected.
 
 unpublish: []
 pin: []
+approve: []
 block_domains: []
 block_title_words: []

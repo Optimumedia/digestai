@@ -7,7 +7,7 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
-from . import config, db
+from . import config, db, hold
 from .textutil import word_count
 
 log = logging.getLogger("digest.export")
@@ -66,17 +66,24 @@ def build_briefing(stories: list[dict], now) -> dict:
     }
 
 
-def apply_moderation(eng) -> dict:
-    """moderation.yaml is the unpublish button when there is no database console."""
+def load_moderation() -> dict:
     from pathlib import Path
 
     import yaml
-    from sqlalchemy import update
 
     path = Path(__file__).with_name("moderation.yaml")
     if not path.exists():
         return {}
-    rules = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+def apply_moderation(eng, rules: dict | None = None) -> dict:
+    """moderation.yaml is the unpublish button when there is no database console."""
+    from sqlalchemy import update
+
+    rules = load_moderation() if rules is None else rules
+    if not rules:
+        return {}
     unpublish = [s.strip() for s in rules.get("unpublish") or [] if s]
     pin = [s.strip() for s in rules.get("pin") or [] if s]
     domains = [d.strip().lower() for d in rules.get("block_domains") or [] if d]
@@ -84,7 +91,7 @@ def apply_moderation(eng) -> dict:
     stats = {"unpublished": 0, "pinned": 0}
     with eng.begin() as conn:
         if unpublish:
-            res = conn.execute(update(db.stories).where(db.stories.c.slug.in_(unpublish), db.stories.c.status == "published")
+            res = conn.execute(update(db.stories).where(db.stories.c.slug.in_(unpublish), db.stories.c.status.in_(["published", hold.HELD]))
                                .values(status="unpublished"))
             stats["unpublished"] = res.rowcount
         conn.execute(update(db.stories).where(db.stories.c.pinned.is_(True), ~db.stories.c.slug.in_(pin or ["-"])).values(pinned=False))
@@ -95,7 +102,7 @@ def apply_moderation(eng) -> dict:
             conn.execute(update(db.articles).where(db.articles.c.domain.in_(domains), db.articles.c.status == "published")
                          .values(status="unpublished", reject_reason="moderation: domain"))
         for w in words:
-            conn.execute(update(db.stories).where(db.stories.c.headline.ilike(f"%{w}%"), db.stories.c.status == "published")
+            conn.execute(update(db.stories).where(db.stories.c.headline.ilike(f"%{w}%"), db.stories.c.status.in_(["published", hold.HELD]))
                          .values(status="unpublished"))
     return stats
 
@@ -106,7 +113,12 @@ def run() -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     now = db.utcnow()
     since = now - timedelta(days=config.EXPORT_DAYS)
-    moderation = apply_moderation(eng)
+    rules = load_moderation()
+    moderation = apply_moderation(eng, rules)
+    # Risky single-source stories get status "held" (and are released again when a second publisher
+    # or an `approve` entry arrives) before the query below, which exports only "published" ones.
+    held, moderation["hold"] = hold.review(eng, since, [s for s in rules.get("approve") or [] if s])
+    moderation["hold"].update(hold.write_review(out_dir, held, _iso(now)))
 
     with eng.connect() as conn:
         src_rows = conn.execute(select(db.sources)).all()
