@@ -27,6 +27,7 @@ from pathlib import Path
 from sqlalchemy import select, update
 
 from . import db
+from .textutil import domain_of, normalize_url
 
 log = logging.getLogger("digest.hold")
 
@@ -37,7 +38,7 @@ KDF_ITERATIONS = 600_000
 # "sues", "sued" and "suing" all match while "suite" or "hackathon" do not.
 CATEGORIES: list[tuple[str, str]] = [
     ("weapons or military use",
-     r"weapons?|weaponi[sz](?:e|es|ed|ing|ation)|bioweapons?|missiles?|ballistic|warheads?|munitions?|bombs?|bombing|"
+     r"weaponi[sz](?:e|es|ed|ing|ation)|bioweapons?|chemical weapons?|nuclear weapons?|autonomous weapons?|missiles?|ballistic|warheads?|munitions?|bombs?|bombing|"
      r"explosives?|drone strikes?|air ?strikes?|warfare|military (?:use|uses|targeting|operations?|applications?|purposes)|"
      r"lethal|militants?|terror(?:ism|ist|ists)|houthis?|hamas|hezbollah"),
     ("surveillance or spying",
@@ -69,7 +70,7 @@ _PATTERNS = [(label, re.compile(rf"\b(?:{alts})\b", re.I)) for label, alts in CA
 
 # Phrases that contain a risky word but describe routine things; removed before matching.
 _BENIGN = re.compile(r"\bhacker news\b|\breward hack(?:s|ing)?\b|\bhackathons?\b|\bgrowth hack(?:s|ing)?\b|\blife ?hacks?\b|"
-                     r"\bspy ?glass\b|\bbreach(?:es)? of contract\b", re.I)
+                     r"\bspy ?glass\b|\bbreach(?:es)? of contract\b|\banti-? ?money[- ]laundering\b|\bfraud (?:detection|prevention)\b", re.I)
 
 # Capitalised words that do not name anyone: sentence starters and generic terms.
 _NOT_NAMES = {
@@ -121,6 +122,13 @@ def registrable(domain: str) -> str:
     if len(parts) >= 3 and len(parts[-1]) == 2 and parts[-2] in {"co", "com", "org", "net", "ac", "gov", "edu", "ne", "or"}:
         return ".".join(parts[-3:])
     return ".".join(parts[-2:]) if len(parts) >= 2 else host
+
+
+def publisher_domain(url: str | None, domain: str | None) -> str:
+    """The real publisher behind an article: Bing click links carry the article URL inside them, so
+    stories fetched through Bing News all showed "bing.com" and counted as one source."""
+    real = domain_of(normalize_url(url)) if url else ""
+    return real or (domain or "")
 
 
 def independent_sources(domains: list[str]) -> int:
@@ -190,7 +198,7 @@ def review(eng, since, approve: list[str]) -> tuple[list[dict], dict]:
             except ValueError:
                 points = [points]
         entities = r.entities if isinstance(r.entities, dict) else {}
-        reason = None if r.slug in approved else assess(r.headline, points, r.summary_md, entities, [m.domain for m in members])
+        reason = None if r.slug in approved else assess(r.headline, points, r.summary_md, entities, [publisher_domain(m.url, m.domain) for m in members])
         if reason:
             lead = next((m for m in members if m.id == r.lead_article_id), members[0])
             src = sources.get(lead.source_id)
@@ -198,8 +206,8 @@ def review(eng, since, approve: list[str]) -> tuple[list[dict], dict]:
             held.append({
                 "slug": r.slug,
                 "headline": r.headline,
-                "source": lead.domain if (community or src is None) else src.name,
-                "url": lead.url,
+                "source": publisher_domain(lead.url, lead.domain) if (community or src is None) else src.name,
+                "url": normalize_url(lead.url) if lead.url else lead.url,
                 "firstPublishedAt": _iso(r.first_published_at),
                 "reason": reason,
             })

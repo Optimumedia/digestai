@@ -8,7 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from digest.hold import assess, decrypt, encrypt, find_risks, independent_sources, names_someone, registrable, write_review  # noqa: E402
+from digest.hold import (assess, decrypt, encrypt, find_risks, independent_sources, names_someone, publisher_domain,  # noqa: E402
+                         registrable, write_review)
 
 ONE = ["theverge.com"]
 
@@ -51,6 +52,11 @@ ROUTINE_HEADLINES = [
     "Show HN: open-source agent framework trends on Hacker News",
     "Apple acquires AI startup for on-device models",
     "Study finds chatbots can help plan bioweapons",  # no named person or company
+    # False holds from the first live run, 14 Sep.
+    "Cohere CEO Warns AI Models Are Most Powerful Cyber Weapon Yet",
+    "AI in Anti-Money Laundering: Use Cases & Benefits",
+    "Timnit Gebru: AI doom talk distracts from real-world harms like weapons and labor",
+    "Stripe expands AI fraud detection to more merchants",
 ]
 
 
@@ -107,6 +113,14 @@ def test_reason_names_category_and_terms():
     reason = assess(RISKY_HEADLINES[1], [], "", {}, ONE)
     assert reason.startswith("Single source; headline mentions weapons or military use"), reason
     assert '"ballistic"' in reason
+
+
+def test_bing_links_count_as_their_real_publisher():
+    wrapped = "http://www.bing.com/news/apiclick.aspx?ref=FexRss&aid=&tid=abc&url=https%3a%2f%2fwww.reuters.com%2ftech%2fstory&c=123"
+    other = "http://www.bing.com/news/apiclick.aspx?tid=xyz&url=https%3a%2f%2fwww.cnbc.com%2f2026%2f09%2f14%2fai.html&c=9"
+    assert publisher_domain(wrapped, "bing.com") == "reuters.com"
+    assert independent_sources([publisher_domain(wrapped, "bing.com"), publisher_domain(other, "bing.com")]) == 2
+    assert publisher_domain(None, "theverge.com") == "theverge.com"
 
 
 def test_registrable_domains():
