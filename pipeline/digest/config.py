@@ -125,6 +125,9 @@ PAGE_DATE_MIN_GAP_DAYS = float(os.environ.get("PAGE_DATE_MIN_GAP_DAYS") or "3")
 # oversized stories are split back on later runs, at most this many articles detached per run.
 CLUSTER_MAX_ARTICLES = int(os.environ.get("CLUSTER_MAX_ARTICLES") or "40")
 CLUSTER_REPAIR_MAX_PER_RUN = int(os.environ.get("CLUSTER_REPAIR_MAX_PER_RUN") or "300")
+# An article must also be this close to the story's lead article: the merge threshold minus this
+# margin (0.82 - 0.03 = 0.79 with the embedding model). Stops the mean drifting to a generic topic.
+CLUSTER_LEAD_MARGIN = float(os.environ.get("CLUSTER_LEAD_MARGIN") or "0.03")
 # Enrichment: time assumed for one article before any has finished in this run.
 ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS = float(os.environ.get("ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS") or "90")
 

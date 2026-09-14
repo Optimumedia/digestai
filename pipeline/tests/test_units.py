@@ -134,6 +134,85 @@ def test_fetch_all_parallel_hosts_keep_order_and_delays():
     assert sorted(slept) == [1.0, 4.0]  # one gap on bing.com, a longer one on reddit.com
 
 
+def _unit(v):
+    import numpy as np
+
+    v = np.asarray(v, dtype=np.float32)
+    return v / np.linalg.norm(v)
+
+
+def test_cluster_merge_rule_resists_drift_and_caps():
+    from digest.cluster import pick_story, split_members
+
+    lead = _unit([1, 0, 0, 0])
+    drifted_mean = _unit([1, 1, 0, 0])  # a big story's mean, pulled toward the generic topic
+    stories = {1: {"vec": drifted_mean, "lead_vec": lead, "count": 30}}
+    on_topic_only = _unit([0.55, 1, 0, 0])  # 0.96 to the mean, 0.48 to the lead
+    assert pick_story(on_topic_only, stories, 0.82, 0.79, 40) == (None, -1.0)
+    same_event = _unit([1, 0.3, 0, 0])  # 0.88 to the mean, 0.96 to the lead
+    sid, sim = pick_story(same_event, stories, 0.82, 0.79, 40)
+    assert sid == 1 and 0.82 <= sim < 0.9
+    stories[1]["count"] = 40
+    assert pick_story(same_event, stories, 0.82, 0.79, 40)[0] is None  # full: a new story starts
+    assert pick_story(same_event, {2: {"vec": drifted_mean, "lead_vec": None, "count": 3}}, 0.82, 0.79, 40)[0] == 2
+
+    members = ([(1, lead)] + [(10 + i, _unit([1, 0.1 * i, 0, 0])) for i in range(5)]
+               + [(20 + i, _unit([0.2, 0, 1, 0.1 * i])) for i in range(3)] + [(30, None)])
+    keep, detach = split_members(1, lead, members, 0.79, 4)
+    assert keep == [1, 10, 11, 12]
+    assert detach == [22, 21, 20, 30, 14, 13]  # far from the lead first, then the overflow
+
+
+def test_cluster_repairs_oversized_story_and_reclusters():
+    import tempfile
+    from datetime import datetime, timedelta, timezone
+
+    import numpy as np
+    from sqlalchemy import create_engine, insert, select
+
+    from digest import cluster, db
+
+    tmp = Path(tempfile.mkdtemp()) / "cluster.db"
+    eng = create_engine(f"sqlite:///{tmp.as_posix()}", future=True)
+    db.metadata.create_all(eng)
+    now = datetime.now(timezone.utc)
+    rng = np.random.default_rng(0)
+
+    def vec(base):
+        v = np.asarray(base, dtype=np.float32) + 0.05 * rng.standard_normal(8).astype(np.float32)
+        return (v / np.linalg.norm(v)).tolist()
+
+    event, topic = [1, 0, 0, 0, 0, 0, 0, 0], [0.3, 0, 0, 0, 1, 0, 0, 0]
+    with eng.begin() as conn:
+        conn.execute(insert(db.sources).values(id=1, key="s", name="S", url="https://s.test/feed"))
+        conn.execute(insert(db.stories).values(
+            id=1, slug="mistral", headline="Mistral", lead_article_id=1, article_count=50, importance=8,
+            embedding=vec([0.8, 0, 0, 0, 0.6, 0, 0, 0]), status="published",
+            first_published_at=now - timedelta(hours=2), updated_at=now))
+        conn.execute(insert(db.articles), [
+            {"id": i, "url": f"https://s.test/{i}", "source_id": 1, "story_id": 1, "slug": f"a-{i}",
+             "title": f"Article {i}", "headline": f"Article {i}", "importance": 8 if i == 1 else 5,
+             "embedding": vec(event if i <= 30 else topic), "status": "published",
+             "published_at": now - timedelta(hours=1), "fetched_at": now, "created_at": now}
+            for i in range(1, 51)])
+
+    saved = (db._engine, cluster._MODEL, cluster._MODEL_NAME)
+    db._engine, cluster._MODEL, cluster._MODEL_NAME = eng, False, "fallback-hash"  # no model download
+    try:
+        stats = cluster.run()
+    finally:
+        db._engine, cluster._MODEL, cluster._MODEL_NAME = saved
+    assert (stats["stories_repaired"], stats["articles_detached"]) == (1, 20), stats
+    assert (stats["embedded"], stats["new_stories"], stats["merged"]) == (0, 1, 19), stats
+    with eng.connect() as conn:
+        assert conn.execute(select(db.stories.c.article_count).where(db.stories.c.id == 1)).scalar() == 30
+        arts = conn.execute(select(db.articles)).all()
+    assert all(a.status == "published" for a in arts)
+    assert {a.story_id for a in arts if a.id <= 30} == {1}
+    assert len({a.story_id for a in arts if a.id > 30} - {1}) == 1 and all(a.story_id != 1 for a in arts if a.id > 30)
+    assert all(a.slug == f"a-{a.id}" for a in arts)  # re-clustered articles keep their slugs
+
+
 def test_keywords_handle_possessives():
     assert "deepmind" in keywords("Import AI 472: DeepMind’s cheating models")
 
