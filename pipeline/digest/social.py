@@ -5,7 +5,8 @@ Two kinds of post, both built from the data the export step just wrote:
   to /today (which also carries the audio version);
 - breaking stories, at most one per run and SOCIAL_MAX_PER_DAY a day, using the same bar as the
   browser alerts: first published in the last few hours and covered by at least two outlets with
-  real importance, or very important on its own. Each gets its share image as the link card.
+  real importance, or very important on its own. Each link card shows the article's own photo when it
+  can be fetched, and falls back to our share image.
 
 Every post is recorded in social_posts, so nothing is posted twice. SOCIAL_DRY_RUN=1 prints the
 posts instead of publishing them. Failures are logged and never stop the pipeline.
@@ -14,10 +15,12 @@ from __future__ import annotations
 
 import json
 import logging
+import io
 import re
 from datetime import datetime, timedelta, timezone
 
 import requests
+from PIL import Image
 from sqlalchemy import func, insert, select
 
 from . import config, db
@@ -28,6 +31,31 @@ API = "https://bsky.social/xrpc"
 TEXT_LIMIT = 290  # Bluesky allows 300 graphemes; keep a margin
 FRESH_HOURS = 6
 UTM = "utm_source=bluesky&utm_medium=social"
+THUMB_MAX_BYTES = 950_000  # Bluesky rejects blobs over 1 MB
+THUMB_SIZE = (1200, 630)
+
+
+def _photo(url: str | None) -> bytes | None:
+    """The article's own photo as a JPEG small enough for a Bluesky link card, or None."""
+    if not url or not url.startswith("http"):
+        return None
+    try:
+        r = requests.get(url, timeout=20, headers={"User-Agent": config.USER_AGENT})
+        if r.status_code != 200 or not r.headers.get("Content-Type", "").startswith("image/") or len(r.content) > 15_000_000:
+            return None
+        img = Image.open(io.BytesIO(r.content))
+        if img.width < 400 or img.height < 200:
+            return None  # logos and icons look worse than our share card
+        img = img.convert("RGB")
+        img.thumbnail(THUMB_SIZE)
+        for quality in (85, 75, 65, 55):
+            buf = io.BytesIO()
+            img.save(buf, "JPEG", quality=quality, optimize=True, progressive=True)
+            if buf.tell() <= THUMB_MAX_BYTES:
+                return buf.getvalue()
+    except Exception as exc:  # noqa: BLE001 - any failure falls back to the share card
+        log.info("article photo unavailable (%s): %s", url[:80], str(exc)[:80])
+    return None
 
 
 def _clip(text: str, limit: int) -> str:
@@ -103,6 +131,7 @@ def _story_post(story: dict) -> dict:
         "link": f"{config.SITE_URL}/story/{story['slug']}?{UTM}",
         "title": _clip(story["headline"], 200),
         "description": _card_description(story, text),
+        "photo": story.get("imageUrl"),
         "image": config.ROOT / "site" / "public" / "og" / f"{story['slug']}.png",
     }
 
@@ -124,6 +153,7 @@ def _briefing_post(briefing: dict, by_id: dict, date_label: str) -> dict | None:
         "link": f"{config.SITE_URL}/today?{UTM}",
         "title": f"Today's AI briefing · {date_label}",
         "description": " · ".join(_clip(s["headline"], 90) for s in top[1:4]),
+        "photo": top[0].get("imageUrl"),
         "image": config.ROOT / "site" / "public" / "og-default.png",
     }
 
@@ -136,20 +166,26 @@ class Bluesky:
         self.did = data["did"]
         self.headers = {"Authorization": f"Bearer {data['accessJwt']}"}
 
-    def upload(self, path) -> dict | None:
-        try:
-            raw = path.read_bytes()
-        except OSError:
-            return None
-        if len(raw) > 950_000:
+    def upload(self, raw: bytes | None, mime: str) -> dict | None:
+        if not raw or len(raw) > THUMB_MAX_BYTES:
             return None
         r = requests.post(f"{API}/com.atproto.repo.uploadBlob", data=raw,
-                          headers={**self.headers, "Content-Type": "image/png"}, timeout=60)
+                          headers={**self.headers, "Content-Type": mime}, timeout=60)
         return r.json().get("blob") if r.status_code == 200 else None
+
+    def thumb(self, item: dict) -> dict | None:
+        """The article's photo first, then our share image."""
+        blob = self.upload(_photo(item.get("photo")), "image/jpeg")
+        if blob:
+            return blob
+        try:
+            return self.upload(item["image"].read_bytes(), "image/png")
+        except OSError:
+            return None
 
     def post(self, item: dict) -> str:
         external = {"uri": item["link"], "title": item["title"], "description": item["description"]}
-        thumb = self.upload(item["image"])
+        thumb = self.thumb(item)
         if thumb:
             external["thumb"] = thumb
         record = {
