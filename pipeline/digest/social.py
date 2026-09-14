@@ -61,46 +61,69 @@ def _tag_facets(text: str, tags: list[str]) -> list[dict]:
     return facets
 
 
-def _story_post(story: dict) -> dict:
+# Post format follows what performs for news accounts on Bluesky. A study of 3,748 posts from 21 news
+# and tech accounts (September 2026, engagement relative to each account's median) found: the news
+# stated plainly in a full sentence does best, and 240+ characters beats short posts; link cards are
+# the norm and links are not demoted; hashtags, questions and numbered lists add nothing or hurt; and
+# 18:00-21:00 UTC is the strongest window.
+
+
+_SOURCE_VOICE = re.compile(r"\b(the author|the writer|this (article|post|piece|essay|newsletter|video)|in this|I|I'm|I've|we|we're|our|my)\b", re.I)
+
+
+def _lede(story: dict, limit: int = 280) -> str:
+    """The news itself: the digest's opening sentence, or the headline plus its first key point.
+
+    The opening sentence is used only when it is a full news sentence of at least 140 characters and
+    does not speak in the source writer's voice ("the author", "I", "this article")."""
+    first = _first_sentence(story.get("summaryMd") or "", limit)
+    if 140 <= len(first) <= limit and not first.endswith("…") and not _SOURCE_VOICE.search(first):
+        return first
+    head = _clip(story["headline"], 140).rstrip(".")
     points = story.get("keyPoints") or []
-    detail = points[0] if points else _first_sentence(story.get("summaryMd") or "")
-    sources = story.get("articleCount") or 1
-    tail = f"\n\n{sources} sources, one digest. #AI" if sources > 1 else "\n\n#AI"
-    head = _clip(story["headline"], 140)
-    room = TEXT_LIMIT - len(head) - len(tail) - 2
-    text = head + (f"\n\n{_clip(detail, room)}" if room > 40 and detail else "") + tail
+    return _clip(f"{head}. {points[0]}", limit) if points else head
+
+
+def _card_description(story: dict, text: str) -> str:
+    """Something the post text does not already say: why it matters, else another key point."""
+    for candidate in [story.get("whyItMatters") or "", *(story.get("keyPoints") or [])]:
+        candidate = _clip(candidate, 280)
+        if candidate and candidate[:40] not in text:
+            return candidate
+    return _clip(story["headline"], 280)
+
+
+def _story_post(story: dict) -> dict:
+    text = _lede(story, TEXT_LIMIT)
     return {
         "kind": "story",
         "key": story["slug"],
         "text": text,
-        "tags": ["AI"],
+        "tags": [],
         "link": f"{config.SITE_URL}/story/{story['slug']}?{UTM}",
         "title": _clip(story["headline"], 200),
-        "description": _first_sentence(story.get("summaryMd") or detail, 280),
+        "description": _card_description(story, text),
         "image": config.ROOT / "site" / "public" / "og" / f"{story['slug']}.png",
     }
 
 
 def _briefing_post(briefing: dict, by_id: dict, date_label: str) -> dict | None:
+    """Evening recap: lead with the day's biggest story in a sentence, point to the rest."""
     top = [by_id[i] for i in briefing.get("storyIds", []) if i in by_id]
     if len(top) < 3:
         return None
-    intro = f"Today's AI briefing, {date_label}\n\n"
-    outro = f"\n\nAll {len(top)} with sources + audio #AI"
-    text = ""
-    for width in (96, 84, 74, 64, 54):
-        lines = [f"{n}. {_clip(s['headline'], width)}" for n, s in enumerate(top[:3], 1)]
-        text = intro + "\n".join(lines) + outro
-        if len(text) <= TEXT_LIMIT:
-            break
+    minutes = max(3, (briefing.get("stats") or {}).get("minutes", 5))
+    tail = f"\n\nPlus {len(top) - 1} more stories that mattered today, each with its sources, and a {minutes}-minute listen."
+    intro = "Today in AI: "
+    text = intro + _lede(top[0], TEXT_LIMIT - len(tail) - len(intro)) + tail
     return {
         "kind": "briefing",
         "key": briefing["date"],
         "text": text,
-        "tags": ["AI"],
+        "tags": [],
         "link": f"{config.SITE_URL}/today?{UTM}",
         "title": f"Today's AI briefing · {date_label}",
-        "description": "The AI stories that matter today, each with its sources, in about five minutes. Read or listen.",
+        "description": " · ".join(_clip(s["headline"], 90) for s in top[1:4]),
         "image": config.ROOT / "site" / "public" / "og-default.png",
     }
 

@@ -61,7 +61,8 @@ PUSH_MAX_PER_DAY = int(os.environ.get("PUSH_MAX_PER_DAY") or 3)
 BLUESKY_HANDLE = os.environ.get("BLUESKY_HANDLE", "")
 BLUESKY_APP_PASSWORD = os.environ.get("BLUESKY_APP_PASSWORD", "")
 SOCIAL_MAX_PER_DAY = int(os.environ.get("SOCIAL_MAX_PER_DAY") or 6)       # breaking story posts per day
-SOCIAL_BRIEFING_HOUR_UTC = int(os.environ.get("SOCIAL_BRIEFING_HOUR_UTC") or 7)
+# Evening recap: 18:00-21:00 UTC is the strongest window for news posts on Bluesky (own study, Sept 2026).
+SOCIAL_BRIEFING_HOUR_UTC = int(os.environ.get("SOCIAL_BRIEFING_HOUR_UTC") or 19)
 SOCIAL_DRY_RUN = os.environ.get("SOCIAL_DRY_RUN") == "1"
 
 # Spoken briefing (Piper voice on the runner, MP3 via LAME). Generated once a day at/after this hour.
