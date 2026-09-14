@@ -49,6 +49,13 @@ for (let i = 0; i < Math.max(hot.length, fresh.length); i++) {
   if (hot[i]) ticker.push({ s: hot[i], tag: "hot" });
   if (fresh[i]) ticker.push({ s: fresh[i], tag: "new" });
 }
+const footerColumns: { title: string; links: [string, string][] }[] = [
+  { title: "Read", links: [["Today's briefing", "/today"], ["Developing stories", "/threads"], ["River", "/river"], ["Weekly recaps", "/week"], ["Archive", "/daily"]] },
+  { title: "Trackers & tools", links: [["Model tracker", "/models"], ["Funding tracker", "/funding"], ["Sources", "/sources"], ["Search", "/search"], ["Saved stories", "/saved"]] },
+  { title: "Listen & follow", links: [["Listen", "/listen"], ["Podcast feed", "/podcast.xml"], ["RSS feed", "/rss.xml"], ["Browser alerts", "/subscribe"]] },
+  { title: "About", links: [["About Digest AI", "/about"], ["Editorial standards", "/about#standards"], ["Corrections", "/about#corrections"], ["Contact", "mailto:hello@digestai.news"]] },
+];
+const footerYear = new Date(meta.generatedAt || Date.now()).getUTCFullYear();
 const clientConfig = {
   supabaseUrl: import.meta.env.PUBLIC_SUPABASE_URL || "",
   supabaseKey: import.meta.env.PUBLIC_SUPABASE_ANON_KEY || "",
@@ -174,22 +181,32 @@ const clientConfig = {
     </main>
 
     <footer class="footer">
-      <div class="wrap">
-        <a href="/today">Today's briefing</a>
-        <a href="/threads">Developing stories</a>
-        <a href="/models">Model tracker</a>
-        <a href="/funding">Funding tracker</a>
-        <a href="/week">Weekly recaps</a>
-        <a href="/listen">Listen</a>
-        <a href="/river">River</a>
-        <a href="/about">About</a>
-        <a href="/sources">Sources</a>
-        <a href="/daily">Archive</a>
-        <a href="/saved">Saved</a>
-        <a href="/rss.xml">RSS</a>
-        <a href="/search">Search</a>
-        <SocialLinks variant="footer" />
-        <span class="gen">Updated <time datetime={meta.generatedAt}></time> · {meta.storyCount} stories from {meta.articleCount} articles</span>
+      <div class="wrap footer-main">
+        <div class="footer-brand">
+          <a class="footer-logo" href="/" aria-label="Digest AI home">
+            <span class="footer-mark" aria-hidden="true">D</span>
+            <span class="footer-word">Digest<b>AI</b></span>
+          </a>
+          <p class="footer-tagline">AI news, digested. Every story with its sources, every 30 minutes.</p>
+          <p class="footer-follow" id="footer-follow">Follow &amp; subscribe</p>
+          <nav aria-labelledby="footer-follow"><SocialLinks variant="footer" /></nav>
+        </div>
+        <nav class="footer-cols" aria-label="Site">
+          {footerColumns.map((col) => (
+            <div class="footer-col">
+              <h2>{col.title}</h2>
+              <ul role="list">
+                {col.links.map(([label, href]) => <li><a href={href}>{label}</a></li>)}
+              </ul>
+            </div>
+          ))}
+        </nav>
+      </div>
+      <div class="footer-bar">
+        <div class="wrap">
+          <p class="gen"><span class="gen-dot" aria-hidden="true"></span>Updated <time datetime={meta.generatedAt}></time> · {meta.storyCount} stories from {meta.articleCount} articles</p>
+          <p class="footer-copy">© {footerYear} Digest AI · Built from public sources, linked in every story</p>
+        </div>
       </div>
     </footer>
   </body>
