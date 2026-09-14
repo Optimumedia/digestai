@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from datetime import timedelta
 from urllib.parse import quote_plus
 
@@ -26,7 +27,6 @@ import numpy as np
 from sqlalchemy import bindparam, func, insert, select, update
 
 from . import config, db
-from .textutil import keywords
 
 log = logging.getLogger("digest.rank")
 
@@ -35,8 +35,18 @@ EVENT_WEIGHTS = {"view": 1.0, "click_source": 3.0, "dwell": 1.0 / 30.0, "share":
 MIN_TRAINING_ARTICLES = 40
 RIDGE_LAMBDA = 1.0
 HALF_LIFE_HOURS = 18.0
-MAX_DISCOVERED_SOURCES = 8
+MAX_DISCOVERED_SOURCES = config.MAX_DISCOVERED_SOURCES
 DISCOVERY_TTL_DAYS = 3
+# Entity names that are not a company or model worth a search feed: publications, funds,
+# institutions, events, laws ("Scaleup Europe Fund", "The Information", "EU AI Act").
+GENERIC_TERM = re.compile(
+    r"^(the|a|an)\s|\b(fund|funds|capital|ventures?|partners|holdings|group|bank|university|institute|"
+    r"commission|council|government|ministry|department|agency|association|foundation|news|times|journal|"
+    r"post|media|information|report|index|initiative|programme|program|project|act|summit|conference|week|"
+    r"court|parliament|congress|senate|white house|pentagon)\b",
+    re.IGNORECASE,
+)
+_DASHES = re.compile(r"[‐-―−]")
 
 
 def _engagement(conn) -> dict[int, float]:
@@ -226,8 +236,58 @@ def update_source_weights(conn) -> None:
                      .values(engagement_ema=db.sources.c.engagement_ema * 0.7 + rel * 0.3))
 
 
+def is_discovery_term(term: str) -> bool:
+    term = (term or "").strip()
+    return 2 < len(term) < 40 and not GENERIC_TERM.search(term)
+
+
+def discovery_key(term: str) -> str:
+    return f"discover-{_DASHES.sub('-', term.strip().lower()).replace(' ', '-')[:50]}"
+
+
+def discovery_terms(top: list, min_articles: int = config.DISCOVERY_MIN_ARTICLES, limit: int = MAX_DISCOVERED_SOURCES) -> list[str]:
+    """Company and model names shared by the best-performing articles, best first.
+    No headline keywords: generic phrases made search feeds that returned anything."""
+    counts: dict[str, float] = {}
+    articles: dict[str, int] = {}
+    display: dict[str, str] = {}
+    for a in top:
+        ents = a.entities or {}
+        names = list(ents.get("companies") or []) + list(ents.get("models") or [])
+        weight = math.log1p(float(a.engagement or 0.0) + 3.0 * popularity(a.discussion_points, a.trend_score))
+        seen: set[str] = set()
+        for t in names:
+            t = _DASHES.sub("-", str(t)).strip()
+            k = t.lower()
+            if k in seen or not is_discovery_term(t):
+                continue
+            seen.add(k)
+            counts[k] = counts.get(k, 0.0) + weight
+            articles[k] = articles.get(k, 0) + 1
+            display.setdefault(k, t)
+    ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+    return [display[k] for k, _ in ranked if articles[k] >= min_articles][:limit]
+
+
+def cap_discovered_sources(conn, preferred_keys: list[str] | tuple = ()) -> int:
+    """Disable discovered feeds beyond MAX_DISCOVERED_SOURCES, and any whose term is generic.
+    Keeps the preferred keys first (this run's picks, best first), then the newest."""
+    rows = conn.execute(
+        select(db.sources.c.id, db.sources.c.key, db.sources.c.name, db.sources.c.expires_at)
+        .where(db.sources.c.discovered.is_(True), db.sources.c.enabled.is_(True))
+    ).all()
+    pref = {k: i for i, k in enumerate(preferred_keys)}
+    drop = [r.id for r in rows if not is_discovery_term((r.name or "").removeprefix("Search: "))]
+    alive = [r for r in rows if r.id not in drop]
+    alive.sort(key=lambda r: (pref.get(r.key, len(pref)), -(db.as_utc(r.expires_at).timestamp() if r.expires_at else 0.0)))
+    drop += [r.id for r in alive[MAX_DISCOVERED_SOURCES:]]
+    if drop:
+        conn.execute(update(db.sources).where(db.sources.c.id.in_(drop)).values(enabled=False))
+    return len(drop)
+
+
 def discover(conn) -> int:
-    """Turn the best-performing topics into temporary Bing News search feeds."""
+    """Turn the best-performing companies and models into temporary Bing News search feeds."""
     since = db.utcnow() - timedelta(days=7)
     rows = conn.execute(
         select(db.articles.c.headline, db.articles.c.entities, db.articles.c.engagement,
@@ -237,21 +297,12 @@ def discover(conn) -> int:
     scored = [(float(a.engagement or 0.0) + 3.0 * popularity(a.discussion_points, a.trend_score), a) for a in rows]
     top = [a for s, a in sorted(scored, key=lambda x: -x[0]) if s > 0][:25]
     if len(top) < 5:
+        cap_discovered_sources(conn)
         return 0
-    counts: dict[str, float] = {}
-    for a in top:
-        ents = a.entities or {}
-        names = (ents.get("companies") or []) + (ents.get("models") or [])
-        terms = names or keywords(a.headline or "", 2)
-        weight = math.log1p(float(a.engagement or 0.0) + 3.0 * popularity(a.discussion_points, a.trend_score))
-        for t in terms:
-            t = t.strip()
-            if 2 < len(t) < 40:
-                counts[t] = counts.get(t, 0.0) + weight
-    ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:MAX_DISCOVERED_SOURCES]
+    ranked = discovery_terms(top)
     created = 0
-    for term, _ in ranked:
-        key = f"discover-{term.lower().replace(' ', '-')[:50]}"
+    for term in ranked:
+        key = discovery_key(term)
         url = f"https://www.bing.com/news/search?q={quote_plus(term + ' AI')}&format=rss"
         expires = db.utcnow() + timedelta(days=DISCOVERY_TTL_DAYS)
         existing = conn.execute(select(db.sources.c.id).where(db.sources.c.key == key)).first()
@@ -264,6 +315,7 @@ def discover(conn) -> int:
                 fulltext=True, content_from_feed=False, enabled=True, discovered=True, expires_at=expires,
             ))
             created += 1
+    cap_discovered_sources(conn, [discovery_key(t) for t in ranked])
     return created
 
 

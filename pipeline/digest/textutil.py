@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import re
 import unicodedata
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit, urlunsplit
 
 STOPWORDS = set(
     """a an the and or but if then of to in on at by for with from as is are was were be been being
@@ -25,8 +25,38 @@ TRACKING_PARAMS = {
 SOURCE_SUFFIX = re.compile(r"\s+[-|–—:]\s+[A-Z][\w.&' ]{1,40}$")
 
 
+# Aggregator click-tracking links that carry the real article URL in a query parameter.
+# Bing News RSS items look like http://bing.com/news/apiclick.aspx?...&tid=<random>&url=<encoded>&c=<n>;
+# tid and c change on every fetch, so without unwrapping every repeat looked like a new article.
+REDIRECT_LINKS = {"bing.com": ("/news/apiclick.aspx", "url")}
+
+# Never fetched: social networks and aggregators (no article text), msn.com (script-only pages
+# with no extractable text), and a redirect host whose link could not be unwrapped.
+SKIP_DOMAINS = {"news.google.com", "google.com", "youtube.com", "youtu.be", "x.com", "twitter.com",
+                "facebook.com", "instagram.com", "tiktok.com", "linkedin.com", "bing.com"}
+SKIP_DOMAIN_SUFFIXES = {"msn.com"}  # the domain and every subdomain
+
+
+def unwrap_redirect(url: str) -> str:
+    parts = urlsplit((url or "").strip())
+    host = parts.netloc.lower().split(":")[0]
+    if host.startswith("www."):
+        host = host[4:]
+    rule = REDIRECT_LINKS.get(host)
+    if rule and parts.path.lower() == rule[0]:
+        target = (parse_qs(parts.query).get(rule[1]) or [""])[0].strip()
+        if target.lower().startswith(("http://", "https://")):
+            return target
+    return url
+
+
+def is_skipped_domain(dom: str) -> bool:
+    dom = (dom or "").lower()
+    return dom in SKIP_DOMAINS or any(dom == s or dom.endswith("." + s) for s in SKIP_DOMAIN_SUFFIXES)
+
+
 def normalize_url(url: str) -> str:
-    url = url.strip()
+    url = unwrap_redirect(url.strip())
     parts = urlsplit(url)
     scheme = parts.scheme.lower() or "https"
     netloc = parts.netloc.lower()

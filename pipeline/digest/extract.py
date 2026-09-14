@@ -5,6 +5,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import timedelta
 from html import unescape as html_unescape
 from pathlib import Path
 
@@ -13,10 +14,10 @@ import trafilatura
 import yaml
 from bs4 import BeautifulSoup
 from readability import Document
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 
 from . import config, db
-from .textutil import domain_of, keywords, word_count
+from .textutil import domain_of, is_skipped_domain, keywords, normalize_url, word_count
 
 log = logging.getLogger("digest.extract")
 
@@ -389,18 +390,44 @@ def extract(url: str, html: str | None, title: str, feed_content: str | None = N
 def run() -> dict:
     stats = {"processed": 0, "ok": 0, "failed": 0, "methods": {}}
     eng = db.engine()
+    cutoff = db.utcnow() - timedelta(days=config.MAX_ARTICLE_AGE_DAYS)
+    with eng.begin() as conn:
+        # Items that waited in the queue past the age limit would only be rejected by the gate.
+        expired = conn.execute(
+            update(db.articles)
+            .where(db.articles.c.status == "new",
+                   or_(db.articles.c.published_at < cutoff,
+                       and_(db.articles.c.published_at.is_(None), db.articles.c.created_at < cutoff)))
+            .values(status="rejected", reject_reason="extract: too old (waited in queue)")
+        ).rowcount
+        if expired:
+            stats["expired"] = expired
     with eng.connect() as conn:
         rows = conn.execute(
             select(db.articles, db.sources.c.content_from_feed, db.sources.c.fulltext)
             .join(db.sources, db.articles.c.source_id == db.sources.c.id)
             .where(db.articles.c.status == "new")
-            .order_by(db.articles.c.created_at.desc())
+            # Curated, heavier sources first, then oldest first: newest-first starved the queue,
+            # because about as many items arrived each run as were processed.
+            .order_by(db.sources.c.weight.desc(), db.articles.c.created_at.asc(), db.articles.c.id.asc())
             .limit(config.MAX_EXTRACT_PER_RUN)
         ).all()
 
     last_para_by_domain: dict[str, str] = {}
     for row in rows:
         stats["processed"] += 1
+        try:
+            real_domain = domain_of(normalize_url(row.url))
+        except ValueError:
+            real_domain = row.domain or ""
+        if is_skipped_domain(real_domain):
+            # Rows stored before redirect unwrapping (Bing click links to msn.com): never fetchable.
+            with eng.begin() as conn:
+                conn.execute(update(db.articles).where(db.articles.c.id == row.id)
+                             .values(status="rejected", reject_reason=f"extract: skipped domain {real_domain}"[:200]))
+            stats["failed"] += 1
+            stats["skipped_domain"] = stats.get("skipped_domain", 0) + 1
+            continue
         rule = domain_rule(row.url)
         html, err = (None, None)
         if not row.content_from_feed:

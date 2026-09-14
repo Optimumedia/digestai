@@ -21,6 +21,58 @@ def test_normalize_url_drops_tracking_and_www():
     assert normalize_url("https://www.example.com/a/b/?utm_source=x&id=3#frag") == "https://example.com/a/b?id=3"
 
 
+BING_LINK = ("http://www.bing.com/news/apiclick.aspx?ref=FexRss&aid=&tid=6aa82acf439047288f023edceb8b9cef"
+             "&url=https%3a%2f%2fwww.theverge.com%2fai%2f123%2fopenai-model%3futm_source%3dbing&c=18124483902249883319&mkt=en-ww")
+
+
+def test_normalize_url_unwraps_bing_click_links():
+    from digest.textutil import is_skipped_domain, unwrap_redirect
+
+    assert normalize_url(BING_LINK) == "https://theverge.com/ai/123/openai-model"
+    # tid and c change on every fetch; the same article must normalise to the same URL.
+    again = BING_LINK.replace("6aa82acf439047288f023edceb8b9cef", "ffff").replace("18124483902249883319", "42")
+    assert normalize_url(again) == normalize_url(BING_LINK)
+    assert unwrap_redirect("https://bing.com/news/search?q=x") == "https://bing.com/news/search?q=x"
+    assert unwrap_redirect("http://bing.com/news/apiclick.aspx?url=javascript%3aalert(1)").startswith("http://bing.com")
+    assert is_skipped_domain("msn.com") and is_skipped_domain("en.msn.com") and is_skipped_domain("bing.com")
+    assert not is_skipped_domain("research.google.com") and not is_skipped_domain("notmsn.com")
+
+
+def test_fetch_near_duplicate_merges_discussion():
+    from digest.fetch import near_duplicate, should_merge_discussion
+
+    title = simhash("OpenAI restricts GPT-2 release over malicious use concerns")
+    recent = [{"id": 7, "hash": simhash("Humanoid robots enter the warehouse"), "domain": "a.com", "discussion_url": None, "points": None},
+              {"id": 9, "hash": title, "domain": "openai.com", "discussion_url": None, "points": None}]
+    dup = near_duplicate(simhash("OpenAI restricts GPT-2 release over malicious use concerns, report says"), recent)
+    assert dup is not None and dup["id"] == 9
+    assert near_duplicate(simhash("Nvidia ships a new data center GPU"), recent) is None
+    hn = ("hn", "https://news.ycombinator.com/item?id=1", 120)
+    assert should_merge_discussion(hn, dup)  # no thread yet
+    assert not should_merge_discussion(hn, {**dup, "discussion_url": "x", "points": 300})
+    assert should_merge_discussion(hn, {**dup, "discussion_url": "x", "points": 50})
+    assert not should_merge_discussion(None, dup)
+
+
+def test_discovery_terms_only_entities_and_not_generic():
+    from types import SimpleNamespace
+
+    from digest.rank import discovery_key, discovery_terms, is_discovery_term
+
+    def art(companies, models=(), points=100):
+        return SimpleNamespace(entities={"companies": list(companies), "models": list(models)}, engagement=0.0,
+                               discussion_points=points, trend_score=0, headline="Some headline about agents")
+    top = [art(["Mistral AI", "Scaleup Europe Fund"]), art(["Mistral AI", "The Information"]),
+           art(["Samsung Electronics"], ["GPT‑6 Astra"]), art(["Anthropic"], ["GPT‑6 Astra"]), art(["Anthropic"])]
+    terms = discovery_terms(top, min_articles=2, limit=8)
+    assert "Mistral AI" in terms and "Anthropic" in terms and "GPT-6 Astra" in terms
+    assert "Scaleup Europe Fund" not in terms and "The Information" not in terms
+    assert "Samsung Electronics" not in terms  # a single article is not a trend
+    assert not is_discovery_term("EU AI Act") and is_discovery_term("Nvidia")
+    assert discovery_key("GPT‑6 Astra") == "discover-gpt-6-astra"
+    assert len(discovery_terms(top * 5, min_articles=1, limit=2)) == 2
+
+
 def test_keywords_handle_possessives():
     assert "deepmind" in keywords("Import AI 472: DeepMind’s cheating models")
 

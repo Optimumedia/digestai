@@ -15,7 +15,7 @@ from dateutil import parser as dateparser
 from sqlalchemy import insert, select, update
 
 from . import config, db
-from .textutil import clean_title, domain_of, normalize_url, simhash, word_count
+from .textutil import SKIP_DOMAINS, clean_title, domain_of, is_skipped_domain, normalize_url, simhash, word_count  # noqa: F401
 
 log = logging.getLogger("digest.fetch")
 
@@ -24,8 +24,37 @@ SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": config.USER_AGENT, "Accept": "*/*"})
 
 HN_QUERIES = ["AI", "LLM", "OpenAI", "Anthropic", "Claude", "GPT", "Gemini", "language model", "agents"]
-SKIP_DOMAINS = {"news.google.com", "google.com", "youtube.com", "youtu.be", "x.com", "twitter.com",
-                "facebook.com", "instagram.com", "tiktok.com", "linkedin.com"}
+# Same threshold as the gate: syndicated copies sit at 0-8, distinct titles at 13+.
+TITLE_DUPLICATE_DISTANCE = 10
+
+
+def recent_titles(conn) -> list[dict]:
+    """Title fingerprints of recent articles that are still alive (not rejected)."""
+    since = db.utcnow() - timedelta(days=config.MAX_ARTICLE_AGE_DAYS)
+    rows = conn.execute(
+        select(db.articles.c.id, db.articles.c.simhash, db.articles.c.domain,
+               db.articles.c.discussion_url, db.articles.c.discussion_points)
+        .where(db.articles.c.created_at >= since, db.articles.c.status != "rejected", db.articles.c.simhash.isnot(None))
+    ).all()
+    return [{"id": r.id, "hash": db.from_signed64(r.simhash), "domain": r.domain,
+             "discussion_url": r.discussion_url, "points": r.discussion_points} for r in rows]
+
+
+def near_duplicate(h: int, recent: list[dict], max_distance: int = TITLE_DUPLICATE_DISTANCE) -> dict | None:
+    for other in recent:
+        if (h ^ other["hash"]).bit_count() <= max_distance:
+            return other
+    return None
+
+
+def should_merge_discussion(disc: tuple | None, existing: dict) -> bool:
+    """A community item repeating a known article hands over its thread when the article has
+    none yet, or when this thread has more points."""
+    if not disc or not disc[0] or not disc[1]:
+        return False
+    if not existing.get("discussion_url"):
+        return True
+    return (disc[2] or 0) > (existing.get("points") or 0)
 
 
 def sync_sources(conn) -> None:
@@ -63,6 +92,11 @@ def sync_sources(conn) -> None:
         .where(db.sources.c.discovered.is_(True), db.sources.c.expires_at < db.utcnow())
         .values(enabled=False)
     )
+    # And keep at most MAX_DISCOVERED_SOURCES of them (rank prefers its latest picks; here the
+    # newest win), so a backlog of search feeds can never dominate a run again.
+    from .rank import cap_discovered_sources
+
+    cap_discovered_sources(conn)
 
 
 _SOURCE_CFG: dict[str, dict] | None = None
@@ -243,6 +277,7 @@ def run() -> dict:
     with eng.begin() as conn:
         sync_sources(conn)
         source_rows = conn.execute(select(db.sources).where(db.sources.c.enabled.is_(True))).all()
+        recent = recent_titles(conn)
 
     cutoff = db.utcnow() - timedelta(days=config.MAX_ARTICLE_AGE_DAYS)
     last_hit_by_host: dict[str, float] = {}
@@ -267,7 +302,7 @@ def run() -> dict:
                 )
             continue
 
-        limit = _max_items(source.key) if not source.discovered else 15
+        limit = _max_items(source.key) if not source.discovered else config.MAX_DISCOVERED_ITEMS
         inserted = 0
         with eng.begin() as conn:
             for item in items[:limit]:
@@ -277,7 +312,7 @@ def run() -> dict:
                 except ValueError:
                     continue
                 dom = domain_of(url)
-                if dom in SKIP_DOMAINS or not dom:
+                if not dom or is_skipped_domain(dom):
                     continue
                 if item["published_at"] and item["published_at"] < cutoff:
                     continue
@@ -288,7 +323,21 @@ def run() -> dict:
                 if len(title) < 15:
                     continue
                 disc = item.get("discussion") or (None, None, None)
-                conn.execute(insert(db.articles).values(
+                h = simhash(title)
+                dup = near_duplicate(h, recent)
+                if dup is not None:
+                    if should_merge_discussion(item.get("discussion"), dup):
+                        conn.execute(update(db.articles).where(db.articles.c.id == dup["id"]).values(
+                            discussion_site=disc[0], discussion_url=disc[1], discussion_points=disc[2],
+                            discussion_checked_at=db.utcnow()))
+                        dup.update(discussion_url=disc[1], points=disc[2])
+                        stats["discussions_merged"] = stats.get("discussions_merged", 0) + 1
+                    # A repeat from the same publisher, or any search-feed repeat, is never fetched.
+                    # Other publishers' copies still go through (the gate keeps the first one).
+                    if dup["domain"] == dom or source.discovered:
+                        stats["title_duplicates"] = stats.get("title_duplicates", 0) + 1
+                        continue
+                res = conn.execute(insert(db.articles).values(
                     discussion_site=disc[0],
                     discussion_url=disc[1],
                     discussion_points=disc[2],
@@ -306,10 +355,12 @@ def run() -> dict:
                     feed_content=item["feed_content"],
                     image_url=item["image_url"],
                     show_fulltext=bool(source.fulltext),
-                    simhash=db.to_signed64(simhash(title)),
+                    simhash=db.to_signed64(h),
                     status="new",
                     created_at=db.utcnow(),
                 ))
+                recent.append({"id": res.inserted_primary_key[0], "hash": h, "domain": dom,
+                               "discussion_url": disc[1], "points": disc[2]})
                 inserted += 1
             conn.execute(
                 update(db.sources).where(db.sources.c.id == source.id)
