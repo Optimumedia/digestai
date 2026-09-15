@@ -9,9 +9,23 @@ import Rail from "../components/Rail.astro";
       <header class="page-head">
         <div class="eyebrow">404</div>
         <h1>That page is not here</h1>
-        <p>Stories older than a few months are archived. Try <a href="/search">search</a> or go back to the <a href="/">front page</a>.</p>
+        <p>It may be an address from the previous version of Digest AI, or a story that has been archived. Here is what we have on the same subject; you can also go back to the <a href="/">front page</a>.</p>
       </header>
+      <div id="search" style="margin-top: 16px"></div>
     </div>
     <Rail />
   </div>
+  <link rel="stylesheet" href="/pagefind/pagefind-ui.css" />
+  <script is:inline src="/pagefind/pagefind-ui.js"></script>
+  <script is:inline>
+    addEventListener("DOMContentLoaded", () => {
+      if (!window.PagefindUI) return;
+      const ui = new PagefindUI({ element: "#search", showSubResults: false, showImages: false, resetStyles: false });
+      // Old addresses carry the headline in the last part: /article/ais-future-asml-euv-lithography---enverus.
+      // The part after "---" was the publisher's name.
+      const last = decodeURIComponent(location.pathname.replace(/\.html$/, "").split("/").filter(Boolean).pop() || "");
+      const words = last.split("---")[0].replace(/[-_]+/g, " ").replace(/\b(?:the|a|an|and|of|to|in|for|on|with|how|why|what)\b/gi, " ").replace(/\s+/g, " ").trim();
+      if (words.length >= 3) ui.triggerSearch(words.split(" ").slice(0, 6).join(" "));
+    });
+  </script>
 </Base>

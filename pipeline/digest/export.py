@@ -7,7 +7,7 @@ from datetime import timedelta
 
 from sqlalchemy import select, update
 
-from . import config, db, hold
+from . import config, db, hold, trackers as tracker_rules
 from .textutil import word_count
 
 log = logging.getLogger("digest.export")
@@ -283,8 +283,9 @@ def run() -> dict:
     for st in stories_out:
         for a in st["articles"]:
             r = a.get("modelRelease")
-            if r and r.get("name"):
-                k = f"{r['name'].lower()}|{(r.get('lab') or '').lower()}"
+            # Only real launches of usable models, once each however the name is spelled (trackers.py).
+            if r and r.get("name") and tracker_rules.is_release(r, f"{st['headline']} | {a.get('title') or ''}"):
+                k = tracker_rules.model_key(r["name"], r.get("lab"))
                 row = models.setdefault(k, {**r, "date": a["publishedAt"], "storySlug": st["slug"], "storyHeadline": st["headline"], "sources": 0})
                 row["sources"] += 1
                 if (a["publishedAt"] or "") < (row["date"] or ""):
@@ -301,6 +302,7 @@ def run() -> dict:
                     row["valuation_usd"] = f["valuation_usd"]
                 if len(f.get("investors") or []) > len(row.get("investors") or []):
                     row["investors"] = f["investors"]
+    models = tracker_rules.fold_versions(models)
     trackers = {
         "models": sorted(models.values(), key=lambda r: r["date"] or "", reverse=True),
         "funding": sorted(funding.values(), key=lambda r: r["date"] or "", reverse=True),
