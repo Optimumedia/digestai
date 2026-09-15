@@ -28,6 +28,42 @@ def _token(sa_info: dict) -> str:
     return creds.token
 
 
+KEY_PAGES = ["/", "/today", "/listen", "/models", "/funding"]
+TOP_STORIES_TO_INSPECT = 3
+
+
+def _inspections(s, prop: str) -> list[dict]:
+    """Google's index status for the key pages and the top stories (URL Inspection API).
+
+    Google no longer fills in the sitemap report's indexed count (it is always 0), so asking page
+    by page is the only reliable signal. 8 pages a run is about 400 a day; the API allows 2,000."""
+    pages = list(KEY_PAGES)
+    try:
+        stories = json.loads((config.SITE_DATA_DIR / "stories.json").read_text(encoding="utf-8"))
+        top = sorted(stories, key=lambda x: -(x.get("score") or 0))[:TOP_STORIES_TO_INSPECT]
+        pages += [f"/story/{x['slug']}" for x in top if x.get("slug")]
+    except (OSError, ValueError, TypeError):
+        pass
+    def one(page: str) -> dict | None:
+        try:
+            r = s.post("https://searchconsole.googleapis.com/v1/urlInspection/index:inspect", timeout=45,
+                       json={"inspectionUrl": config.SITE_URL + page, "siteUrl": prop})
+            if r.status_code >= 400:
+                log.info("URL inspection of %s failed: %s %s", page, r.status_code, r.text[:120])
+                return None
+            x = r.json().get("inspectionResult", {}).get("indexStatusResult", {})
+            return {"page": page, "state": x.get("coverageState") or "Unknown", "lastCrawl": x.get("lastCrawlTime")}
+        except Exception as exc:  # noqa: BLE001 - index status is a nice-to-have
+            log.info("URL inspection of %s failed: %s", page, str(exc)[:120])
+            return None
+
+    # Each inspection takes several seconds; asked one after another they added a minute to every run.
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=len(pages)) as pool:
+        return [c for c in pool.map(one, pages) if c]
+
+
 def run() -> dict:
     stats = {"configured": False}
     raw = os.environ.get("GSC_SERVICE_ACCOUNT_JSON", "").strip()
@@ -87,11 +123,15 @@ def run() -> dict:
         out["sitemaps"] = [{"path": x.get("path", "").replace(config.SITE_URL, ""), "lastSubmitted": x.get("lastSubmitted"), "errors": x.get("errors"), "warnings": x.get("warnings"),
                             "submitted": sum(int(c.get("submitted", 0)) for c in x.get("contents", [])), "indexed": sum(int(c.get("indexed", 0)) for c in x.get("contents", []))}
                            for x in sm.json().get("sitemap", [])] if sm.ok else []
+        out["inspections"] = _inspections(s, prop)
+        out["inspectedAt"] = db.utcnow().isoformat()
         out["totals"] = {"clicks": sum(r["clicks"] for r in out["perDay"]), "impressions": sum(r["impressions"] for r in out["perDay"])}
     except Exception as exc:  # noqa: BLE001
         log.warning("GSC query failed: %s", str(exc)[:200])
         stats["error"] = str(exc)[:120]
         return stats
     (config.SITE_DATA_DIR / "gsc.json").write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
-    stats.update(clicks=out["totals"]["clicks"], impressions=out["totals"]["impressions"], queries=len(out["queries"]))
+    stats.update(clicks=out["totals"]["clicks"], impressions=out["totals"]["impressions"], queries=len(out["queries"]),
+                 inspected=len(out["inspections"]),
+                 indexed=sum(1 for c in out["inspections"] if c["state"].lower().startswith(("submitted and indexed", "indexed"))))
     return stats

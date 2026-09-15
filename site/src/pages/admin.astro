@@ -191,6 +191,7 @@ const homeData = JSON.stringify({
                         {c.items.map((it: any) => (
                           <li>
                             <span class="ac-item-text">{it.slug ? <a href={`/story/${it.slug}`}>{it.headline}</a> : <b>{it.headline}</b>}<span class="muted">{it.detail}</span></span>
+                            {it.action?.kind === "link" && <a class="tb" href={it.action.url} target="_blank" rel="noopener">{it.action.label} ↗</a>}
                             {it.action?.kind === "unpublish" && <button type="button" class="tb danger" data-mod="unpublish" data-slug={it.action.slug}>Unpublish</button>}
                           </li>
                         ))}

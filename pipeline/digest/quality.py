@@ -164,17 +164,16 @@ def duplicates(stories: list[dict], now: datetime, threshold: float = 0.8) -> li
 
 
 def tracker_gaps(trackers: dict) -> list[dict]:
-    """Model rows without a lab or with type "other", funding rows without a company or round type."""
+    """Model rows without a lab, funding rows without a company. "Other" is a real type (weather,
+    forecasting and science models; unusual deal types), so it is not a gap."""
     out = []
     unknown = lambda v: not v or str(v).strip().lower() in ("unknown", "n/a", "none")  # noqa: E731
     for r in trackers.get("models") or []:
-        gaps = [g for g, bad in (("lab unknown", unknown(r.get("lab"))),
-                                  ("type other", str(r.get("kind") or "").lower() == "other")) if bad]
+        gaps = ["lab unknown"] if unknown(r.get("lab")) else []
         if gaps:
             out.append({"slug": r.get("storySlug"), "headline": r.get("name"), "detail": f"Models page: {', '.join(gaps)}.", "page": "/models"})
     for r in trackers.get("funding") or []:
-        gaps = [g for g, bad in (("company unknown", unknown(r.get("company"))),
-                                  ("round type other", str(r.get("round") or "").lower() == "other")) if bad]
+        gaps = ["company unknown"] if unknown(r.get("company")) else []
         if gaps:
             out.append({"slug": r.get("storySlug"), "headline": r.get("company") or "Unnamed company", "detail": f"Funding page: {', '.join(gaps)}.", "page": "/funding"})
     return out
@@ -288,7 +287,7 @@ def cards(flags: dict[str, list[dict]]) -> list[dict]:
         "Unpublish stories whose original article was removed. If our own pages are listed, tell whoever maintains the site: old story pages should stay online.", f.get("brokenLinks", []))
     gaps = f.get("trackerGaps", [])
     add("trackers", "info", n(gaps, "One row on the Models or Funding page is incomplete.", "{n} rows on the Models and Funding pages are incomplete."),
-        "Rows that say \"unknown\" or \"other\" look unfinished to readers comparing labs and deals.",
+        "A model without its lab, or a deal without its company, looks unfinished to readers comparing them.",
         "Nothing urgent. If a row is plainly wrong, unpublish the story it came from; otherwise the next model update usually fills it in.",
         gaps, {"kind": "link", "url": gaps[0].get("page", "/models") if gaps else "/models", "label": "Open the page"})
     add("audio", "info", "The audio briefing starts with a different story than /today.",

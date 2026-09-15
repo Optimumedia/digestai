@@ -70,10 +70,10 @@ def test_tracker_gaps():
     trackers = {"models": [{"name": "X-1", "lab": "unknown", "kind": "llm", "storySlug": "a"},
                            {"name": "Y-2", "lab": "Acme", "kind": "other", "storySlug": "b"},
                            {"name": "Z-3", "lab": "Acme", "kind": "llm", "storySlug": "c"}],
-                "funding": [{"company": "Nscale", "round": "other", "storySlug": "d"}, {"company": "Cognition", "round": "series_d_plus"}]}
+                "funding": [{"company": "Nscale", "round": "other", "storySlug": "d"}, {"company": "unknown", "round": "seed", "storySlug": "e"}]}
     gaps = quality.tracker_gaps(trackers)
-    assert [g["headline"] for g in gaps] == ["X-1", "Y-2", "Nscale"]
-    assert gaps[2]["page"] == "/funding"
+    assert [g["headline"] for g in gaps] == ["X-1", "unknown"]  # "other" is a real type, not a gap
+    assert gaps[1]["page"] == "/funding"
 
 
 def test_network_checks_are_bounded_and_classified():
@@ -131,18 +131,26 @@ def test_run_cards_translate_failures():
 def test_search_cards():
     from digest import admin
 
-    gsc = {"property": "sc-domain:digestai.news", "sitemaps": [
+    gsc = {"property": "https://digestai.news/", "sitemaps": [
         {"path": "/sitemap-index.xml", "submitted": 285, "indexed": 0, "errors": "0"},
-        {"path": "/news-sitemap.xml.", "submitted": 0, "indexed": 0, "errors": "1"}]}
+        {"path": "/news-sitemap.xml.", "submitted": 0, "indexed": 0, "errors": "1"}],
+        "inspections": [{"page": "/", "state": "Submitted and indexed"}, {"page": "/today", "state": "Crawled - currently not indexed"},
+                        {"page": "/models", "state": "URL is unknown to Google"}]}
     steps = [{"step": "gsc", "startedAt": NOW - timedelta(hours=30), "stats": {"configured": True, "clicks": 0}},
              {"step": "gsc", "startedAt": NOW - timedelta(hours=1), "stats": {"configured": True, "error": "auth"}}]
     cards = {c["id"]: c for c in admin.search_cards(gsc, steps, NOW)}
-    assert "0 of 285" in cards["search:indexed"]["what"]
-    assert "search-console/inspect" in cards["search:indexed"]["action"]["url"]
+    card = cards["search:indexed"]
+    assert "1 of 3" in card["what"] and card["level"] == "info"  # the home page is indexed
+    assert [i["headline"] for i in card["items"]][:2] == ["/today", "/models"]
+    assert "search-console/inspect" in card["items"][1]["action"]["url"] and "%2Fmodels" in card["items"][1]["action"]["url"]
+    assert any(i["headline"] == "/news-sitemap.xml." for i in card["items"])
     assert "search:stale" in cards and "{at}" in cards["search:stale"]["what"]
     fresh = [{"step": "gsc", "startedAt": NOW - timedelta(hours=1), "stats": {"configured": True, "clicks": 3}}]
-    few = {"sitemaps": [{"path": "/s.xml", "submitted": 5, "indexed": 0, "errors": "0"}]}
-    assert admin.search_cards(few, fresh, NOW) == []  # below the minimum volume, and fresh
+    fine = {"sitemaps": [{"path": "/s.xml", "submitted": 500, "indexed": 0, "errors": "0"}],
+            "inspections": [{"page": "/", "state": "Submitted and indexed"}]}
+    assert admin.search_cards(fine, fresh, NOW) == []  # the sitemap's 0 indexed is ignored: Google no longer fills it in
+    home = {"inspections": [{"page": "/", "state": "URL is unknown to Google"}]}
+    assert admin.search_cards(home, fresh, NOW)[0]["level"] == "warning"
 
 
 if __name__ == "__main__":

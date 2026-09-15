@@ -509,24 +509,35 @@ def run_cards(rows: list[dict], now) -> list[dict]:
 
 
 def search_cards(gsc: dict | None, rows: list[dict], now) -> list[dict]:
-    """Google indexing and Search Console freshness. Needs at least 20 submitted pages before
-    calling zero indexed a problem."""
+    """Google indexing (from URL inspection of the key pages) and Search Console freshness."""
     if not gsc:
         return []
     out = []
     maps = gsc.get("sitemaps") or []
-    # A sitemap index repeats the pages of the sitemaps it lists: the largest one, not the sum.
-    submitted = max((int(m.get("submitted") or 0) for m in maps), default=0)
-    indexed = sum(int(m.get("indexed") or 0) for m in maps)
-    if submitted >= 20 and indexed == 0:
-        prop = gsc.get("property") or f"sc-domain:{config.SITE_URL.split('//', 1)[-1]}"
-        inspect = f"https://search.google.com/search-console/inspect?resource_id={quote(prop, safe='')}&id={quote(config.SITE_URL + '/', safe='')}"
-        errors = [{"headline": m.get("path"), "detail": f"This sitemap entry reports {m.get('errors')} error(s); if it is a typo, remove it in Search Console."}
-                  for m in maps if str(m.get("errors") or "0") not in ("0", "")]
-        out.append(_card("search:indexed", "warning", f"Google has indexed 0 of {submitted} submitted pages.",
-                         "Pages Google has not indexed cannot appear in its results, so search brings no visitors. New sites often wait a few weeks, but a nudge helps.",
-                         "In Search Console, inspect the home page and one recent story, then press \"Request indexing\" for each.",
-                         action={"kind": "link", "url": inspect, "label": "Inspect in Search Console"}, items=errors or None))
+    prop = gsc.get("property") or f"sc-domain:{config.SITE_URL.split('//', 1)[-1]}"
+
+    def inspect_url(page: str) -> str:
+        return f"https://search.google.com/search-console/inspect?resource_id={quote(prop, safe='')}&id={quote(config.SITE_URL + page, safe='')}"
+
+    errors = [{"headline": m.get("path"), "detail": f"This sitemap entry reports {m.get('errors')} error(s); if it is a typo, remove it in Search Console."}
+              for m in maps if str(m.get("errors") or "0") not in ("0", "")]
+    # Google no longer fills in the sitemap report's indexed count (always 0), so the card uses the
+    # page-by-page inspection of the key pages and top stories that the gsc step records.
+    checks = gsc.get("inspections") or []
+    missing = [c for c in checks if not str(c.get("state") or "").lower().startswith(("submitted and indexed", "indexed"))]
+    if missing:
+        home_missing = any(c.get("page") == "/" for c in missing)
+        items = [{"headline": c["page"], "detail": f"Google: {c.get('state')}.",
+                  "action": {"kind": "link", "url": inspect_url(c["page"]), "label": "Request indexing"}} for c in missing]
+        out.append(_card("search:indexed", "warning" if home_missing else "info",
+                         f"Google has indexed {len(checks) - len(missing)} of {len(checks)} key pages checked.",
+                         "A page Google has not indexed cannot appear in its results. New sites are indexed a few pages at a time; links from other sites speed it up.",
+                         "Open each page below in Search Console and press \"Request indexing\". Google allows only a few requests a day, so start with pages it does not know yet.",
+                         items=items + errors))
+    elif errors:
+        out.append(_card("search:sitemap", "warning", "A sitemap entry in Search Console reports errors.",
+                         "Google may skip the pages a broken sitemap entry lists.",
+                         "If the entry below is a typo, remove it in Search Console under Indexing, Sitemaps.", items=errors))
     gsc_steps = sorted((r for r in rows if r["step"] == "gsc" and (r["stats"] or {}).get("configured")), key=lambda r: r["startedAt"])
     ok = [r for r in gsc_steps if not r["stats"].get("error") and not r["stats"].get("crashed")]
     if gsc_steps and (not ok or ok[-1]["startedAt"] < now - timedelta(hours=26)):
