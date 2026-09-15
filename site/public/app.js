@@ -17,7 +17,10 @@
   const nt = new URLSearchParams(location.search).get("notrack");
   if (nt === "1") store.set("notrack", true);
   if (nt === "0") store.set("notrack", false);
-  const noTrack = store.get("notrack", false);
+  // Search engines and link previewers render pages with JavaScript too (Googlebot, Bingbot,
+  // card fetchers, automated browsers). They are not readers, so they send nothing.
+  const isBot = navigator.webdriver === true || /bot\b|bot\/|crawl|spider|slurp|headless|lighthouse|pagespeed|google-inspectiontool|googleother|mediapartners|bingpreview|facebookexternalhit|embedly|whatsapp|pinterest|vkshare|w3c_validator|yandex|baidu|petalsearch|semrush|ahrefs|mj12|dataforseo|bytespider|ccbot|amazonbot/i.test(navigator.userAgent || "");
+  const noTrack = store.get("notrack", false) || isBot;
   const storyId = Number(document.body.dataset.storyId) || null;
   const articleId = Number(document.body.dataset.articleId) || null;
   let sid = session.get("s");
@@ -46,7 +49,9 @@
     fetch(`${cfg.supabaseUrl}/rest/v1/events`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey, Authorization: `Bearer ${cfg.supabaseKey}`, Prefer: "return=minimal" }, body }).catch(() => {});
   }
   // Every page counts as a view (the admin page does not); time on page and source clicks are story-only.
-  if (!location.pathname.startsWith("/admin")) send("view", 1);
+  // Not the admin page, and not "page not found": old addresses from the previous site are mostly
+  // crawlers checking links that no longer exist.
+  if (!location.pathname.startsWith("/admin") && !document.title.startsWith("Page not found")) send("view", 1);
   if (storyId) {
     // Time on story = time the tab was actually visible. Each time the page is hidden or left,
     // the seconds since it became visible are sent; the server adds them up.

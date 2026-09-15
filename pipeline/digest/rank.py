@@ -55,6 +55,9 @@ def _engagement(conn) -> dict[int, float]:
     since = db.utcnow() - timedelta(days=30)
     # Prune old events first: nothing past 90 days is used anywhere.
     conn.execute(db.events.delete().where(db.events.c.created_at < db.utcnow() - timedelta(days=90)))
+    # Views of the previous site's /article/ addresses were recorded from our not-found page before it
+    # stopped counting (15 Sep); they are crawlers re-checking old links, not readers.
+    conn.execute(db.events.delete().where(db.events.c.path.like("/article/%")))
     day = func.date(db.events.c.created_at)
     # One row per article, type, session and day. Dwell adds up across the visits of a session
     # (the browser sends one increment per visible stretch); other types count once.
