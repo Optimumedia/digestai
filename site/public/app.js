@@ -41,9 +41,12 @@
     visitor = { id: Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 8), day: visitDay };
     store.set("visitor", visitor);
   }
-  function send(type, value) {
+  // extra: { detail } for searches (the query) and read depth (how far), { path } to file it under another page.
+  function send(type, value, extra) {
     if (!cfg.supabaseUrl || !cfg.supabaseKey || noTrack) return;
-    const body = JSON.stringify({ story_id: storyId, article_id: articleId, type, value: value ?? 1, session: sid, visitor: visitor.id, source: String(visitSource).slice(0, 60), path: location.pathname, created_at: new Date().toISOString() });
+    const ev = { story_id: storyId, article_id: articleId, type, value: value ?? 1, session: sid, visitor: visitor.id, source: String(visitSource).slice(0, 60), path: (extra && extra.path) || location.pathname, created_at: new Date().toISOString() };
+    if (extra && extra.detail) ev.detail = String(extra.detail).slice(0, 100);
+    const body = JSON.stringify(ev);
     // keepalive lets the request finish after the page is gone (unlike sendBeacon, it can carry
     // the JSON content type and the API headers Supabase requires).
     fetch(`${cfg.supabaseUrl}/rest/v1/events`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey, Authorization: `Bearer ${cfg.supabaseKey}`, Prefer: "return=minimal" }, body }).catch(() => {});
@@ -68,6 +71,96 @@
     });
     addEventListener("pagehide", flush);
     document.querySelectorAll("a[data-source-link]").forEach((a) => a.addEventListener("click", () => send("click_source", 1)));
+
+    // How far the story was read: the deepest point that reached the bottom of the screen, as a
+    // percent of the story (headline to the end of the full text, or of the summary when there is
+    // none) and as a stage: top, summary (reached the source box below the key points and digest),
+    // full_text (read into the publisher's text) or end. A glance does not count: nothing is
+    // credited before the page has been visible for 4 seconds, and a page that fits the screen
+    // counts as read to the end only after 15 seconds or a scroll. Sent when the page is hidden or
+    // left, and again only if the reader later gets to a further stage (at most four per page view).
+    const STAGES = ["top", "summary", "full_text", "end"];
+    const sumEl = document.querySelector('[data-read="summary"]');
+    const fullEl = document.querySelector('[data-read="full_text"]');
+    const endEl = fullEl || sumEl;
+    const art = endEl && endEl.closest("article");
+    if (art && endEl) {
+      let shownMs = 0, shownSince = document.visibilityState === "visible" ? Date.now() : null;
+      let scrolled = false, rank = 0, pct = 0, sentRank = -1, queued = false;
+      const visibleMs = () => shownMs + (shownSince != null ? Date.now() - shownSince : 0);
+      const docY = (el, edge) => el.getBoundingClientRect()[edge] + scrollY;
+      const sample = () => {
+        queued = false;
+        const seen = visibleMs();
+        if (seen < 4000) return;
+        const bottom = scrollY + innerHeight;
+        const start = docY(art, "top"), end = docY(endEl, "bottom");
+        let r = 0;
+        if (bottom >= docY(sumEl || endEl, "top")) r = 1;
+        if (fullEl) {
+          const top = docY(fullEl, "top");
+          if (bottom >= top + Math.min(600, (end - top) / 4)) r = 2;
+        }
+        if (bottom >= end - 40) r = 3;
+        let p = end > start ? ((bottom - start) / (end - start)) * 100 : 100;
+        if (!scrolled && seen < 15000) { r = Math.min(r, 2); p = Math.min(p, 90); }
+        rank = Math.max(rank, r);
+        pct = Math.max(pct, Math.min(100, Math.max(0, p)));
+      };
+      addEventListener("scroll", () => {
+        scrolled = true;
+        if (!queued) { queued = true; requestAnimationFrame(sample); }
+      }, { passive: true });
+      setInterval(() => { if (document.visibilityState === "visible") sample(); }, 2000);
+      const report = () => {
+        sample();
+        if (shownSince != null) { shownMs += Date.now() - shownSince; shownSince = null; }
+        if (rank <= sentRank) return;
+        sentRank = rank;
+        send("depth", Math.round(pct), { detail: STAGES[rank] });
+      };
+      addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") report();
+        else if (shownSince == null) shownSince = Date.now();
+      });
+      addEventListener("pagehide", report);
+    }
+  }
+
+  /* ---------- site searches ---------- */
+  // The search page and the not-found page announce each term Pagefind looks up ("digest:search").
+  // Once the reader stops typing for 1.5 seconds, or leaves, the query is sent once with its number
+  // of results: what people look for, and what the site has no story on. Queries are lowercased and
+  // lose e-mail addresses and long numbers; the not-found page's own guess from the old address
+  // (auto) is not sent.
+  {
+    const cleanQuery = (t) => String(t || "").toLowerCase().replace(/\S+@\S+/g, " ").replace(/\d{5,}/g, " ").replace(/\s+/g, " ").trim().slice(0, 100);
+    let pending = null, timer = null, lastSent = "", pagefind = null;
+    const flushSearch = () => {
+      const p = pending;
+      if (!p) return;
+      if (p.results == null) { p.due = true; return; }  // sent as soon as the count arrives
+      clearTimeout(timer); pending = null;
+      if (p.query === lastSent) return;
+      lastSent = p.query;
+      send("search", Math.min(p.results, 3600), { detail: p.query, path: location.pathname.startsWith("/search") ? "/search" : "/404" });
+    };
+    addEventListener("digest:search", (e) => {
+      const { term, auto } = e.detail || {};
+      const query = cleanQuery(term);
+      clearTimeout(timer);
+      pending = null;
+      if (auto || query.length < 2) return;
+      const p = (pending = { query, results: null, due: false });
+      timer = setTimeout(flushSearch, 1500);
+      // The same module Pagefind UI loaded, so this reuses its index instead of downloading it again.
+      (pagefind ||= import("/pagefind/pagefind.js"))
+        .then((pf) => pf.search(term))
+        .then((r) => { p.results = r && r.results ? r.results.length : 0; if (p.due && pending === p) flushSearch(); })
+        .catch(() => {});
+    });
+    addEventListener("pagehide", flushSearch);
+    addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushSearch(); });
   }
 
   /* ---------- theme ---------- */

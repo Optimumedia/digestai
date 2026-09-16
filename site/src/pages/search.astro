@@ -15,7 +15,9 @@ import Base from "../layouts/Base.astro";
   <script is:inline>
     addEventListener("DOMContentLoaded", () => {
       if (!window.PagefindUI) return;
-      const ui = new PagefindUI({ element: "#search", showSubResults: false, showImages: false, resetStyles: false });
+      // processTerm reports each term to app.js, which records settled searches (see "site searches").
+      const ui = new PagefindUI({ element: "#search", showSubResults: false, showImages: false, resetStyles: false,
+        processTerm: (term) => { dispatchEvent(new CustomEvent("digest:search", { detail: { term } })); return term; } });
       const q = new URLSearchParams(location.search).get("q");
       if (q) ui.triggerSearch(q);
     });

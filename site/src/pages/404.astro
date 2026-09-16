@@ -20,12 +20,16 @@ import Rail from "../components/Rail.astro";
   <script is:inline>
     addEventListener("DOMContentLoaded", () => {
       if (!window.PagefindUI) return;
-      const ui = new PagefindUI({ element: "#search", showSubResults: false, showImages: false, resetStyles: false });
+      // processTerm reports each term to app.js, which records settled searches. The guess made
+      // below from the old address is marked auto and not recorded: only what readers type is.
+      let guess = "";
+      const ui = new PagefindUI({ element: "#search", showSubResults: false, showImages: false, resetStyles: false,
+        processTerm: (term) => { dispatchEvent(new CustomEvent("digest:search", { detail: { term, auto: !!guess && term === guess } })); return term; } });
       // Old addresses carry the headline in the last part: /article/ais-future-asml-euv-lithography---enverus.
       // The part after "---" was the publisher's name.
       const last = decodeURIComponent(location.pathname.replace(/\.html$/, "").split("/").filter(Boolean).pop() || "");
       const words = last.split("---")[0].replace(/[-_]+/g, " ").replace(/\b(?:the|a|an|and|of|to|in|for|on|with|how|why|what)\b/gi, " ").replace(/\s+/g, " ").trim();
-      if (words.length >= 3) ui.triggerSearch(words.split(" ").slice(0, 6).join(" "));
+      if (words.length >= 3) { guess = words.split(" ").slice(0, 6).join(" "); ui.triggerSearch(guess); }
     });
   </script>
 </Base>

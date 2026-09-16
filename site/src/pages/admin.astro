@@ -52,6 +52,10 @@ const reads7 = week(eng.perDay, "dwellReads");
 // Average over reading sessions that reported time, so a lost signal does not drag it to zero.
 const avgDwell = reads7 ? Math.round(dwell7 / reads7) : null;
 const engagedActions7 = clicks7 + saves7 + follows7 + shares7;
+const searches7 = eng.searches7 || { total: 0, queries: 0, noResults: 0, top: [], missing: [] };
+const depth7 = eng.depth7 || { reads: 0, stages: {}, avgPercent: null };
+const depthRows = [["top", "Left at the top"], ["summary", "Read the summary"], ["full_text", "Read into the full text"], ["end", "Reached the end"]]
+  .map(([k, label]) => { const n = Number(depth7.stages?.[k]) || 0; return { label, value: n, title: `${label}: ${n} of ${depth7.reads} reads (${depth7.reads ? Math.round((n / depth7.reads) * 100) : 0}%)` }; });
 
 const usageToday = (admin?.llm?.usage || []).filter((u: any) => u.day === today);
 const budgets = admin?.llm?.budgets || {};
@@ -304,19 +308,47 @@ const homeData = JSON.stringify({
               ) : <p class="muted">Appears with the first counted visit.</p>}
             </article>
           </div>
+          <div class="cards">
+            <article class="card" id="site-searches">
+              <h2>What readers searched for <span class="muted">7 days · search page and page not found</span></h2>
+              {searches7.total ? (
+                <>
+                  <p class="muted">{searches7.total} search{searches7.total === 1 ? "" : "es"} for {searches7.queries} different {searches7.queries === 1 ? "subject" : "subjects"}; {searches7.noResults ? `${searches7.noResults} found nothing` : "every one found something"}.</p>
+                  {searches7.missing.length > 0 && (
+                    <>
+                      <div class="eyebrow">Found nothing: subjects the site does not cover</div>
+                      <ol class="ranked searches-missing">{searches7.missing.map((m: any) => <li><b>{m.query}</b><span class="mono muted">{m.searches} search{m.searches === 1 ? "" : "es"} · {m.visitors} visitor{m.visitors === 1 ? "" : "s"}</span></li>)}</ol>
+                    </>
+                  )}
+                  <div class="eyebrow">Most searched</div>
+                  <ol class="ranked">{searches7.top.map((q: any) => <li><span>{q.query}</span><span class="mono muted">{q.searches} search{q.searches === 1 ? "" : "es"} · {q.results ? `${q.results} result${q.results === 1 ? "" : "s"}` : "no results"}</span></li>)}</ol>
+                </>
+              ) : <p class="muted">Appears with the first search. Each search is counted once the reader stops typing.</p>}
+            </article>
+            <article class="card" id="read-depth">
+              <h2>How far readers got in a story <span class="muted">7 days · each reader once per story, at their deepest point</span></h2>
+              {depth7.reads ? (
+                <>
+                  <Fragment set:html={bars(depthRows, { color: C.s1, w: 560 })} />
+                  <p class="muted">{depth7.reads} story reads; on average readers got {depth7.avgPercent}% of the way down. Summary means they reached the source box under the key points; full text means they read into the publisher's article; stories without full text end at the summary. A glance of under 4 seconds counts as the top.</p>
+                </>
+              ) : <p class="muted">Appears when readers leave their first story page.</p>}
+            </article>
+          </div>
           <section class="card">
             <h2>Story performance <span class="muted">7 days · what the model predicted vs what happened · click a header to sort</span></h2>
             <div class="tablewrap">
               <table class="tracker sortable" id="stories-table">
-                <thead><tr><th data-sort="headline">Story</th><th data-sort="category">Category</th><th data-sort="predicted" class="num">Predicted</th><th data-sort="views" class="num">Views</th><th data-sort="dwellavg" class="num">Time</th><th data-sort="clicks" class="num">Clicks</th><th data-sort="hnpoints" class="num">HN</th><th data-sort="sources" class="num">Src</th><th data-sort="score" class="num">Score</th><th>Actions</th></tr></thead>
+                <thead><tr><th data-sort="headline">Story</th><th data-sort="category">Category</th><th data-sort="predicted" class="num">Predicted</th><th data-sort="views" class="num">Views</th><th data-sort="dwellavg" class="num">Time</th><th data-sort="depthavg" class="num" title="How far down the story readers got, on average">Read</th><th data-sort="clicks" class="num">Clicks</th><th data-sort="hnpoints" class="num">HN</th><th data-sort="sources" class="num">Src</th><th data-sort="score" class="num">Score</th><th>Actions</th></tr></thead>
                 <tbody>
                   {perf.map((s: any) => (
-                    <tr data-slug={s.slug} data-score={s.score} data-headline={s.headline} data-category={s.category} data-predicted={s.predicted} data-views={s.views} data-dwellavg={s.dwellAvg ?? ""} data-clicks={s.clicks} data-hnpoints={s.hnPoints} data-sources={s.sources}>
+                    <tr data-slug={s.slug} data-score={s.score} data-headline={s.headline} data-category={s.category} data-predicted={s.predicted} data-views={s.views} data-dwellavg={s.dwellAvg ?? ""} data-depthavg={s.depthAvg ?? ""} data-clicks={s.clicks} data-hnpoints={s.hnPoints} data-sources={s.sources}>
                       <td><a href={`/story/${s.slug}`}>{s.headline}</a>{s.pinned && <span class="cov-tag"> pinned</span>}</td>
                       <td>{(categories[s.category] || s.category || "").split(" & ")[0]}</td>
                       <td class="num"><span class="mini"><i style={`width:${Math.round(s.predicted * 100)}%`}></i></span>{s.predicted.toFixed(2)}</td>
                       <td class="num">{eng.available ? s.views : "—"}</td>
                       <td class="num">{eng.available && s.dwellAvg != null ? `${s.dwellAvg}s` : "—"}</td>
+                      <td class="num">{eng.available && s.depthAvg != null ? `${s.depthAvg}%` : "—"}</td>
                       <td class="num">{eng.available ? s.clicks : "—"}</td>
                       <td class="num">{s.hnPoints || ""}</td>
                       <td class="num">{s.sources}</td>
@@ -604,6 +636,7 @@ const homeData = JSON.stringify({
           { key: "shares", label: "Shares" },
           { key: "listens", label: "Listens" },
           { key: "alertSignups", label: "Alert sign-ups", note: "browser push" },
+          { key: "searches", label: "Site searches", dir: 0, note: "on the search and not-found pages" },
         ]],
         ["Google Search", [
           { key: "googleClicks", label: "Google clicks", lag: true },

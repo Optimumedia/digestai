@@ -18,7 +18,7 @@ import Rail from "../components/Rail.astro";
         <li>Every other outlet covering the same story, so you can compare accounts.</li>
       </ul>
       <h2>How stories are ranked</h2>
-      <p>Ordering combines the editorial importance our model assigns, how recent the story is, how many independent sources cover it, and what readers actually open and read. The last signal is learned continuously: we record page views, time on page and clicks to the source, without cookies or personal identifiers, and use them to predict which new stories will matter to you.</p>
+      <p>Ordering combines the editorial importance our model assigns, how recent the story is, how many independent sources cover it, and what readers actually open and read. The last signal is learned continuously: we record page views, time on page, how far a story is read and clicks to the source, without cookies or personal identifiers, and use them to predict which new stories will matter to you.</p>
       <h2 id="standards">Editorial standards</h2>
       <ul>
         <li><strong>Every claim has a source.</strong> A story page lists each article it draws on and links to it. Digests are written from those articles only, never from memory or speculation.</li>
@@ -26,7 +26,7 @@ import Rail from "../components/Rail.astro";
         <li><strong>Primary sources first.</strong> When a lab, company, court or regulator has published something itself, that document is included and marked as the primary source.</li>
         <li><strong>No paid placement in the news.</strong> Ranking is decided by editorial importance, freshness, breadth of coverage and reader behaviour, never by payment. Sponsorship, if ever introduced, will be labelled.</li>
         <li><strong>Publisher rights.</strong> Full texts are reproduced with attribution and a prominent link; publishers who prefer a digest only are honoured on request.</li>
-        <li><strong>Privacy.</strong> No accounts, no cookies, no IP addresses. Visits are recorded as anonymous events (the page, where the visit came from, and a random visitor number that stays in your browser and is replaced every day), used only to count readers and rank stories. While a page is open it also joins an anonymous live count (the page, where the visit came from and whether it is a phone), which is never stored.</li>
+        <li><strong>Privacy.</strong> No accounts, no cookies, no IP addresses. Visits are recorded as anonymous events (the page, where the visit came from, and a random visitor number that stays in your browser and is replaced every day), used only to count readers and rank stories. On a story page we also note how far down you read (the top, the summary, the full text or the end). When you search the site we record the words you searched for and how many stories matched, so we can see what we do not cover yet; the words are lowercased, e-mail addresses and long numbers are removed, and they are never linked to anything but that day's random number. While a page is open it also joins an anonymous live count (the page, where the visit came from and whether it is a phone), which is never stored.</li>
       </ul>
       <h2 id="corrections">Corrections</h2>
       <p>Automated summaries can be wrong. If a headline, key point or digest misstates what the sources say, email <a href="mailto:hello@digestai.news">hello@digestai.news</a> with the story link. Corrected stories are updated on the next publishing run and marked as updated.</p>
