@@ -43,19 +43,26 @@ def main(argv: list[str]) -> int:
     if not steps:
         print(f"usage: python -m digest.run [{'|'.join(['all'] + ORDER)}]")
         return 2
+    b_start = db.bytes_read()
     eng = db.engine()
     summary = {}
+    startup_bytes = db.bytes_read() - b_start
     for step in steps:
         started = db.utcnow()
         with eng.begin() as conn:
             run_id = conn.execute(insert(db.runs).values(started_at=started, step=step)).inserted_primary_key[0]
         t0 = time.time()
+        b0 = db.bytes_read()
         try:
             stats = STEPS[step]()
         except Exception:
             logging.getLogger("digest").exception("step %s crashed", step)
             stats = {"crashed": True}
         stats["seconds"] = round(time.time() - t0, 1)
+        # Estimated kilobytes read from the database (the free plan meters them); the first step
+        # also carries the connection's start-up reads.
+        stats["readKB"] = round((db.bytes_read() - b0 + startup_bytes) / 1024, 1)
+        startup_bytes = 0
         summary[step] = stats
         with eng.begin() as conn:
             conn.execute(update(db.runs).where(db.runs.c.id == run_id).values(finished_at=db.utcnow(), stats=stats))

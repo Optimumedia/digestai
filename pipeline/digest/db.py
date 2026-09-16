@@ -268,12 +268,73 @@ runs = Table(
 
 _engine: Engine | None = None
 
+# ---------------------------------------------------------------------------- read meter
+# Supabase's free plan counts every byte the database sends (5 GB a month), so each step records
+# roughly how much it read. The estimate is the row data plus the protocol's per-row and
+# per-column framing; on Postgres the value lengths come from the result itself.
+_bytes_read = [0]
+PG_ROW_OVERHEAD, PG_COLUMN_OVERHEAD, PG_QUERY_OVERHEAD = 7, 4, 40
+
+
+def bytes_read() -> int:
+    """Estimated bytes read from the database by this process so far."""
+    return _bytes_read[0]
+
+
+def _value_size(v) -> int:
+    if v is None:
+        return 0
+    if isinstance(v, (str, bytes)):
+        return len(v)
+    if isinstance(v, bool):
+        return 1
+    if isinstance(v, int):
+        return len(str(v))
+    if isinstance(v, float):
+        return 8
+    return 26  # dates and times as text
+
+
+def _count_rows(cursor, row):
+    _bytes_read[0] += PG_ROW_OVERHEAD + sum(PG_COLUMN_OVERHEAD + _value_size(v) for v in row)
+    return row
+
+
+def pgresult_bytes(res) -> int:
+    """Bytes of a Postgres result (psycopg's pgresult): the value lengths plus framing."""
+    if res is None:
+        return 0
+    n, f = res.ntuples, res.nfields
+    total = PG_QUERY_OVERHEAD + n * (PG_ROW_OVERHEAD + PG_COLUMN_OVERHEAD * f)
+    for r in range(n):
+        for c in range(f):
+            total += res.get_length(r, c)
+    return total
+
+
+def install_read_meter(eng: Engine) -> None:
+    from sqlalchemy import event
+
+    if eng.dialect.name == "sqlite":
+        # sqlite3 hands every fetched row to row_factory: count it there and return it unchanged.
+        @event.listens_for(eng, "connect")
+        def _meter_sqlite(dbapi_conn, _record):
+            dbapi_conn.row_factory = _count_rows
+    else:
+        @event.listens_for(eng, "after_cursor_execute")
+        def _meter_pg(conn, cursor, statement, parameters, context, executemany):
+            try:
+                _bytes_read[0] += pgresult_bytes(getattr(cursor, "pgresult", None))
+            except Exception:  # noqa: BLE001 - measuring must never break a query
+                pass
+
 
 def engine() -> Engine:
     global _engine
     if _engine is None:
         url = _normalize_url(config.DATABASE_URL)
         _engine = create_engine(url, future=True, pool_pre_ping=True)
+        install_read_meter(_engine)
         metadata.create_all(_engine)
         _migrate(_engine)
         if _engine.dialect.name == "postgresql":
