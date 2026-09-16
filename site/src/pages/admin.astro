@@ -2,6 +2,8 @@
 import Base from "../layouts/Base.astro";
 import HeldReview from "../components/HeldReview.astro";
 import { columns, lines, bars, stackedBars, sinceFirst, dayLabel } from "../lib/charts";
+import { rankLine, rankSpark } from "../lib/charts";
+import { searchView, rowChange, explainPosition, plural, dayTip, sparkTitle, MIN_IMPRESSIONS, MEANINGFUL_IMPRESSIONS } from "../lib/search";
 import { meta, categories, formatDate } from "../lib/data";
 import fs from "node:fs";
 import path from "node:path";
@@ -11,6 +13,8 @@ try { admin = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "src/data/a
 const holdOn = fs.existsSync(path.resolve(process.cwd(), "src/data/held.json"));
 let gsc: any = null;
 try { gsc = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "src/data/gsc.json"), "utf-8")); } catch {}
+const sv = gsc?.end && gsc?.start ? searchView(gsc) : null;
+const svDay = dayLabel();
 
 const repo = import.meta.env.PUBLIC_GISCUS_REPO || "Optimumedia/digestai";
 const C = { s1: "var(--series-1)", s2: "var(--series-2)", s3: "var(--series-3)", s4: "var(--series-4)", neutral: "var(--series-neutral)", good: "var(--status-good)", crit: "var(--status-critical)" };
@@ -448,34 +452,54 @@ const homeData = JSON.stringify({
 
         <!-- ============ SEARCH ============ -->
         <section class="tab" data-tab="seo" hidden>
-          {gsc ? (
-            <>
-              <div class="tiles">
-                <div class="tile"><span class="label">Clicks from Google, 28 days</span><span class="value">{gsc.totals.clicks}</span><span class="sub">{gsc.start} to {gsc.end}</span></div>
-                <div class="tile"><span class="label">Impressions</span><span class="value">{gsc.totals.impressions}</span><span class="sub">{gsc.totals.impressions ? `${((gsc.totals.clicks / gsc.totals.impressions) * 100).toFixed(1)}% click-through` : ""}</span></div>
-                <div class="tile"><span class="label">Indexed via sitemaps</span><span class="value">{gsc.sitemaps.reduce((n: number, s: any) => n + (s.indexed || 0), 0)}</span><span class="sub">of {gsc.sitemaps.reduce((n: number, s: any) => n + (s.submitted || 0), 0)} submitted</span></div>
-                <div class="tile"><span class="label">Average position</span><span class="value">{gsc.perDay.length ? (gsc.perDay.reduce((n: number, d: any) => n + d.position, 0) / gsc.perDay.length).toFixed(1) : "—"}</span><span class="sub">lower is better</span></div>
-              </div>
-              <div class="cards">
-                <article class="card wide">
-                  <h2>Clicks and impressions <span class="muted">per day, Google Search</span></h2>
-                  <div class="legend"><span><i style={`background:${C.s1}`}></i>Clicks</span><span><i style={`background:${C.s2}`}></i>Impressions</span></div>
-                  <Fragment set:html={columns(sinceFirst(gsc.perDay, ["impressions", "clicks"], 7), "day", [{ key: "clicks", label: "Clicks", color: C.s1 }, { key: "impressions", label: "Impressions", color: C.s2 }], { grouped: true, w: 1100, h: 240, xFormat: dayLabel() })} />
-                </article>
-                <article class="card">
-                  <h2>Top queries</h2>
-                  <div class="tablewrap"><table class="tracker"><thead><tr><th>Query</th><th class="num">Clicks</th><th class="num">Impr.</th><th class="num">Pos.</th></tr></thead><tbody>
-                    {gsc.queries.slice(0, 25).map((q: any) => <tr><td>{q.query}</td><td class="num">{q.clicks}</td><td class="num">{q.impressions}</td><td class="num">{q.position}</td></tr>)}
-                  </tbody></table></div>
-                </article>
-                <article class="card">
-                  <h2>Top pages</h2>
-                  <div class="tablewrap"><table class="tracker"><thead><tr><th>Page</th><th class="num">Clicks</th><th class="num">Impr.</th><th class="num">Pos.</th></tr></thead><tbody>
-                    {gsc.pages.slice(0, 25).map((p: any) => <tr><td><a href={p.page}>{p.page}</a></td><td class="num">{p.clicks}</td><td class="num">{p.impressions}</td><td class="num">{p.position}</td></tr>)}
-                  </tbody></table></div>
-                </article>
-              </div>
-            </>
+          {sv ? (
+              <>
+                <p class="search-range">How the site ranks on Google, from Search Console: the 7 days <b>{svDay(sv.week.from)} to {svDay(sv.week.to)}</b> against the 7 days before. Google reports about two days late.</p>
+                {sv.sparse && (
+                  <p class="search-note">Google has shown the site <b>{plural(sv.total.impressions, "time")}</b> in search results over the last 28 days{sv.total.clicks ? `, for ${plural(sv.total.clicks, "click")}` : ", with no clicks yet"}. Positions become meaningful after about {MEANINGFUL_IMPRESSIONS} impressions; until then one search can move the average by dozens of places.</p>
+                )}
+                <div class="tiles">
+                  <div class:list={["tile", "cmp-tile", sv.change.position.tone]}><span class="label">Average position, 7 days</span><span class="value">{sv.week.position == null ? "—" : sv.week.position.toFixed(1)}</span><Fragment set:html={sv.change.position.html} /><span class="sub">{explainPosition(sv.week.position)}; 1 is the top result.{sv.week.position != null && sv.week.prevPosition != null && !sv.enough ? ` Too few impressions (under ${MIN_IMPRESSIONS} a week) to call it better or worse.` : ""}</span></div>
+                  <div class:list={["tile", "cmp-tile", sv.change.impressions.tone]}><span class="label">Impressions, 7 days</span><span class="value">{sv.week.impressions.toLocaleString("en-US")}</span><Fragment set:html={sv.change.impressions.html} /><span class="sub">times the site appeared in someone's Google results</span></div>
+                  <div class:list={["tile", "cmp-tile", sv.change.clicks.tone]}><span class="label">Clicks, 7 days</span><span class="value">{sv.week.clicks.toLocaleString("en-US")}</span><Fragment set:html={sv.change.clicks.html} /><span class="sub">visits from Google Search</span></div>
+                  <div class:list={["tile", "cmp-tile", sv.change.ctr.tone]}><span class="label">Click-through, 7 days</span><span class="value">{sv.ctr == null ? "—" : `${(sv.ctr * 100).toFixed(1)}%`}</span><Fragment set:html={sv.change.ctr.html} /><span class="sub">share of impressions that became a click</span></div>
+                  <div class:list={["tile", "cmp-tile", sv.change.queries.tone]}><span class="label">Searches we appear in, 28 days</span><span class="value">{sv.queryCount.toLocaleString("en-US")}</span><Fragment set:html={sv.change.queries.html} /><span class="sub">different search terms; Google hides rare ones, so the real number is higher</span></div>
+                  <div class:list={["tile", "cmp-tile", sv.change.pages.tone]}><span class="label">Pages that appear, 28 days</span><span class="value">{sv.pageCount.toLocaleString("en-US")}</span><Fragment set:html={sv.change.pages.html} /><span class="sub">{sv.inspected ? `pages of this site shown at least once · ${sv.indexed} of ${sv.inspected} key pages indexed` : "pages of this site shown at least once"}</span></div>
+                </div>
+                <div class="cards">
+                  <article class="card wide">
+                    <h2>Average position on Google <span class="muted">per day · 1 is the top result, so higher on the chart is better · the shaded band is page 1 of results · gaps are days Google did not show the site · hover a day for exact numbers</span></h2>
+                    <Fragment set:html={rankLine(sv.chart, "day", "position", { w: 1100, h: 230, color: C.s1, xFormat: svDay, tip: dayTip(svDay), label: "Average Google position per day, 1 at the top" })} />
+                    <h3 class="search-sub">Impressions and clicks <span class="muted">per day, same days</span></h3>
+                    <div class="legend"><span><i style={`background:${C.s2}`}></i>Impressions</span><span><i style={`background:${C.s3}`}></i>Clicks</span></div>
+                    <Fragment set:html={columns(sv.chart, "day", [{ key: "impressions", label: "Impressions", color: C.s2 }, { key: "clicks", label: "Clicks", color: C.s3 }], { grouped: true, w: 1100, h: 130, xFormat: svDay })} />
+                  </article>
+                  <article class="card wide">
+                    <h2>Searches that show the site <span class="muted">last 28 days ({svDay(gsc.start)} to {svDay(gsc.end)}) · change in average position vs the 28 days before · the line shows each day's position, higher is better</span></h2>
+                    {sv.queries.length ? (
+                      <div class="tablewrap"><table class="tracker search-table"><thead><tr><th>Search term</th><th class="num">Impr.</th><th class="num">Clicks</th><th class="num">Avg. position</th><th class="num">Change</th><th>Daily position</th></tr></thead><tbody>
+                        {sv.queries.slice(0, 25).map((q: any) => (
+                          <tr>
+                            <td>{q.query}</td><td class="num">{q.impressions}</td><td class="num">{q.clicks}</td><td class="num">{q.position.toFixed(1)}</td>
+                            <td class="num"><Fragment set:html={rowChange(q)} /></td>
+                            <td><Fragment set:html={q.spark ? rankSpark(q.spark, { color: C.s1, title: sparkTitle(q) }) : ""} /></td>
+                          </tr>
+                        ))}
+                      </tbody></table></div>
+                    ) : <p class="muted">Google has not shown the site for any search in these 28 days.</p>}
+                  </article>
+                  <article class="card wide">
+                    <h2>Pages that show up <span class="muted">last 28 days · change in average position vs the 28 days before</span></h2>
+                    {sv.pages.length ? (
+                      <div class="tablewrap"><table class="tracker search-table"><thead><tr><th>Page</th><th class="num">Impr.</th><th class="num">Clicks</th><th class="num">Avg. position</th><th class="num">Change</th></tr></thead><tbody>
+                        {sv.pages.slice(0, 25).map((p: any) => (
+                          <tr><td><a href={p.page}>{p.page}</a></td><td class="num">{p.impressions}</td><td class="num">{p.clicks}</td><td class="num">{p.position.toFixed(1)}</td><td class="num"><Fragment set:html={rowChange(p)} /></td></tr>
+                        ))}
+                      </tbody></table></div>
+                    ) : <p class="muted">No page of the site appeared on Google in these 28 days.</p>}
+                  </article>
+                </div>
+              </>
           ) : (
             <div class="card">
               <h2>Google Search Console <span class="muted">not connected yet</span></h2>
@@ -608,6 +632,11 @@ const homeData = JSON.stringify({
         ["Google Search", [
           { key: "googleClicks", label: "Google clicks", lag: true },
           { key: "googleImpressions", label: "Google impressions", lag: true },
+          // Weighted by impressions: sum(position x impressions) / sum(impressions) over the period.
+          { key: "googlePosition", num: "googlePositionSum", den: "googleImpressions", label: "Average position", unit: "position", dir: -1, lag: true, abs: true, minBase: 50,
+            few: "too few impressions to judge", note: "on Google; 1 is the top result, lower is better" },
+          { key: "googleCtr", num: "googleClicks", den: "googleImpressions", label: "Google click-through", unit: "pct", lag: true, abs: true, minBase: 100,
+            few: "too few impressions to judge", note: "share of impressions that became a click" },
         ]],
         ["Output", [
           { key: "storiesPublished", label: "Stories published" },
@@ -622,7 +651,12 @@ const homeData = JSON.stringify({
       const fmtDay = (d, year = true) => { const [y, m, dd] = d.split("-").map(Number); return `${MON[m - 1]} ${dd}${year ? `, ${y}` : ""}`; };
       const fmtRange = ([f, t]) => (f === t ? fmtDay(f) : `${fmtDay(f, f.slice(0, 4) !== t.slice(0, 4))} – ${fmtDay(t)}`);
       const fmtTime = (s) => { s = Math.round(s); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`; };
-      const fmtNum = (v, m, perDay) => (v == null ? "—" : m.unit === "time" ? fmtTime(v) : v.toLocaleString("en-US", { maximumFractionDigits: perDay ? 1 : 0 }));
+      const fmtNum = (v, m, perDay) => (v == null ? "—" : m.unit === "time" ? fmtTime(v)
+        : m.unit === "position" ? v.toFixed(1) : m.unit === "pct" ? `${(v * 100).toFixed(1)}%`
+        : v.toLocaleString("en-US", { maximumFractionDigits: perDay ? 1 : 0 }));
+      /** Size of a change, without sign: positions to one decimal, rates in percentage points. */
+      const fmtDiff = (d, m, perDay) => (m.unit === "time" ? fmtTime(d) : m.unit === "position" ? d.toFixed(1)
+        : m.unit === "pct" ? `${(d * 100).toFixed(1)} pts` : d.toLocaleString("en-US", { maximumFractionDigits: perDay ? 1 : 0 }));
       const fmtPct = (p) => { const a = Math.abs(p); const t = a < 10 ? a.toFixed(1).replace(/\.0$/, "") : Math.round(a).toLocaleString("en-US"); return `${p > 0 ? "+" : "−"}${t}%`; };
 
       /** Rolling windows of complete days: the last complete day is the one before generation. */
@@ -689,13 +723,17 @@ const homeData = JSON.stringify({
           if (!res.state) {
             const { a, b } = res;
             if (a == null && b == null) { res.state = "none"; res.note = "no readings in either period"; }
-            else if (b == null || (b === 0 && a > 0)) res.state = "new";
+            else if (b == null || (b === 0 && a > 0 && !m.abs)) res.state = "new";
             else if (a == null) { res.state = "gone"; res.note = "no readings in this period"; }
             else if (Math.abs(a - b) < 1e-9 || Math.abs(((a - b) / b) * 100) < 0.05) res.state = "same";
+            // abs: an average (position, click-through) moves in its own units, not in percent, and
+            // needs enough impressions on both sides before its movement means anything.
+            else if (m.abs) { res.diff = a - b; res.state = Math.min(ra.base, rb.base) < (m.minBase ?? MIN_BASE.readings) ? "small" : "diff"; }
             else if (rb.base < (m.num ? MIN_BASE.readings : MIN_BASE.count)) { res.state = "small"; res.diff = a - b; }
             else { res.state = "change"; res.pct = ((a - b) / b) * 100; }
-            const sign = res.state === "new" ? 1 : res.state === "gone" ? -1 : res.state === "change" ? Math.sign(res.pct) : 0;
-            const dir = m.dir ?? 1;
+            const sign = res.state === "new" ? 1 : res.state === "gone" ? -1 : res.state === "change" ? Math.sign(res.pct) : res.state === "diff" ? Math.sign(res.diff) : 0;
+            // An average appearing or vanishing (no impressions on one side) is neither better nor worse.
+            const dir = m.abs && (res.state === "new" || res.state === "gone") ? 0 : m.dir ?? 1;
             res.tone = sign * dir > 0 ? "good" : sign * dir < 0 ? "bad" : "neutral";
           }
           return res;
@@ -741,9 +779,10 @@ const homeData = JSON.stringify({
         if (r.state === "change") {
           const verdict = r.tone === "good" ? "improvement" : r.tone === "bad" ? "decline" : "change";
           change = `<span class="cmp-change"><span class="cmp-arrow" aria-hidden="true">${r.pct > 0 ? "▲" : "▼"}</span>${fmtPct(r.pct)}<span class="cmp-sr"> (${verdict})</span></span>`;
-        } else if (r.state === "small") {
-          const d = r.diff, abs = m.unit === "time" ? fmtTime(Math.abs(d)) : Math.abs(d).toLocaleString("en-US", { maximumFractionDigits: r.perDay ? 1 : 0 });
-          change = `<span class="cmp-change"><span class="cmp-arrow" aria-hidden="true">${d > 0 ? "▲" : "▼"}</span>${d > 0 ? "+" : "−"}${abs}${unit} <span class="cmp-from">(from ${fmtNum(r.b, m, r.perDay)} to ${fmtNum(r.a, m, r.perDay)})</span></span>`;
+        } else if (r.state === "small" || r.state === "diff") {
+          const d = r.diff, abs = fmtDiff(Math.abs(d), m, r.perDay);
+          const verdict = r.tone === "good" ? " (improvement)" : r.tone === "bad" ? " (decline)" : "";
+          change = `<span class="cmp-change"><span class="cmp-arrow" aria-hidden="true">${d > 0 ? "▲" : "▼"}</span>${d > 0 ? "+" : "−"}${abs}${unit} <span class="cmp-from">(from ${fmtNum(r.b, m, r.perDay)} to ${fmtNum(r.a, m, r.perDay)})</span><span class="cmp-sr">${verdict}</span></span>`;
         } else if (r.state === "new") {
           change = `<span class="cmp-change"><span class="cmp-arrow" aria-hidden="true">▲</span>new<span class="cmp-sr"> (nothing in the previous period)</span></span>`;
         } else if (r.state === "same") {
@@ -753,7 +792,8 @@ const homeData = JSON.stringify({
         } else {
           change = `<span class="cmp-change cmp-note">${r.note}</span>`;
         }
-        const prev = r.state === "small" ? "too few to show as a percentage"
+        const prev = r.state === "small" ? m.few || "too few to show as a percentage"
+          : r.state === "diff" ? ""
           : r.b != null ? `vs ${fmtNum(r.b, m, r.perDay)}${unit}` : r.state === "unavailable" && r.a != null ? "previous period not available" : "";
         const moved = r.shifted ? `${fmtRange(r.shifted.A)} vs ${fmtRange(r.shifted.B)}, the latest Search Console days` : "";
         const sub = [prev, r.state === "gone" || r.state === "none" ? r.note : "", moved, m.note].filter(Boolean).join(" · ");

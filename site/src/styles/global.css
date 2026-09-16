@@ -588,6 +588,18 @@ table.sortable th:hover { color: var(--ink); }
   .cmp-tile .value { font-size: 20px; }
 }
 /* ---------- /Admin: Compare ---------- */
+/* ---------- Admin: Search (Google ranking) ---------- */
+.search-range { margin: 0 0 10px; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.search-range b { font-weight: 600; color: var(--ink); }
+.search-note { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--status-warning); border-radius: 4px; background: var(--surface); font-size: 14px; line-height: 1.5; color: var(--ink-2); max-width: 90ch; }
+.search-note b { color: var(--ink); }
+.search-sub { margin: 14px 0 4px; font-family: var(--font-body); font-size: 14px; font-weight: 600; color: var(--ink); }
+.search-sub .muted { font-weight: 400; }
+.chart .band { fill: var(--ink); opacity: 0.045; }
+.spark { display: block; overflow: visible; }
+.spark .line { fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.search-table td .st { white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* ---------- /Admin: Search ---------- */
 /* ---------- Admin: Held for approval ---------- */
 .held-review { border-left: 3px solid var(--line); }
 .held-review.has-held { border-left-color: var(--hot); }

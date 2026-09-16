@@ -139,6 +139,76 @@ export function lines(rows: Record<string, any>[], xKey: string, series: Series[
   return out;
 }
 
+/** Rank axis for Google positions: 1 (the top result) at the top, a round bottom (10, 20, 50,
+    100 or a round step above) at the bottom, and ticks at 1 plus round steps. Linear, so the
+    distance between page 1 (positions 1-10) and page 2 reads true. */
+export function rankScale(worst: number): { max: number; ticks: number[] } {
+  const w = Math.max(1, worst);
+  if (w <= 10) return { max: 10, ticks: [1, 5, 10] };
+  if (w <= 20) return { max: 20, ticks: [1, 5, 10, 15, 20] };
+  if (w <= 50) return { max: 50, ticks: [1, 10, 20, 30, 40, 50] };
+  const { max, ticks } = w <= 100 ? { max: 100, ticks: [0, 10, 20, 40, 60, 80, 100] } : scale(w, 5);
+  return { max, ticks: [1, ...ticks.filter((t) => t > 1)] };
+}
+
+/** Daily Google position as a line on an inverted axis (better ranking is higher). Days with no
+    value (Google showed the site nowhere) stay gaps: the line breaks and nothing is drawn at 0.
+    A day without a neighbour on either side still shows as a dot. Uses the same horizontal layout
+    as columns(), so a columns chart of the same rows and width lines up underneath. */
+export function rankLine(rows: Record<string, any>[], xKey: string, key: string, opts: { w?: number; h?: number; color: string; xFormat?: (v: any) => string; tip?: (r: Record<string, any>) => string; label?: string }): string {
+  const w = opts.w ?? 640, h = opts.h ?? 200;
+  const padL = 34, padR = 8, padT = 10, padB = 24;
+  const pw = w - padL - padR, ph = h - padT - padB;
+  const val = (r: Record<string, any>) => (r[key] == null || !isFinite(Number(r[key])) || Number(r[key]) <= 0 ? null : Number(r[key]));
+  const vals = rows.map(val);
+  const { max, ticks } = rankScale(Math.max(1, ...vals.filter((v): v is number => v != null)));
+  const band = pw / Math.max(1, rows.length);
+  const x = (i: number) => padL + band * i + band / 2;
+  const y = (v: number) => padT + ((Math.min(v, max) - 1) / Math.max(1, max - 1)) * ph;
+  const xf = opts.xFormat ?? ((v) => String(v).slice(5));
+  let out = `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(opts.label ?? "line chart of position, 1 at the top")}">`;
+  // Page 1 of Google's results (positions 1 to 10) as a faint band, when the axis goes beyond it.
+  if (max > 10) out += `<rect class="band" x="${padL}" y="${padT}" width="${pw}" height="${(y(10.5) - padT).toFixed(1)}"><title>Positions 1 to 10: the first page of Google's results</title></rect>`;
+  for (const t of ticks) out += `<line class="grid" x1="${padL}" x2="${w - padR}" y1="${y(t)}" y2="${y(t)}"/><text class="tick" x="${padL - 6}" y="${y(t) + 3}" text-anchor="end">${t}</text>`;
+  const every = Math.max(1, Math.ceil(rows.length / 7));
+  rows.forEach((r, i) => { if (i % every === 0) out += `<text class="tick" x="${x(i)}" y="${h - 6}" text-anchor="middle">${esc(xf(r[xKey]))}</text>`; });
+  let d = "";
+  vals.forEach((v, i) => { if (v != null) d += `${i && vals[i - 1] != null ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)} `; });
+  if (d) out += `<path class="line" stroke="${opts.color}" d="${d.trim()}"/>`;
+  const last = vals.reduce((n: number, v, i) => (v != null ? i : n), -1);
+  vals.forEach((v, i) => {
+    if (v == null) return;
+    const alone = vals[i - 1] == null && vals[i + 1] == null;
+    if (alone || i === last || rows.length <= 120) out += `<circle class="dot" cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="${i === last ? 4.5 : alone ? 3.5 : 2.5}" fill="${opts.color}"/>`;
+  });
+  rows.forEach((r, i) => {
+    const v = vals[i];
+    const tip = opts.tip ? opts.tip(r) : `${xf(r[xKey])}: ${v == null ? "not shown on Google" : `position ${v.toFixed(1)}`}`;
+    out += `<rect class="hit" x="${(padL + band * i).toFixed(1)}" y="${padT}" width="${band.toFixed(1)}" height="${ph}"><title>${esc(tip)}</title></rect>`;
+  });
+  out += `<line class="axis" x1="${padL}" x2="${w - padR}" y1="${padT + ph}" y2="${padT + ph}"/></svg>`;
+  return out;
+}
+
+/** A word-sized inverted line of daily positions for a table row: higher is better, gaps stay
+    gaps. Its own vertical range (at least 5 positions tall, so small moves look small). */
+export function rankSpark(points: (number | null)[], opts: { w?: number; h?: number; color: string; title?: string }): string {
+  const w = opts.w ?? 96, h = opts.h ?? 22, pad = 3;
+  const got = points.filter((v): v is number => v != null && v > 0);
+  if (!got.length) return "";
+  let lo = Math.min(...got), hi = Math.max(...got);
+  if (hi - lo < 5) { const mid = (hi + lo) / 2; lo = Math.max(1, mid - 2.5); hi = lo + 5; }
+  const x = (i: number) => pad + (points.length > 1 ? (i / (points.length - 1)) * (w - 2 * pad) : (w - 2 * pad) / 2);
+  const y = (v: number) => pad + ((v - lo) / (hi - lo)) * (h - 2 * pad);
+  let d = "", dots = "";
+  points.forEach((v, i) => {
+    if (v == null || v <= 0) return;
+    d += `${i && points[i - 1] != null ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)} `;
+    if (points[i - 1] == null && points[i + 1] == null) dots += `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2.2" fill="${opts.color}"/>`;
+  });
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(opts.title ?? "daily position")}"><title>${esc(opts.title ?? "")}</title>${d ? `<path class="line" stroke="${opts.color}" d="${d.trim()}"/>` : ""}${dots}</svg>`;
+}
+
 /** Horizontal stacked bars: one row per entity, segments per series (shares of a whole). */
 export function stackedBars(rows: Record<string, any>[], labelKey: string, series: Series[], opts: { w?: number; rowH?: number } = {}): string {
   const w = opts.w ?? 640, rowH = opts.rowH ?? 24;
