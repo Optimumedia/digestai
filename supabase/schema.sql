@@ -33,12 +33,17 @@ alter default privileges for role postgres in schema public revoke all on sequen
 grant insert on events to anon;
 grant usage, select on sequence events_id_seq to anon;
 
+-- The pipeline re-creates this policy on every run (db.py, EVENTS_POLICY_SQL); keep the two in step.
+-- detail: a site search query (search) or how far a story was read (depth), at most 100 characters.
+alter table events add column if not exists detail varchar(100);
 drop policy if exists "public can log events" on events;
 create policy "public can log events" on events
   for insert to anon
   with check (
-    type in ('view', 'click_source', 'dwell', 'share', 'newsletter_click', 'save', 'follow', 'comment', 'push_on', 'listen')
+    type in ('view', 'click_source', 'dwell', 'share', 'newsletter_click', 'save', 'follow', 'comment', 'push_on', 'listen', 'search', 'depth')
     and value >= 0 and value <= 3600
+    and (type <> 'depth' or (value <= 100 and detail in ('top', 'summary', 'full_text', 'end')))
+    and (detail is null or type in ('search', 'depth'))
   );
 
 -- 2b. Abuse limits on the public insert path. The publishable key is in every page, so anyone
@@ -57,8 +62,13 @@ begin
     new.created_at := now();
   end if;
   if length(coalesce(new.session, '')) > 40 or length(coalesce(new.path, '')) > 200
-     or length(coalesce(new.visitor, '')) > 40 or length(coalesce(new.source, '')) > 60 then
+     or length(coalesce(new.visitor, '')) > 40 or length(coalesce(new.source, '')) > 60
+     or length(coalesce(new.detail, '')) > 100 then
     raise exception 'payload too large';
+  end if;
+  -- A search query is kept only as a subject: no e-mail addresses or long numbers, even if typed.
+  if new.detail is not null and new.type = 'search' then
+    new.detail := left(regexp_replace(regexp_replace(lower(btrim(new.detail)), '[^[:space:]]+@[^[:space:]]+', '', 'g'), '[0-9]{5,}', '', 'g'), 100);
   end if;
   if (select count(*) from events e where e.session = new.session and e.created_at > now() - interval '1 minute') >= 30 then
     raise exception 'too many events';

@@ -24,8 +24,8 @@ RECOMPUTE_DAYS = 3  # today and the two days before: late dwell and click events
 EVENT_RETENTION_DAYS = 89
 
 EVENT_TYPES = {"view": "views", "click_source": "clicks", "save": "saves", "follow": "follows",
-               "share": "shares", "listen": "listens", "push_on": "alert_signups"}
-EVENT_COLS = ["sessions", "visitors", "views", "dwell_seconds", "dwell_reads", "clicks", "saves", "follows", "shares", "listens", "alert_signups"]
+               "share": "shares", "listen": "listens", "push_on": "alert_signups", "search": "searches"}
+EVENT_COLS = ["sessions", "visitors", "views", "dwell_seconds", "dwell_reads", "clicks", "saves", "follows", "shares", "listens", "alert_signups", "searches"]
 CONTENT_COLS = ["stories_published", "articles_published", "articles_fetched"]
 GOOGLE_COLS = ["google_clicks", "google_impressions"]
 GROUPS = {"events": EVENT_COLS, "content": CONTENT_COLS, "social": ["social_posts"], "runs": ["crashed_steps"]}

@@ -153,6 +153,50 @@ def test_search_cards():
     assert admin.search_cards(home, fresh, NOW)[0]["level"] == "warning"
 
 
+def test_summary_cards_only_when_readers_wait():
+    from digest import admin
+
+    def enrich(minutes_ago, enriched=0, budget=None, crashed=False):
+        stats = {"crashed": True} if crashed else {"enriched": enriched, "rejected": 0, "budget": budget if budget is not None else {"gemini": 0, "groq": 20}}
+        return {"step": "enrich", "startedAt": NOW - timedelta(minutes=minutes_ago), "stats": stats}
+
+    old = NOW - timedelta(hours=3)
+    # Gemini is out for the day but Groq keeps writing: normal, no card.
+    assert admin.summary_cards([enrich(60, 8), enrich(30, 6), enrich(0, 7)], {"gemini"}, 12, old, NOW) == []
+    # Nothing waiting, or only articles that just arrived: no card, even after quiet runs.
+    quiet = [enrich(60), enrich(30), enrich(0)]
+    assert admin.summary_cards(quiet, set(), 0, None, NOW) == []
+    assert admin.summary_cards(quiet, set(), 5, NOW - timedelta(minutes=20), NOW) == []
+    # Two quiet runs with a model still available: not yet.
+    assert admin.summary_cards([enrich(60, 4), enrich(30), enrich(0)], set(), 5, old, NOW) == []
+    # Three runs in a row wrote nothing while articles waited.
+    cards = admin.summary_cards(quiet, set(), 5, old, NOW)
+    assert [c["id"] for c in cards] == ["summaries:stopped"] and cards[0]["level"] == "warning"
+    assert "last 3 runs" in cards[0]["what"] and "5 articles" in cards[0]["what"] and cards[0]["action"]["kind"] == "link"
+    # Every model is out of its allowance: one card at once, calmer late in the day.
+    out = [enrich(30, 5), enrich(0, 0, {"gemini": 0, "groq": 0})]
+    cards = admin.summary_cards(out, {"gemini"}, 9, old, NOW)
+    assert [c["id"] for c in cards] == ["summaries:allowance"] and cards[0]["level"] == "warning" and "12 hours" in cards[0]["why"]
+    groq_ran_out = [enrich(0, 0, {"gemini": 0, "groq": 20})]
+    assert admin.summary_cards(groq_ran_out, {"gemini", "groq"}, 9, old, NOW)[0]["id"] == "summaries:allowance"
+    late = NOW.replace(hour=22)
+    assert admin.summary_cards([dict(r, startedAt=late) for r in out], {"gemini"}, 9, old, late)[0]["level"] == "info"
+    # A local model with a share left keeps writing: not all out. A crashed step is left to the run cards.
+    assert admin.summary_cards([enrich(0, 0, {"gemini": 0, "groq": 0, "ollama": 30})], set(), 9, old, NOW) == []
+    assert admin.summary_cards([enrich(0, crashed=True)], set(), 9, old, NOW) == []
+
+
+def test_site_search_cards():
+    from digest import admin
+
+    summary = {"missing": [{"query": "robot dogs", "searches": 4, "visitors": 3, "results": 0},
+                           {"query": "typo", "searches": 2, "visitors": 1, "results": 0}]}
+    cards = admin.site_search_cards(summary)
+    assert len(cards) == 1 and cards[0]["id"] == "searches:missing" and cards[0]["level"] == "info"
+    assert '"robot dogs"' in cards[0]["what"] and [i["headline"] for i in cards[0]["items"]] == ["robot dogs"]
+    assert admin.site_search_cards({"missing": summary["missing"][1:]}) == [] and admin.site_search_cards(None) == []
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

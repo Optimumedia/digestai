@@ -167,6 +167,9 @@ events = Table(
     Column("visitor", String(40)),  # random per browser, replaced every UTC day
     Column("source", String(60)),  # utm_source, else the referring host, else "direct"
     Column("path", Text),
+    # search: the query as typed (trimmed, lowercased, emails and long numbers removed);
+    # depth: how far the reader got (top | summary | full_text | end). Empty for other types.
+    Column("detail", String(100)),
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
 
@@ -236,6 +239,7 @@ daily_stats = Table(
     Column("shares", Integer),
     Column("listens", Integer),
     Column("alert_signups", Integer),
+    Column("searches", Integer),
     Column("stories_published", Integer),
     Column("articles_published", Integer),
     Column("articles_fetched", Integer),
@@ -304,14 +308,38 @@ begin
     new.created_at := now();
   end if;
   if length(coalesce(new.session, '')) > 40 or length(coalesce(new.path, '')) > 200
-     or length(coalesce(new.visitor, '')) > 40 or length(coalesce(new.source, '')) > 60 then
+     or length(coalesce(new.visitor, '')) > 40 or length(coalesce(new.source, '')) > 60
+     or length(coalesce(new.detail, '')) > 100 then
     raise exception 'payload too large';
+  end if;
+  -- A search query is kept only as a subject: no e-mail addresses or long numbers, even if typed.
+  if new.detail is not null and new.type = 'search' then
+    new.detail := left(regexp_replace(regexp_replace(lower(btrim(new.detail)), '[^[:space:]]+@[^[:space:]]+', '', 'g'), '[0-9]{5,}', '', 'g'), 100);
   end if;
   if (select count(*) from events e where e.session = new.session and e.created_at > now() - interval '1 minute') >= 30 then
     raise exception 'too many events';
   end if;
   return new;
 end $$;"""
+
+
+# What the public key may insert into events (also in supabase/schema.sql). A type that is not in
+# this list is refused by the database, so a new reader event needs its name added here.
+PUBLIC_EVENT_TYPES = ("view", "click_source", "dwell", "share", "newsletter_click", "save", "follow", "comment",
+                      "push_on", "listen", "search", "depth")
+DEPTH_STAGES = ("top", "summary", "full_text", "end")
+_quoted = lambda xs: ", ".join(f"'{x}'" for x in xs)  # noqa: E731
+EVENTS_POLICY_SQL = [
+    'DROP POLICY IF EXISTS "public can log events" ON events',
+    f"""CREATE POLICY "public can log events" ON events
+  FOR INSERT TO anon
+  WITH CHECK (
+    type IN ({_quoted(PUBLIC_EVENT_TYPES)})
+    AND value >= 0 AND value <= 3600
+    AND (type <> 'depth' OR (value <= 100 AND detail IN ({_quoted(DEPTH_STAGES)})))
+    AND (detail IS NULL OR type IN ('search', 'depth'))
+  )""",
+]
 
 
 def _harden_postgres(eng: Engine) -> None:
@@ -344,6 +372,17 @@ def _harden_postgres(eng: Engine) -> None:
         import logging
 
         logging.getLogger("digest.db").warning("could not update the events guard: %s", str(exc)[:120])
+    # The insert policy: which event types the site may send. Replacing a policy locks the table
+    # briefly, so give up fast and try again next run rather than wait behind a busy pipeline.
+    try:
+        with eng.begin() as conn:
+            conn.execute(text("SET LOCAL lock_timeout = '3s'"))
+            for stmt in EVENTS_POLICY_SQL:
+                conn.execute(text(stmt))
+    except Exception as exc:  # noqa: BLE001
+        import logging
+
+        logging.getLogger("digest.db").warning("could not update the events policy: %s", str(exc)[:120])
 
 
 def _migrate(eng: Engine) -> None:

@@ -384,6 +384,80 @@ def test_daily_history_survives_event_pruning():
     assert rows[d(7)]["googleClicks"] == 70
 
 
+def test_source_names_for_social_apps():
+    from digest.admin import source_name
+
+    cases = {"l.instagram.com": "Instagram", "instagram.com": "Instagram", "www.instagram.com": "Instagram", "instagram": "Instagram",
+             "com.instagram.android": "Instagram", "threads.net": "Threads", "l.threads.com": "Threads", "m.youtube.com": "YouTube",
+             "youtu.be": "YouTube", "tiktok.com": "TikTok", "mastodon.social": "Mastodon", "fosstodon.org": "Mastodon",
+             "mastodon.example.org": "Mastodon", "t.me": "Telegram", "web.telegram.org": "Telegram", "discord.com": "Discord",
+             "app.slack.com": "Slack", "web.whatsapp.com": "WhatsApp", "wa.me": "WhatsApp", "com.linkedin.android": "LinkedIn",
+             "t.co": "X", "l.facebook.com": "Facebook", "google.co.uk": "Google", "direct": "Direct", "example.com": "example.com",
+             "notinstagram.com": "notinstagram.com"}
+    for raw, name in cases.items():
+        assert source_name(raw) == name, (raw, source_name(raw))
+
+
+def test_events_policy_and_guard_allow_new_reader_events():
+    from digest import db
+
+    policy = "\n".join(db.EVENTS_POLICY_SQL)
+    for t in ("view", "dwell", "search", "depth"):
+        assert f"'{t}'" in policy
+    assert "DROP POLICY IF EXISTS" in policy and "'full_text'" in policy and "value <= 100" in policy
+    assert "length(coalesce(new.detail, '')) > 100" in db.EVENTS_GUARD_SQL and "regexp_replace" in db.EVENTS_GUARD_SQL
+    schema = (Path(__file__).resolve().parents[2] / "supabase" / "schema.sql").read_text(encoding="utf-8")
+    assert "'listen', 'search', 'depth')" in schema and "length(coalesce(new.detail, '')) > 100" in schema
+    assert db.events.c.detail.type.length == 100
+
+
+def test_search_and_depth_summaries():
+    from datetime import datetime, timedelta, timezone
+
+    from digest import admin
+
+    t0 = datetime(2026, 9, 14, 10, 0, tzinfo=timezone.utc)
+    rows = [("GPT-6 ", 12, "v1", t0), ("gpt-6", 12, "v2", t0 + timedelta(hours=1)), ("mistral agents", 3, "v1", t0),
+            ("robot dogs", 2, "v1", t0), ("robot dogs", 0, "v3", t0 + timedelta(hours=2)),  # the latest search found nothing
+            ("x", 0, "v4", t0), ("mail me at a@b.co 1234567", 0, "v5", t0)]
+    s = admin.search_summary(rows)
+    assert s["total"] == 6 and s["queries"] == 4
+    assert s["top"][0] == {"query": "gpt-6", "searches": 2, "visitors": 2, "results": 12}
+    assert [m["query"] for m in s["missing"]] == ["robot dogs", "mail me at"]
+    assert s["noResults"] == 3
+    assert admin.clean_query("  Call 0612345678 or me@x.org  ") == "call or"
+
+    d = admin.depth_summary([("a", 1, 10, "summary"), ("a", 1, 80, "full_text"), ("b", 1, 0, "top"),
+                             ("c", 2, 100, "end"), ("c", 2, 40, "summary"), ("d", 2, 250, "bogus")])
+    assert d["reads"] == 4 and d["stages"] == {"top": 2, "summary": 0, "full_text": 1, "end": 1}
+    assert d["perStory"] == {1: 40, 2: 100} and d["avgPercent"] == 70
+
+
+def test_daily_history_counts_searches():
+    import tempfile
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import create_engine, insert
+
+    from digest import db, history
+
+    tmp = Path(tempfile.mkdtemp()) / "searches.db"
+    eng = create_engine(f"sqlite:///{tmp.as_posix()}", future=True)
+    db.metadata.create_all(eng)
+    now = datetime(2026, 9, 14, 10, 0, tzinfo=timezone.utc)
+    y = now - timedelta(days=1)
+    with eng.begin() as conn:
+        conn.execute(insert(db.events), [
+            {"type": "view", "session": "a", "value": 1, "created_at": y},
+            {"type": "search", "session": "a", "value": 0, "detail": "robot dogs", "created_at": y},
+            {"type": "search", "session": "a", "value": 4, "detail": "gemini", "created_at": y},
+            {"type": "depth", "session": "a", "story_id": 1, "value": 60, "detail": "full_text", "created_at": y},
+        ])
+    rows = {r["day"]: r for r in history.update(eng, now, google={})}
+    assert rows[y.date().isoformat()]["searches"] == 2 and rows[now.date().isoformat()]["searches"] == 0
+    assert rows[y.date().isoformat()]["views"] == 1
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

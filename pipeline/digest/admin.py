@@ -33,7 +33,23 @@ _SOURCE_NAMES = [
     (("newsletter", "kit", "email"), "Newsletter"),
     (("push", "alert"), "Browser alerts"),
     (("podcast",), "Podcast"),
+    (("instagram.com", "instagram", "ig"), "Instagram"),
+    (("threads.net", "threads.com", "threads"), "Threads"),
+    (("youtube.com", "youtu.be", "youtube"), "YouTube"),
+    (("tiktok.com", "tiktok"), "TikTok"),
+    (("mastodon.social", "mastodon.online", "mstdn.social", "mas.to", "fosstodon.org", "hachyderm.io",
+      "infosec.exchange", "sigmoid.social", "techhub.social", "mastodon"), "Mastodon"),
+    (("t.me", "telegram.org", "telegram.me", "telegram"), "Telegram"),
+    (("discord.com", "discordapp.com", "discord.gg", "discord"), "Discord"),
+    (("slack.com", "slack"), "Slack"),
+    (("whatsapp.com", "wa.me", "whatsapp"), "WhatsApp"),
 ]
+# Android apps report themselves as the referrer ("android-app://com.instagram.android").
+_APP_NAMES = {"com.instagram": "Instagram", "com.linkedin": "LinkedIn", "com.reddit": "Reddit", "com.twitter": "X",
+              "com.facebook": "Facebook", "xyz.blueskyweb": "Bluesky", "org.telegram": "Telegram", "com.whatsapp": "WhatsApp",
+              "com.discord": "Discord", "com.slack": "Slack", "com.google.android.youtube": "YouTube",
+              "com.zhiliaoapp.musically": "TikTok", "org.joinmastodon": "Mastodon", "com.google.android.gm": "Gmail",
+              "com.google.android.googlequicksearchbox": "Google"}
 
 
 def source_name(raw: str | None) -> str:
@@ -52,6 +68,11 @@ def source_name(raw: str | None) -> str:
         return "Bing"
     if "duckduckgo" in s:
         return "DuckDuckGo"
+    for prefix, name in _APP_NAMES.items():
+        if s == prefix or s.startswith(prefix + "."):
+            return name
+    if re.match(r"^(?:[a-z0-9-]+\.)*(?:mastodon|mstdn)(?:[.-][a-z0-9-]+)*\.[a-z]{2,}$", s):
+        return "Mastodon"
     return s
 
 def _iso(dt):
@@ -245,6 +266,18 @@ def run() -> dict:
         out["engagement"] = {"available": has_events, "perDay": list(per_day_ev.values()), "topStories": top_engaged,
                              "sources7": sources7, "pages7": pages7}
 
+        # ---- site searches and how far stories are read.
+        out["engagement"]["searches7"] = search_summary(conn.execute(
+            select(db.events.c.detail, db.events.c.value, who, db.events.c.created_at)
+            .where(db.events.c.created_at >= since7, db.events.c.type == "search")
+        ).all())
+        depth_rows = conn.execute(
+            select(db.events.c.session, db.events.c.story_id, db.events.c.value, db.events.c.detail, db.events.c.created_at)
+            .where(db.events.c.created_at >= since, db.events.c.type == "depth", db.events.c.story_id.isnot(None))
+        ).all()
+        out["engagement"]["depth7"] = depth_summary([r[:4] for r in depth_rows if db.as_utc(r[4]) >= since7])
+        depth_by_story = depth_summary([r[:4] for r in depth_rows])["perStory"]
+
         # ---- story performance: prediction vs what actually happened (readers, or the web).
         per_story_ev: dict[int, dict] = {}
         if has_events:
@@ -286,6 +319,7 @@ def run() -> dict:
                 "views": ev_row.get("views", 0),
                 "dwellAvg": round(ev_row["dwell"] / ev_row["dwellN"]) if ev_row.get("dwellN") else None,
                 "clicks": ev_row.get("clicks", 0), "saves": ev_row.get("saves", 0), "shares": ev_row.get("shares", 0),
+                "depthAvg": depth_by_story.get(s.id),
             })
         perf.sort(key=lambda p: (-(p["actual"] if has_events else (p["hnPoints"] + p["trend"])), -p["score"]))
         out["performance"] = perf[:60]
@@ -367,11 +401,12 @@ def run() -> dict:
                                      "If it is still failing tomorrow, pause it. You can switch it back on later in sources.yaml.",
                                      detail=f"Last error: {s['lastError']}" if s["lastError"] else None,
                                      action={"kind": "pause", "source": s["key"], "name": s["name"], "label": "Pause this source"}))
-        for u in usage:
-            if u.day == now.date().isoformat() and u.exhausted and now.hour < 12:
-                actions.append(_card(f"quota:{u.provider}", "info", f"{u.provider.title()} used up its daily allowance before noon (UTC).",
-                                     "The rest of today's summaries are written by the backup models, which are a little less polished.",
-                                     "No action needed; the allowance resets at midnight UTC."))
+        # One model running out of its free allowance is normal (the others take over); only a stop in
+        # summaries, which holds new stories back, is worth a card.
+        waiting, oldest_waiting = conn.execute(
+            select(func.count(), func.min(db.articles.c.created_at)).where(db.articles.c.status == "gated")).one()
+        exhausted_today = {u.provider for u in usage if u.day == now.date().isoformat() and u.exhausted}
+        actions += summary_cards(step_rows, exhausted_today, int(waiting or 0), db.as_utc(oldest_waiting), now)
         recent_pub = conn.execute(select(func.count()).select_from(db.stories).where(db.stories.c.first_published_at >= now - timedelta(hours=3), db.stories.c.status == "published")).scalar() or 0
         if recent_pub == 0 and now.hour not in (2, 3, 4, 5):
             actions.append(_card("pipeline:quiet", "warning", "No new story has been published in the last 3 hours.",
@@ -388,6 +423,7 @@ def run() -> dict:
                                  "The Compare numbers may miss today until the next successful run.",
                                  "No action needed unless it repeats.", detail=history_error))
         actions += search_cards(_read_json("gsc.json"), step_rows, now)
+        actions += site_search_cards(out["engagement"]["searches7"])
 
         # ---- content quality: sample older story pages that should still be online.
         cut_hi, cut_lo = now - timedelta(days=2), now - timedelta(days=60)
@@ -547,3 +583,111 @@ def search_cards(gsc: dict | None, rows: list[dict], now) -> list[dict]:
                          "Usually the Search Console connection lost access or its key expired. The Actions log shows the error on the \"gsc\" step.",
                          at=ok[-1]["startedAt"] if ok else None, action={"kind": "link", "url": ACTIONS_URL, "label": "Open the Actions log"}))
     return out
+
+
+def summary_cards(rows: list[dict], exhausted_today: set[str], waiting: int, oldest_waiting, now) -> list[dict]:
+    """A card only when summaries stop while articles wait: every summary model is out of its daily
+    allowance, or several runs in a row wrote nothing. One model running out is normal, the others
+    take over."""
+    if waiting <= 0 or oldest_waiting is None or oldest_waiting > now - timedelta(hours=1):
+        return []
+    enrich = sorted((r for r in rows if r["step"] == "enrich" and r["startedAt"] >= now - timedelta(hours=24)
+                     and not (r["stats"] or {}).get("crashed")), key=lambda r: r["startedAt"])
+    streak = 0
+    for r in reversed(enrich):
+        st = r["stats"] or {}
+        if st.get("enriched") or st.get("rejected"):
+            break
+        streak += 1
+    if not streak:
+        return []
+    budget = (enrich[-1]["stats"] or {}).get("budget") or {}
+    all_out = bool(budget) and all((n or 0) <= 0 or p in exhausted_today for p, n in budget.items())
+    articles = f"{waiting} article{'s' if waiting != 1 else ''}"
+    if all_out:
+        hours = 24 - now.hour
+        return [_card("summaries:allowance", "warning" if hours >= 4 else "info",
+                      "Every summary model has used up its free allowance for today, so no new summaries are being written.",
+                      f"{articles} wait for a summary, and new stories reach the site only once they have one. "
+                      f"The allowances come back at midnight UTC, in about {hours} hour{'s' if hours != 1 else ''}.",
+                      "No action needed if this is rare. If it happens most days, add a key for another free model, "
+                      "or lower how many articles each run summarises so the allowance lasts the whole day.")]
+    if streak >= 3:
+        return [_card("summaries:stopped", "warning", f"The last {streak} runs wrote no summaries while {articles} waited.",
+                      "New stories reach the site only once they have a summary, so the front page is not getting new stories.",
+                      "Open the Actions log and look at the \"enrich\" step: it says whether a model key stopped working or the models keep failing.",
+                      action={"kind": "link", "url": ACTIONS_URL, "label": "Open the Actions log"})]
+    return []
+
+
+# ---------------------------------------------------------------------------- site searches and read depth
+
+_EMAIL = re.compile(r"\S+@\S+")
+_LONG_NUMBER = re.compile(r"\d{5,}")
+DEPTH_STAGES = list(db.DEPTH_STAGES)  # top, summary, full_text, end
+
+
+def clean_query(raw: str | None) -> str:
+    """A site search as a subject: lowercased, single spaces, no e-mail addresses or long numbers.
+    The browser and the database strip those too; this also merges "GPT-5 " with "gpt-5"."""
+    q = _LONG_NUMBER.sub(" ", _EMAIL.sub(" ", (raw or "").lower()))
+    return " ".join(q.split())[:100]
+
+
+def search_summary(rows) -> dict:
+    """rows: (query, results, visitor, created_at). The most searched subjects, and those whose
+    latest search found nothing: what readers want that the site does not cover."""
+    by_q: dict[str, dict] = {}
+    total = 0
+    for query, results, who, at in rows:
+        q = clean_query(query)
+        if len(q) < 2:
+            continue
+        total += 1
+        row = by_q.setdefault(q, {"searches": 0, "who": set(), "results": 0, "at": None})
+        row["searches"] += 1
+        row["who"].add(who)
+        at = db.as_utc(at)
+        if row["at"] is None or (at is not None and at >= row["at"]):
+            row["at"], row["results"] = at, int(results or 0)
+    items = sorted(({"query": q, "searches": r["searches"], "visitors": len(r["who"]), "results": r["results"]} for q, r in by_q.items()),
+                   key=lambda r: (-r["visitors"], -r["searches"], r["query"]))
+    missing = [r for r in items if r["results"] == 0]
+    return {"total": total, "queries": len(items), "noResults": sum(r["searches"] for r in missing),
+            "top": items[:15], "missing": missing[:15]}
+
+
+def depth_summary(rows) -> dict:
+    """rows: (session, story_id, percent, stage). A page view can report more than once (each time
+    the reader leaves the tab after getting further), so a session counts once per story, at its
+    deepest point."""
+    deepest: dict[tuple, tuple[float, int]] = {}
+    for session, story_id, value, stage in rows:
+        rank = DEPTH_STAGES.index(stage) if stage in DEPTH_STAGES else 0
+        pct = max(0.0, min(100.0, float(value or 0)))
+        old = deepest.get((session, story_id))
+        deepest[(session, story_id)] = (max(pct, old[0]), max(rank, old[1])) if old else (pct, rank)
+    stages = {s: 0 for s in DEPTH_STAGES}
+    per_story: dict[int, list[float]] = {}
+    for (_session, story_id), (pct, rank) in deepest.items():
+        stages[DEPTH_STAGES[rank]] += 1
+        per_story.setdefault(story_id, []).append(pct)
+    reads = len(deepest)
+    return {"reads": reads, "stages": stages,
+            "avgPercent": round(sum(p for p, _ in deepest.values()) / reads) if reads else None,
+            "perStory": {sid: round(sum(v) / len(v)) for sid, v in per_story.items()}}
+
+
+def site_search_cards(summary: dict | None) -> list[dict]:
+    """Searches on the site that found nothing, once more than one visitor has tried the same words."""
+    missing = [m for m in (summary or {}).get("missing", []) if m["visitors"] >= 2]
+    if not missing:
+        return []
+    items = [{"headline": m["query"], "detail": f"{m['searches']} searches by {m['visitors']} visitors in the last 7 days found nothing."}
+             for m in missing[:8]]
+    what = (f"Readers searched the site for \"{missing[0]['query']}\" and found nothing." if len(missing) == 1
+            else f"Readers searched the site for {len(missing)} subjects it has no story on.")
+    return [_card("searches:missing", "info", what,
+                  "These are subjects people came looking for. A search that finds nothing is a reader who may leave.",
+                  "If a subject belongs on the site, check the Sources tab for a source that covers it, or whether stories use other words for it. "
+                  "If it is off-topic or a typo, no action needed.", items=items)]
