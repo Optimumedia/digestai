@@ -181,6 +181,7 @@ def test_change_tracking_stamps_writes_and_records_deletions():
         with eng.begin() as conn:
             with db.revision_kept(conn):
                 conn.execute(update(db.articles).where(db.articles.c.id == 2).values(content_text=None))
+            conn.execute(update(db.articles).where(db.articles.c.story_id == 2).values(story_id=None))  # Postgres enforces the key
             conn.execute(delete(db.stories).where(db.stories.c.id == 2))
         with eng.connect() as conn:
             assert conn.execute(select(db.articles.c.rev).where(db.articles.c.id == 2)).scalar() < wm2  # clean-up is invisible
