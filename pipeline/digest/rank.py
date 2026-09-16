@@ -174,7 +174,7 @@ def train_and_predict(conn) -> dict:
 
     train = engaged if use_engagement else [a for a in arts if y_by_id[a.id] > 0]
     can_train = len(train) >= MIN_TRAINING_ARTICLES // 2
-    # The model is refitted every few hours rather than every run: a refit nudges almost every
+    # The model is refitted once a day (RANK_TRAIN_HOURS) rather than every run: a refit nudges almost every
     # prediction, and each rewritten article is read again by the next run (cache.py). Between
     # refits, new articles and articles whose features changed get predictions from the last fit.
     model = cache.RANK_MODEL.get(conn)

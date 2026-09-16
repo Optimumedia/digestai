@@ -86,8 +86,9 @@ RUNS_PER_DAY = int(os.environ.get("RUNS_PER_DAY") or "48")
 # Minutes past the hour the workflow's schedule starts a run (the dashboard's "next run due").
 RUN_MINUTES = [int(m) for m in (os.environ.get("RUN_MINUTES") or ("0,30" if RUNS_PER_DAY >= 48 else "7")).split(",") if m.strip()]
 RUN_INTERVAL_MINUTES = 24 * 60 // max(1, RUNS_PER_DAY)
-# Ranking model refit interval (rank.py). Predictions for new articles use the latest fit in between.
-RANK_TRAIN_HOURS = float(os.environ.get("RANK_TRAIN_HOURS") or "6")
+# Ranking model refit interval (rank.py). A refit rewrites nearly every prediction, which the next
+# run reads back, so once a day; new articles are predicted with the latest fit in between.
+RANK_TRAIN_HOURS = float(os.environ.get("RANK_TRAIN_HOURS") or "24")
 # Supabase free plan: what the admin page measures the database against. The billing cycle starts on
 # this day of the month (the project's usage page shows it).
 SUPABASE_EGRESS_GB = float(os.environ.get("SUPABASE_EGRESS_GB") or "5")

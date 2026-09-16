@@ -9,7 +9,10 @@ duplicate checks, the dashboard's counts and links keep working):
 - article embeddings older than 35 days (ranking learns from the last 30; clustering looks back
   72 hours), story embeddings older than 60 days and those of threads idle for 60 days (threads
   look back 14 days);
-- article text older than the export window plus 10 days (no page shows it any more).
+- article text older than the export window plus 10 days (no page shows it any more), and the
+  feed description of rejected articles after 16 days.
+
+Step rows in `runs` older than 90 days are deleted (their daily totals live in daily_stats).
 
 The updates run inside db.revision_kept, so they do not make rows look changed to the runner's
 copy (cache.py), and with a short lock timeout, so they never hold up a pipeline step for long.
@@ -34,6 +37,7 @@ MAX_ROWS_PER_RUN = 2000
 VACUUM_EVERY_HOURS = 24
 VACUUM_MIN_DEAD_ROWS = 2000
 DELETED_ROWS_DAYS = 30
+RUNS_DAYS = 90
 
 
 def rules(now) -> list[tuple[str, object, object, dict]]:
@@ -56,6 +60,10 @@ def rules(now) -> list[tuple[str, object, object, dict]]:
         ("old_article_text", db.articles,
          and_(a.created_at < old_text, or_(a.content_md.isnot(None), a.description.isnot(None))),
          {"content_md": null(), "description": null()}),
+        # Rejected articles past the dashboard's 14 days keep only what duplicate checks use.
+        ("old_rejected_description", db.articles,
+         and_(a.status == "rejected", a.created_at < now - timedelta(days=16), a.description.isnot(None)),
+         {"description": null()}),
     ]
 
 
@@ -79,6 +87,12 @@ def clean(eng, now=None, limit: int = MAX_ROWS_PER_RUN) -> dict[str, int]:
                     done[name] = n
                     budget -= n
         conn.execute(db.deleted_rows.delete().where(db.deleted_rows.c.created_at < now - timedelta(days=DELETED_ROWS_DAYS)))
+        # Step rows (one per step per run) older than the daily history needs: each day's totals are
+        # already in daily_stats, and the dashboard shows two weeks.
+        old_runs = select(db.runs.c.id).where(db.runs.c.started_at < now - timedelta(days=RUNS_DAYS)).limit(limit)
+        n = conn.execute(db.runs.delete().where(db.runs.c.id.in_(old_runs))).rowcount or 0
+        if n:
+            done["old_runs_deleted"] = n
     return done
 
 

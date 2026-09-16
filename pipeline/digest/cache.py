@@ -10,7 +10,7 @@ embeddings. A copy lives in pipeline/data/cache (kept between runs by the Action
   or a database without the triggers, is replaced by one full read of the window.
 - Details: large columns (summaries, key points, article text), read by id and kept while the
   row's fingerprint (lengths of those columns, from the mirror) is unchanged, re-read at least
-  weekly in case something was edited by hand without changing a length.
+  monthly in case something was edited by hand without changing a length.
 - Vectors: embeddings as float16, kept while their fingerprint is unchanged (embeddings are
   written once; a story's changes with each merge, which its fingerprint follows).
 
@@ -39,7 +39,7 @@ log = logging.getLogger("digest.cache")
 FORMAT = 1
 BATCH = 500
 FULL_REFRESH_DAYS = 7       # the mirror is re-read in full at least this often
-DETAIL_MAX_AGE_DAYS = 7     # details are re-read at least this often (spread over a day by id)
+DETAIL_MAX_AGE_DAYS = 30    # details are re-read at least this often (spread over three days by id)
 UNUSED_DAYS = 3             # details and vectors nobody asked for in this long are dropped
 RECENT_ARTICLE_DAYS = 16    # articles of any status kept this long (admin looks back 14 days)
 URL_DAYS = 30               # known article addresses kept this long
@@ -313,8 +313,8 @@ class Details(_Store):
         need = []
         for i, fp in wanted.items():
             e = items.get(i)
-            # Spread the periodic re-reads over a day, so they do not all fall on one run.
-            if e is None or e[0] != fp or now - e[1] > self.max_age + (i % 24) * 3600:
+            # Spread the periodic re-reads over three days, so they do not all fall on one run.
+            if e is None or e[0] != fp or now - e[1] > self.max_age + (i % 72) * 3600:
                 need.append(i)
         for k in range(0, len(need), BATCH):
             for r in conn.execute(select(self.table.c.id, *self.columns).where(self.table.c.id.in_(need[k:k + BATCH]))).all():
