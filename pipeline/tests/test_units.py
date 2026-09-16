@@ -458,6 +458,179 @@ def test_daily_history_counts_searches():
     assert rows[y.date().isoformat()]["views"] == 1
 
 
+def _gsc_row(keys, clicks, impressions, position):
+    return {"keys": keys, "clicks": clicks, "impressions": impressions, "ctr": clicks / impressions if impressions else 0, "position": position}
+
+
+def test_gsc_build_fills_gaps_and_weights_position():
+    from digest import gsc
+
+    by_day = [_gsc_row(["2026-09-01"], 0, 1, 80.0), _gsc_row(["2026-09-03"], 1, 9, 5.0)]
+    by_day_query = [_gsc_row(["2026-09-01", "ai digest"], 0, 1, 80.0), _gsc_row(["2026-09-03", "ai digest"], 1, 6, 4.0),
+                    _gsc_row(["2026-09-03", "digest ai"], 0, 3, 7.0)]
+    queries = [_gsc_row(["digest ai"], 0, 3, 7.0), _gsc_row(["ai digest"], 1, 7, 14.9)]
+    prev_queries = [_gsc_row(["ai digest"], 0, 2, 30.0)]
+    pages = [_gsc_row(["https://digestai.news/"], 1, 10, 12.5), _gsc_row(["https://digestai.news/today"], 0, 0, 0)]
+    out = gsc.build(by_day, by_day_query, queries, prev_queries, pages, [], "2026-09-02", "2026-09-04")
+
+    assert [r["day"] for r in out["history"]] == ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"]
+    assert [r["day"] for r in out["perDay"]] == ["2026-09-02", "2026-09-03", "2026-09-04"]
+    gap = out["perDay"][0]
+    assert gap["impressions"] == 0 and gap["position"] is None and gap["queries"] == 0  # a gap, never position 0
+    assert out["perDay"][1]["queries"] == 2 and "queries" not in out["history"][0]  # outside the date x query window
+    # Weighted: the 9-impression day at 5 outweighs nothing else in the window; 80 is before it.
+    assert out["totals"] == {"clicks": 1, "impressions": 9, "position": 5.0}
+    assert gsc.weighted_position([{"impressions": 1, "position": 80}, {"impressions": 9, "position": 5}, {"impressions": 0, "position": None}]) == 12.5
+    top = out["queries"][0]
+    assert top["query"] == "ai digest" and top["prevPosition"] == 30.0 and top["days"] == [["2026-09-01", 1, 80.0], ["2026-09-03", 6, 4.0]]
+    assert "prevPosition" not in out["queries"][1] and out["queries"][1]["days"] == [["2026-09-03", 3, 7.0]]
+    assert out["pages"][0]["page"] == "/" and out["pageCount"] == 1 and out["queryCount"] == 2 and out["prevQueryCount"] == 1
+
+
+def test_gsc_run_with_fake_session():
+    import json
+    import os
+    import tempfile
+
+    from digest import config, gsc
+
+    calls = []
+
+    class Resp:
+        def __init__(self, rows=None, ok=True):
+            self.status_code, self.ok, self._rows = (200 if ok else 404), ok, rows
+
+        def json(self):
+            return {"rows": self._rows or []}
+
+    class Session:
+        headers: dict = {}
+
+        def post(self, url, json=None, timeout=None):  # noqa: A002
+            calls.append(json)
+            dims = json["dimensions"]
+            end = json["endDate"]
+            if dims == ["date"]:
+                return Resp([_gsc_row([end], 0, 4, 12.0)])
+            if dims == ["date", "query"]:
+                return Resp([_gsc_row([end, "ai news"], 0, 4, 12.0)])
+            return Resp([_gsc_row(["ai news" if dims == ["query"] else "https://digestai.news/"], 0, 4, 12.0)])
+
+        def get(self, url, timeout=None):
+            return Resp(ok=False)
+
+    tmp = Path(tempfile.mkdtemp())
+    saved = (config.SITE_DATA_DIR, gsc._token, gsc.requests.Session, gsc._inspections, os.environ.get("GSC_SERVICE_ACCOUNT_JSON"), os.environ.get("GSC_PROPERTY"))
+    try:
+        config.SITE_DATA_DIR, gsc._token, gsc.requests.Session, gsc._inspections = tmp, (lambda sa: "t"), Session, (lambda s, p: [])
+        os.environ["GSC_SERVICE_ACCOUNT_JSON"], os.environ["GSC_PROPERTY"] = "{}", "https://digestai.news/"
+        stats = gsc.run()
+    finally:
+        config.SITE_DATA_DIR, gsc._token, gsc.requests.Session, gsc._inspections = saved[:4]
+        for k, v in zip(("GSC_SERVICE_ACCOUNT_JSON", "GSC_PROPERTY"), saved[4:]):
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    assert "error" not in stats, stats
+    data = json.loads((tmp / "gsc.json").read_text(encoding="utf-8"))
+    assert [c["dimensions"] for c in calls] == [["date"], ["date", "query"], ["query"], ["query"], ["page"], ["page"]]
+    assert all(c["rowLimit"] <= 25000 for c in calls)
+    assert calls[3]["endDate"] < data["start"] == calls[2]["startDate"]  # previous window ends before this one
+    assert len(data["perDay"]) == 28 and data["perDay"][-1]["position"] == 12.0 and data["perDay"][0]["position"] is None
+    assert data["queries"][0]["days"] == [[data["end"], 4, 12.0]] and data["queries"][0]["prevPosition"] == 12.0
+    assert stats["position"] == 12.0 and stats["queries"] == 1
+
+
+def test_daily_history_google_position_weighting():
+    import tempfile
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import create_engine
+
+    from digest import db, history
+
+    assert history.google_values((3, 0, None, None)) == {"google_clicks": 3, "google_impressions": 0, "google_position": None,
+                                                         "google_position_sum": 0.0, "google_queries": 0}
+    assert history.google_values((0, 4, 12.5, 2))["google_position_sum"] == 50.0
+    kept = {"google_impressions": 4, "google_position": 12.5, "google_position_sum": 50.0, "google_queries": 2}
+    assert history.google_values((0, 4), kept) == {"google_clicks": 0, "google_impressions": 4, **{k: kept[k] for k in kept if k != "google_impressions"}}
+    assert history.google_values((0, 5), kept)["google_position"] is None  # impressions changed: the old position is stale
+
+    tmp = Path(tempfile.mkdtemp()) / "history.db"
+    eng = create_engine(f"sqlite:///{tmp.as_posix()}", future=True)
+    db.metadata.create_all(eng)
+    now = datetime(2026, 9, 14, 10, 0, tzinfo=timezone.utc)
+    d = lambda n: (now - timedelta(days=n)).date().isoformat()  # noqa: E731
+    # An older run stored clicks and impressions only; this run knows positions and queries.
+    # Like google_days: every day in Search Console's range, zero where it reported nothing.
+    empty = {d(n): (0, 0, None, 0) for n in range(3, 21)}
+    history.update(eng, now, google={**empty, d(20): (0, 1), d(3): (0, 9)})
+    rows = {r["day"]: r for r in history.update(eng, now + timedelta(hours=1), google={**empty, d(20): (0, 1, 80.0, None), d(3): (1, 9, 5.0, 3)})}
+    assert rows[d(20)]["googlePosition"] == 80.0 and rows[d(20)]["googlePositionSum"] == 80.0  # backfilled on an old day
+    assert rows[d(3)]["googlePositionSum"] == 45.0 and rows[d(3)]["googleQueries"] == 3
+    assert rows[d(10)]["googlePosition"] is None and rows[d(10)]["googlePositionSum"] == 0.0  # no impressions: a gap
+    sum_pos = sum(r["googlePositionSum"] or 0 for r in rows.values())
+    sum_imp = sum(r["googleImpressions"] or 0 for r in rows.values())
+    assert sum_pos / sum_imp == 12.5  # (80x1 + 5x9) / 10, not the mean of daily averages (42.5)
+
+
+def _compare_js():
+    """The Compare script from admin.astro, runnable in Node (it exports itself without a DOM)."""
+    import re
+    import shutil
+
+    node = shutil.which("node")
+    if not node:
+        return None, None
+    page = (Path(__file__).resolve().parents[2] / "site" / "src" / "pages" / "admin.astro").read_text(encoding="utf-8")
+    script = next(s for s in re.findall(r"<script is:inline>(.*?)</script>", page, re.S) if "digestCompare" in s)
+    return node, script
+
+
+def test_compare_average_position_is_impression_weighted():
+    import json
+    import subprocess
+
+    node, script = _compare_js()
+    if not node:
+        print("SKIP node not installed")
+        return
+    day = lambda n: f"2026-09-{n:02d}"  # noqa: E731
+    history = []
+    for n in range(1, 15):
+        imp, pos = (0, None) if n in (3, 10) else ((90, 5.0) if n % 2 else (10, 50.0))
+        if n >= 8:  # the latest week ranks better on its busy days
+            pos = pos and pos - 2
+        history.append({"day": day(n), "googleClicks": 1 if imp else 0, "googleImpressions": imp, "googlePosition": pos,
+                        "googlePositionSum": (pos or 0) * imp})
+    probe = script + "\nconst c = globalThis.digestCompare;\n" + (
+        f"const h = {json.dumps(history)};\n"
+        "const r = c.compare(h, ['2026-09-08','2026-09-14'], ['2026-09-01','2026-09-07']);\n"
+        "console.log(JSON.stringify(r.filter(x => x.key.startsWith('google'))));")
+    res = subprocess.run([node, "-e", probe], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr[:500]
+    got = {r["key"]: r for r in json.loads(res.stdout)}
+    pos = got["googlePosition"]
+    # Week A: days 8..14 minus day 10 -> 90x3 at 3, 10x3 at 48 -> (810 + 1440) / 300 = 7.5.
+    # A mean of daily averages would give 25.5.
+    assert abs(pos["a"] - 7.5) < 1e-9, pos
+    assert abs(pos["b"] - 9.5) < 1e-9, pos  # (270x5 + 30x50) / 300
+    assert pos["state"] == "diff" and pos["tone"] == "good"  # lower is better
+    ctr = got["googleCtr"]
+    assert abs(ctr["a"] - 6 / 300) < 1e-9 and ctr["state"] == "same"
+    # Few impressions: shown, but not judged.
+    thin = [{**r, "googleImpressions": 1, "googlePositionSum": r["googlePosition"] or 0} for r in history]
+    probe = script + "\nconst c = globalThis.digestCompare;\n" + (
+        f"const h = {json.dumps(thin)};\n"
+        "const r = c.compare(h, ['2026-09-08','2026-09-14'], ['2026-09-01','2026-09-07']);\n"
+        "console.log(JSON.stringify(r.find(x => x.key === 'googlePosition')));")
+    res = subprocess.run([node, "-e", probe], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr[:500]
+    small = json.loads(res.stdout)
+    assert small["state"] == "small" and small["tone"] == "neutral", small
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

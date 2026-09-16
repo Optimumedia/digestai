@@ -247,6 +247,12 @@ daily_stats = Table(
     Column("crashed_steps", Integer),
     Column("google_clicks", Integer),
     Column("google_impressions", Integer),
+    # Average position that day (impression-weighted, as Search Console reports it); NULL when
+    # Google showed the site nowhere. position_sum = position x impressions, so a period's
+    # average is sum(position_sum) / sum(impressions), not a mean of daily averages.
+    Column("google_position", Float),
+    Column("google_position_sum", Float),
+    Column("google_queries", Integer),  # searches the site appeared for that day (Google hides rare ones)
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 

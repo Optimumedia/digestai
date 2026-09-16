@@ -197,6 +197,24 @@ def test_site_search_cards():
     assert admin.site_search_cards({"missing": summary["missing"][1:]}) == [] and admin.site_search_cards(None) == []
 
 
+def test_ranking_card_needs_enough_impressions():
+    from digest import admin
+
+    def days(before, now, imp=10):
+        return {"perDay": [{"day": f"2026-09-{i + 1:02d}", "impressions": imp, "clicks": 0, "position": before if i < 7 else now} for i in range(14)]}
+
+    up = admin.ranking_cards(days(30.0, 12.0))
+    assert len(up) == 1 and up[0]["level"] == "info" and "higher" in up[0]["what"] and "page 2" in up[0]["why"]
+    assert "lower" in admin.ranking_cards(days(8.0, 20.0))[0]["what"]
+    assert admin.ranking_cards(days(30.0, 12.0, imp=5)) == []  # 35 impressions a week: too few to judge
+    assert admin.ranking_cards(days(30.0, 28.0)) == []  # a small move
+    # A day without impressions has no position and does not count.
+    gap = days(30.0, 12.0)
+    gap["perDay"][10].update(impressions=0, position=None)
+    assert "12.0" in admin.ranking_cards(gap)[0]["what"]
+    assert admin.ranking_cards({"perDay": gap["perDay"][:10]}) == []
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):
