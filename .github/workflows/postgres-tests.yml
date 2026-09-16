@@ -29,26 +29,6 @@ jobs:
           cache-dependency-path: pipeline/requirements.txt
       - name: Install pipeline
         run: pip install -q -r pipeline/requirements.txt
-      - name: Read meter diagnostics
-        working-directory: pipeline
-        env:
-          TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@localhost:5432/digest
-        run: |
-          python - <<'EOF'
-          import os, traceback
-          from sqlalchemy import create_engine, event, text
-          eng = create_engine(os.environ["TEST_POSTGRES_URL"], future=True)
-          @event.listens_for(eng, "after_cursor_execute")
-          def probe(conn, cursor, statement, parameters, context, executemany):
-              res = getattr(cursor, "pgresult", "MISSING")
-              print("cursor", type(cursor), "pgresult", type(res))
-              try:
-                  print("ntuples", res.ntuples, "nfields", res.nfields, "len00", res.get_length(0, 0) if res.ntuples else None)
-              except Exception:
-                  traceback.print_exc()
-          with eng.connect() as c:
-              print(c.execute(text("select repeat('a', 1000)")).all()[0][0][:5])
-          EOF
       - name: Read tests on Postgres
         working-directory: pipeline
         env:
