@@ -105,8 +105,12 @@ def run() -> dict:
     since = now - timedelta(days=WINDOW_DAYS)
     with eng.begin() as conn:
         stories = conn.execute(
-            select(db.stories).where(db.stories.c.thread_id.is_(None), db.stories.c.status == "published",
-                                     db.stories.c.embedding.isnot(None))
+            # Only the columns used, and only stories inside the window: this ran over every unthreaded
+            # story ever published, embeddings included, 48 times a day.
+            select(db.stories.c.id, db.stories.c.category, db.stories.c.embedding, db.stories.c.entities,
+                   db.stories.c.first_published_at, db.stories.c.headline, db.stories.c.why_it_matters)
+            .where(db.stories.c.thread_id.is_(None), db.stories.c.status == "published",
+                   db.stories.c.embedding.isnot(None), db.stories.c.first_published_at >= since)
             .order_by(db.stories.c.first_published_at.asc())
         ).all()
         if not stories:

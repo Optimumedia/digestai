@@ -2,7 +2,9 @@ name: Ingest and publish
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    # Hourly for now (was every 30 minutes): each run reads from Supabase, and the free plan allows
+    # 5 GB of reads a month. Back to */30 once runs read only what changed.
+    - cron: "7 * * * *"
   workflow_dispatch:
     inputs:
       steps:
@@ -39,6 +41,7 @@ jobs:
       VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
       ADMIN_REVIEW_KEY: ${{ secrets.ADMIN_REVIEW_KEY }}
       HOLD_RISKY_CLAIMS: ${{ vars.HOLD_RISKY_CLAIMS }}
+      RUNS_PER_DAY: "24"
       BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
       BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
       PUBLIC_VAPID_KEY: ${{ vars.PUBLIC_VAPID_KEY }}

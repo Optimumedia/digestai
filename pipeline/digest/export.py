@@ -107,6 +107,52 @@ def apply_moderation(eng, rules: dict | None = None) -> dict:
     return stats
 
 
+HEAVY_ARTICLE_COLUMNS = {"content_md", "content_text", "feed_content", "embedding"}
+
+
+def _full_text(conn, story_rows, art_rows) -> dict[int, str]:
+    """Article text for the story pages: the lead article's when it may be shown, otherwise the newest
+    article that has showable text (what the page's fullTextArticle picks). Reading the text of every
+    article, most of which no page shows, was most of the database's monthly transfer allowance."""
+    leads = {s.id: s.lead_article_id for s in story_rows}
+    by_story: dict[int, list] = {}
+    for a in art_rows:  # newest first, as the page lists them
+        by_story.setdefault(a.story_id, []).append(a)
+    shown: dict[int, int] = {}  # story id -> article id whose text to read
+    fallback: list[int] = []
+    for sid, members in by_story.items():
+        lead = next((m for m in members if m.id == leads.get(sid)), members[0])
+        if lead.show_fulltext and (lead.word_count or 0) > 0:
+            shown[sid] = lead.id
+        fallback.extend(m.id for m in members if m.show_fulltext and m.id != lead.id)
+    texts: dict[int, str] = {}
+
+    def read(ids):
+        for i in range(0, len(ids), 500):
+            for r in conn.execute(select(db.articles.c.id, db.articles.c.content_md)
+                                  .where(db.articles.c.id.in_(ids[i : i + 500]), db.articles.c.content_md.isnot(None))).all():
+                if r.content_md:
+                    texts[r.id] = r.content_md
+
+    read(list(shown.values()))
+    # Stories whose lead has no text: find which other articles have some without reading it, then
+    # read only the first one per story.
+    missing = {sid for sid in by_story if shown.get(sid) not in texts}
+    story_of = {a.id: a.story_id for a in art_rows}
+    candidates = [aid for aid in fallback if story_of.get(aid) in missing]
+    has_text: set[int] = set()
+    for i in range(0, len(candidates), 500):
+        has_text.update(r.id for r in conn.execute(select(db.articles.c.id).where(
+            db.articles.c.id.in_(candidates[i : i + 500]), db.articles.c.content_md.isnot(None), db.articles.c.content_md != "")).all())
+    pick = []
+    for sid in missing:
+        first = next((m.id for m in by_story[sid] if m.id in has_text), None)
+        if first:
+            pick.append(first)
+    read(pick)
+    return texts
+
+
 def run() -> dict:
     eng = db.engine()
     out_dir = config.SITE_DATA_DIR
@@ -136,8 +182,12 @@ def run() -> dict:
                    "weight": s.weight, "discovered": s.discovered, "enabled": s.enabled}
             for s in src_rows
         }
+        # Supabase's free plan counts every byte read (5 GB a month) and this runs 48 times a day,
+        # so large columns are left behind: embeddings are never exported, and article text is read
+        # only for the one article per story whose text the page shows (see _full_text).
         story_rows = conn.execute(
-            select(db.stories).where(db.stories.c.status == "published", db.stories.c.updated_at >= since)
+            select(*[c for c in db.stories.c if c.name != "embedding"])
+            .where(db.stories.c.status == "published", db.stories.c.updated_at >= since)
             .order_by(db.stories.c.updated_at.desc())
         ).all()
         story_ids = [s.id for s in story_rows]
@@ -145,9 +195,11 @@ def run() -> dict:
         for i in range(0, len(story_ids), 500):
             chunk = story_ids[i : i + 500]
             art_rows.extend(conn.execute(
-                select(db.articles).where(db.articles.c.story_id.in_(chunk), db.articles.c.status == "published")
+                select(*[c for c in db.articles.c if c.name not in HEAVY_ARTICLE_COLUMNS])
+                .where(db.articles.c.story_id.in_(chunk), db.articles.c.status == "published")
                 .order_by(db.articles.c.published_at.desc())
             ).all())
+        full_text = _full_text(conn, story_rows, art_rows)
         sent = {n.date: {"publicUrl": n.public_url, "subject": n.subject} for n in conn.execute(select(db.newsletters)).all()}
         thread_rows = conn.execute(select(db.threads).where(db.threads.c.status == "published")).all()
 
@@ -182,7 +234,7 @@ def run() -> dict:
                 "author": m.author,
                 "publishedAt": _iso(m.published_at) or _iso(m.fetched_at),
                 "description": m.description,
-                "contentMd": m.content_md if m.show_fulltext and m.content_md else None,
+                "contentMd": full_text.get(m.id),
                 "wordCount": m.word_count,
                 "imageUrl": m.image_url,
                 "summaryMd": m.summary_md,
