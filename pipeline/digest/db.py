@@ -326,9 +326,11 @@ def pgresult_bytes(res) -> int:
         return 0
     n, f = res.ntuples, res.nfields
     total = PG_QUERY_OVERHEAD + n * (PG_ROW_OVERHEAD + PG_COLUMN_OVERHEAD * f)
+    # psycopg's binary PGresult has no get_length; get_value returns the raw bytes (None for NULL).
+    length = getattr(res, "get_length", None) or (lambda r, c: len(res.get_value(r, c) or b""))
     for r in range(n):
         for c in range(f):
-            total += res.get_length(r, c)
+            total += length(r, c)
     return total
 
 

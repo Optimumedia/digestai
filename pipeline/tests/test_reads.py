@@ -172,11 +172,12 @@ def test_change_tracking_stamps_writes_and_records_deletions():
         with eng.connect() as conn:
             wm = db.watermark(conn)
             rev = conn.execute(select(db.articles.c.rev).where(db.articles.c.id == 1)).scalar()
-        assert rev is not None and rev < wm
+        assert rev is not None and rev < wm, (rev, wm)
         with eng.begin() as conn:
             conn.execute(update(db.articles).where(db.articles.c.id == 1).values(predicted_score=0.9))
         with eng.connect() as conn:
-            assert conn.execute(select(db.articles.c.rev).where(db.articles.c.id == 1)).scalar() >= wm
+            rev1 = conn.execute(select(db.articles.c.rev).where(db.articles.c.id == 1)).scalar()
+            assert rev1 >= wm, (rev1, wm)
             wm2 = db.watermark(conn)
         with eng.begin() as conn:
             with db.revision_kept(conn):
@@ -184,12 +185,13 @@ def test_change_tracking_stamps_writes_and_records_deletions():
             conn.execute(update(db.articles).where(db.articles.c.story_id == 2).values(story_id=None))  # Postgres enforces the key
             conn.execute(delete(db.stories).where(db.stories.c.id == 2))
         with eng.connect() as conn:
-            assert conn.execute(select(db.articles.c.rev).where(db.articles.c.id == 2)).scalar() < wm2  # clean-up is invisible
+            rev2 = conn.execute(select(db.articles.c.rev).where(db.articles.c.id == 2)).scalar()
+            assert rev2 < wm2, (rev2, wm2)  # clean-up is invisible
             gone = conn.execute(select(db.deleted_rows.c.table_name, db.deleted_rows.c.row_id, db.deleted_rows.c.rev)).all()
-            assert [(t, i) for t, i, _r in gone] == [("stories", 2)] and gone[0][2] >= wm2
-            assert db.change_tracking_ready(conn)
+            assert [(t, i) for t, i, _r in gone] == [("stories", 2)] and gone[0][2] >= wm2, (gone, wm2)
+            assert db.change_tracking_ready(conn), "tracking not ready"
         # A second install is harmless (CREATE ... IF NOT EXISTS).
-        assert db.install_change_tracking(eng)
+        assert db.install_change_tracking(eng), "second install"
 
 
 # ---------------------------------------------------------------------------- mirror
