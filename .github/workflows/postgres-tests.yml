@@ -1,0 +1,43 @@
+name: postgres-tests
+
+# The pipeline's change tracking, runner cache and storage clean-up use Postgres-only SQL that the
+# local machine cannot run. This runs the read tests against a real Postgres. It deploys nothing.
+on:
+  push:
+    branches: ["pg-check", "pg-check/**"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: digest
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+      - name: Install pipeline
+        run: pip install -q -r pipeline/requirements.txt
+      - name: Read tests on Postgres
+        working-directory: pipeline
+        env:
+          TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@localhost:5432/digest
+        run: python tests/test_reads.py
+      - name: Unit tests
+        working-directory: pipeline
+        run: |
+          python tests/test_units.py
+          python tests/test_quality.py
+          python tests/test_hold.py
+          python tests/test_trackers.py

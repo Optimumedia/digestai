@@ -1,8 +1,10 @@
 """Database reads: the read meter, the runner's cache (incremental equals full), embedding storage
-and storage clean-up. Offline, on temporary SQLite databases: python tests/test_reads.py"""
+and storage clean-up. Offline, on temporary SQLite databases: python tests/test_reads.py
+(or on Postgres with TEST_POSTGRES_URL, as the postgres-tests workflow does)."""
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -26,7 +28,15 @@ def fresh_db(tracking: bool = True):
     module globals pointed at them for the duration."""
     tmp = Path(tempfile.mkdtemp())
     saved = (db._engine, config.CACHE_DIR, config.SITE_DATA_DIR)
-    eng = create_engine(f"sqlite:///{(tmp / 'test.db').as_posix()}", future=True)
+    pg = os.environ.get("TEST_POSTGRES_URL")  # set by .github/workflows/postgres-tests.yml
+    if pg:
+        eng = create_engine(pg, future=True)
+        with eng.begin() as conn:
+            conn.exec_driver_sql("DROP SCHEMA public CASCADE")
+            conn.exec_driver_sql("CREATE SCHEMA public")
+        db._tracking_ready.clear()
+    else:
+        eng = create_engine(f"sqlite:///{(tmp / 'test.db').as_posix()}", future=True)
     db.install_read_meter(eng)
     db.metadata.create_all(eng)
     if tracking:
