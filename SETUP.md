@@ -131,6 +131,27 @@ Both buttons need the GitHub token saved on the Settings tab, like Pin and Unpub
 edit the two lists in `moderation.yaml` on GitHub directly. If the passphrase is changed, paste the
 new one; the old one stops opening the list after the next run.
 
+## Supabase free plan: database reads and size (16 Sep)
+
+The free plan allows 5 GB of database reads ("egress") a month and 500 MB of data. The admin
+Pipeline tab shows both: the database size, what the latest run read per step, a monthly
+estimate at the current schedule, and this billing cycle (it starts on the 11th; if yours starts
+on another day, set the repository variable `SUPABASE_CYCLE_DAY`). Cards appear on the Today tab
+at 350 MB stored (450 MB is urgent) or when the monthly estimate passes 4 GB.
+
+- Each run reads only rows written since the previous run. The database stamps each change
+  (triggers the pipeline creates itself), and the runner keeps a copy of what it read in the
+  Actions cache (`read-cache-v1-...`). If that copy is lost, one run reads everything again
+  (tens of MB); nothing else changes. After restoring the database from a Supabase backup,
+  the pipeline notices and reads everything once.
+- The `tidy` step empties article text and embeddings nothing uses any more (at most 2,000 rows
+  a run), so the database stops growing. Postgres reuses the freed space instead of returning
+  it, so the size shown levels off rather than drops. To give the space back once, run
+  `VACUUM FULL articles;` in the SQL editor at a quiet moment (it locks the table for a minute
+  or so while it rewrites it; the site keeps working, a pipeline run at that moment waits).
+- The schedule is hourly (`cron: "7 * * * *"`, `RUNS_PER_DAY: "24"`, `RUN_MINUTES: "7"` in
+  `.github/workflows/pipeline.yml`). Every 30 minutes would be `*/30 * * * *`, `48` and `0,30`.
+
 ## Search Console data in the dashboard (done 12 Sep)
 
 Gives the admin "Search" tab clicks, impressions, position, indexed pages and top queries.

@@ -2,8 +2,10 @@ name: Ingest and publish
 
 on:
   schedule:
-    # Hourly for now (was every 30 minutes): each run reads from Supabase, and the free plan allows
-    # 5 GB of reads a month. Back to */30 once runs read only what changed.
+    # Hourly (was every 30 minutes): the free plan allows 5 GB of database reads a month and this
+    # billing cycle (to 11 Oct) is already over it. Runs now read only what changed (~1 MB a run,
+    # see the admin Pipeline tab), so */30 would fit (~1.5-2 GB a month); set RUN_MINUTES and
+    # RUNS_PER_DAY below to match if the schedule changes.
     - cron: "7 * * * *"
   workflow_dispatch:
     inputs:
@@ -42,6 +44,8 @@ jobs:
       ADMIN_REVIEW_KEY: ${{ secrets.ADMIN_REVIEW_KEY }}
       HOLD_RISKY_CLAIMS: ${{ vars.HOLD_RISKY_CLAIMS }}
       RUNS_PER_DAY: "24"
+      RUN_MINUTES: "7"
+      SUPABASE_CYCLE_DAY: ${{ vars.SUPABASE_CYCLE_DAY || '11' }}
       BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
       BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
       PUBLIC_VAPID_KEY: ${{ vars.PUBLIC_VAPID_KEY }}
@@ -131,6 +135,16 @@ jobs:
           ollama pull "$OLLAMA_MODEL" 2>&1 | tail -1
           echo "OLLAMA_URL=http://127.0.0.1:11434" >> "$GITHUB_ENV"
 
+      # What earlier runs already read from the database (pipeline/digest/cache.py): each run then asks
+      # only for rows written since. One small entry per run under a shared prefix; the newest is
+      # restored. Without it a run reads everything once, which costs reads but changes no result.
+      - name: Restore read cache
+        uses: actions/cache/restore@v4
+        with:
+          path: pipeline/data/cache
+          key: read-cache-v1-${{ github.run_id }}
+          restore-keys: read-cache-v1-
+
       # The pipeline has its own limit inside the job's 28 minutes and may fail or time out
       # without stopping the job: the build and deploy steps below still publish what was exported.
       - name: Run pipeline
@@ -147,6 +161,16 @@ jobs:
         timeout-minutes: 3
         continue-on-error: true
         run: python -m digest.run export
+
+      # Saved whatever happened above: a copy from a failed run is still correct (it is only ever
+      # older than the database, and the next run reads what changed since).
+      - name: Save read cache
+        if: always() && hashFiles('pipeline/data/cache/**') != ''
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: pipeline/data/cache
+          key: read-cache-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
       # The site builds (empty) without stories.json, so never build or deploy without real data.
       - name: Check exported data

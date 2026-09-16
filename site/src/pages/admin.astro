@@ -32,7 +32,20 @@ for (const r of runs) { r.ok = r.steps.every((s) => !s.stats?.crashed); r.second
 runs.reverse();
 const lastRun = runs[0];
 const stat = (r: typeof lastRun | undefined, step: string) => r?.steps.find((s) => s.step === step)?.stats || {};
-const nextRunMin = lastRun ? Math.max(0, 30 - Math.round((Date.now() - Date.parse(lastRun.startedAt)) / 60000)) : null;
+// The workflow's schedule as the pipeline reported it (hourly or every 30 minutes).
+const schedule = { runsPerDay: 48, intervalMinutes: 30, runMinutes: [0, 30], ...(admin?.schedule || {}) };
+const everyText = schedule.intervalMinutes >= 60 ? (schedule.intervalMinutes === 60 ? "every hour" : `every ${schedule.intervalMinutes / 60} hours`) : `every ${schedule.intervalMinutes} minutes`;
+const nextRunMin = lastRun ? Math.max(0, schedule.intervalMinutes - Math.round((Date.now() - Date.parse(lastRun.startedAt)) / 60000)) : null;
+
+// ---- the database against Supabase's free plan: size, and what the pipeline reads.
+const dbInfo = admin?.database || null;
+const dbReads = dbInfo?.reads || {};
+const dbCycle = dbInfo?.cycle || {};
+const mb = (v: number | null | undefined) => v == null ? "—" : v >= 1024 ? `${(v / 1024).toFixed(1)} GB` : v >= 10 ? `${Math.round(v)} MB` : `${v.toFixed(1)} MB`;
+const kb = (v: number | null | undefined) => v == null ? "—" : v >= 1024 ? `${(v / 1024).toFixed(1)} MB` : `${Math.round(v)} KB`;
+const dbSizePct = dbInfo?.sizeMB != null && dbInfo?.limitMB ? Math.round((dbInfo.sizeMB / dbInfo.limitMB) * 100) : null;
+const readRows = (dbReads.steps || []).slice(0, 10).map((s: any) => ({ label: s.step, value: s.readKB, title: `${s.step}: ${kb(s.readKB)} read in the latest run` }));
+const fmtDayShort = (d: string | null | undefined) => d ? formatDate(`${d}T12:00:00Z`, { day: "numeric", month: "short" }) : "—";
 
 // ---- derived numbers with deltas
 const days: string[] = admin?.days || [];
@@ -121,6 +134,7 @@ const homeData = JSON.stringify({
   launch: "2026-09-11", goal: 1000, goalDays: 30,
   runs: runs.filter((r) => genMs - Date.parse(r.startedAt) <= 48 * 3600 * 1000).map((r) => ({ startedAt: r.startedAt, ok: r.ok })),
   storyTimes: admin?.storyTimes || [],
+  schedule,
   cards: actionCards.map((c) => ({ id: c.id, level: c.level })),
 }).replace(/</g, "\\u003c");
 ---
@@ -218,7 +232,7 @@ const homeData = JSON.stringify({
                 ))}
               </ul>
             )}
-            {qualityRun?.checked && <p class="ac-foot">Content checks ran at <time datetime={qualityRun.checkedAt} data-static data-clock>{String(qualityRun.checkedAt).slice(11, 16)} UTC</time>: {qualityRun.checked.stories} stories, {qualityRun.checked.images} pictures and {qualityRun.checked.links} links checked. They run with every pipeline run, every 30 minutes.</p>}
+            {qualityRun?.checked && <p class="ac-foot">Content checks ran at <time datetime={qualityRun.checkedAt} data-static data-clock>{String(qualityRun.checkedAt).slice(11, 16)} UTC</time>: {qualityRun.checked.stories} stories, {qualityRun.checked.images} pictures and {qualityRun.checked.links} links checked. They run with every pipeline run, {everyText}.</p>}
           </section>
 
           <article class="card live" id="live-now" aria-live="polite">
@@ -457,6 +471,25 @@ const homeData = JSON.stringify({
               <Fragment set:html={columns(llmDays, "day", [{ key: "gemini", label: "Gemini", color: C.s1 }, { key: "groq", label: "Groq", color: C.s2 }])} />
             </article>
           </div>
+          {dbInfo && (
+            <section class="card">
+              <h2>Database <span class="muted">Supabase free plan: {mb(dbInfo.limitMB)} stored, {mb(dbReads.quotaMB)} read a month</span></h2>
+              <div class="tiles">
+                <div class:list={["tile", { bad: dbSizePct != null && dbSizePct >= 90 }]}><span class="label">Stored</span><span class="value">{mb(dbInfo.sizeMB)}</span><span class="sub">{dbSizePct != null ? `${dbSizePct}% of ${mb(dbInfo.limitMB)}` : "size not available"}</span></div>
+                <div class="tile"><span class="label">Read by the latest run</span><span class="value">{kb(dbReads.latestRunKB)}</span><span class="sub">{dbReads.runsAveraged ? `average ${kb(dbReads.avgRunKB)} over ${dbReads.runsAveraged} run${dbReads.runsAveraged === 1 ? "" : "s"}` : "no run measured yet"}</span></div>
+                <div class:list={["tile", { bad: dbReads.monthlyMB != null && dbReads.monthlyMB >= 4096 }]}><span class="label">A month at this rate</span><span class="value">{mb(dbReads.monthlyMB)}</span><span class="sub">{schedule.runsPerDay} runs a day, allowance {mb(dbReads.quotaMB)}</span></div>
+                <div class="tile"><span class="label">This billing cycle</span><span class="value">{mb(dbCycle.measuredMB)}</span><span class="sub">{dbCycle.measuredSince ? `measured since ${fmtDayShort(dbCycle.measuredSince)}; about ${mb(dbCycle.projectedMB)} by ${fmtDayShort(dbCycle.end)}` : `cycle ${fmtDayShort(dbCycle.start)} to ${fmtDayShort(dbCycle.end)}`}</span></div>
+              </div>
+              <p class="muted">Supabase counts every byte the pipeline reads from the database. Each run now reads only what changed since the run before, so a normal run reads a few hundred KB; a run that starts without its saved copy reads everything once (tens of MB). The pipeline's own figures are estimates{dbCycle.measuredSince ? ` and start on ${fmtDayShort(dbCycle.measuredSince)}` : ""}; the usage page in Supabase is the exact count and includes anything read before.</p>
+              {readRows.length > 0 && (
+                <>
+                  <h3 class="muted">What each step read in the latest run, in KB</h3>
+                  <Fragment set:html={bars(readRows, { color: C.s1, w: 560 })} />
+                </>
+              )}
+              {(dbInfo.tables || []).length > 0 && <p class="muted">Biggest tables: {dbInfo.tables.map((t: any) => `${t.name} ${mb(t.mb)}`).join(", ")}. Old article text and embeddings nothing uses are emptied a little every run, so the database stops growing; Postgres reuses the freed space rather than shrinking.</p>}
+            </section>
+          )}
           <section class="card">
             <h2>Recent runs <span class="muted">each step's numbers</span></h2>
             <div class="tablewrap">
@@ -911,7 +944,9 @@ const homeData = JSON.stringify({
 
       function status(now) {
         const gen = Date.parse(d.generatedAt || "");
-        const stale = !gen || now - gen > 90 * MIN;
+        const every = (d.schedule && d.schedule.intervalMinutes) || 30;
+        // Stale after two missed runs (never sooner than 90 minutes).
+        const stale = !gen || now - gen > Math.max(90, 2 * every + 30) * MIN;
         const day = d.runs.filter((r) => now - Date.parse(r.startedAt) <= 24 * HOUR);
         const failed = day.filter((r) => !r.ok);
         const crit = d.cards.filter((c) => c.level === "critical").length;
@@ -944,12 +979,18 @@ const homeData = JSON.stringify({
           head.querySelector(".st").className = `st ${s.kind}`;
           head.querySelector("[data-head-text]").textContent = s.kind === "good" ? "everything is fine" : s.stale ? "site not updating" : s.kind === "bad" ? "needs attention" : "running, a few things to check";
         }
-        // Clock line. The schedule starts runs on the hour and half hour (UTC); GitHub often starts them a few minutes late.
+        // Clock line. The schedule starts runs at fixed minutes past the hour (UTC), as the pipeline
+        // reports them; GitHub often starts them a few minutes late.
         const parts = [];
         if (s.latest) {
           parts.push(`Last run started <b>${ago(s.latest.startedAt)}</b> (${clock(s.latest.startedAt)})`);
-          const next = Math.ceil((now + MIN) / (30 * MIN)) * 30 * MIN;
-          parts.push(now - Date.parse(s.latest.startedAt) > 45 * MIN ? "<b>next run is overdue</b>" : `next run due about <b>${clock(new Date(next).toISOString())}</b>`);
+          const sched = d.schedule || { intervalMinutes: 30, runMinutes: [0, 30] };
+          const minutes = (sched.runMinutes && sched.runMinutes.length ? sched.runMinutes : [0, 30]).slice().sort((a, b) => a - b);
+          const hour = Math.floor((now + MIN) / (60 * MIN)) * 60 * MIN;
+          const past = (now + MIN - hour) / MIN;
+          const m = minutes.find((x) => x >= past);
+          const next = m === undefined ? hour + 60 * MIN + minutes[0] * MIN : hour + m * MIN;
+          parts.push(now - Date.parse(s.latest.startedAt) > 1.5 * (sched.intervalMinutes || 30) * MIN ? "<b>next run is overdue</b>" : `next run due about <b>${clock(new Date(next).toISOString())}</b>`);
         }
         if (s.gen) parts.push(`page data from <b>${ago(d.generatedAt)}</b>`);
         root.querySelector("[data-home-clock]").innerHTML = parts.join(" · ") || "No pipeline data yet.";

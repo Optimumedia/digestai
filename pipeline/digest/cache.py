@@ -146,6 +146,17 @@ def reset() -> None:
         store.states.clear()
 
 
+def forget(conn) -> None:
+    """Drop everything kept for this database, in memory and on disk."""
+    key = db_key(conn)
+    for store in _Store.registry:
+        store.states.pop(key, None)
+        try:
+            store._path(key).unlink()
+        except OSError:
+            pass
+
+
 # ---------------------------------------------------------------------------- mirror
 
 class Mirror(_Store):
@@ -179,7 +190,13 @@ class Mirror(_Store):
             return dict(rows)
         wm = db.watermark(conn)
         stale = time.time() - st["full_at"] > FULL_REFRESH_DAYS * 86400
-        if st["wm"] is None or wm < st["wm"] or stale:
+        if st["wm"] is not None and wm < st["wm"]:
+            # The database went back in time (restored from a backup): nothing kept for it can be trusted.
+            log.warning("database revision went backwards; forgetting the cached copy")
+            forget(conn)
+            st = self.state(conn)
+            rows = st["rows"]
+        if st["wm"] is None or stale:
             rows = {r[0]: self.Row(*r) for r in conn.execute(select(*self.columns).where(self.scope(now))).all()}
             st["full_at"] = time.time()
         else:
@@ -305,7 +322,7 @@ class Details(_Store):
         out = {}
         for i in wanted:
             e = items.get(i)
-            if e is not None:
+            if e is not None and e[0] == wanted[i]:  # a row that is gone keeps no stale copy
                 e[2] = now
                 out[i] = e[3]
         st["_dirty"] = True
@@ -425,7 +442,7 @@ class Vectors(_Store):
         out = {}
         for i in wanted:
             e = items.get(i)
-            if e is not None:
+            if e is not None and e[0] == wanted[i]:
                 e[1] = now
                 out[i] = None if e[2] is None else e[2].astype(np.float32)
         if need or wanted:

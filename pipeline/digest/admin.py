@@ -393,7 +393,7 @@ def run() -> dict:
         step_rows = [{"step": r.step, "startedAt": db.as_utc(r.started_at), "stats": r.stats or {}} for r in runs]
         actions = run_cards(step_rows, now)
         # Silent after two scheduled runs were missed (at least two hours).
-        silent_hours = max(2, round(2.5 * config.RUN_INTERVAL_MINUTES / 60))
+        silent_hours = max(2, -(-5 * config.RUN_INTERVAL_MINUTES // 120))  # ceil(2.5 intervals)
         if not runs or db.as_utc(runs[0].started_at) < now - timedelta(hours=silent_hours):
             actions.append(_card("pipeline:silent", "critical", f"No pipeline run has started in the last {silent_hours} hours.",
                                  "The site only updates when the pipeline runs, so no new stories are appearing.",
