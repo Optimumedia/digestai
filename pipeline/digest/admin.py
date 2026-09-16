@@ -538,6 +538,7 @@ def search_cards(gsc: dict | None, rows: list[dict], now) -> list[dict]:
         out.append(_card("search:sitemap", "warning", "A sitemap entry in Search Console reports errors.",
                          "Google may skip the pages a broken sitemap entry lists.",
                          "If the entry below is a typo, remove it in Search Console under Indexing, Sitemaps.", items=errors))
+    out += ranking_cards(gsc)
     gsc_steps = sorted((r for r in rows if r["step"] == "gsc" and (r["stats"] or {}).get("configured")), key=lambda r: r["startedAt"])
     ok = [r for r in gsc_steps if not r["stats"].get("error") and not r["stats"].get("crashed")]
     if gsc_steps and (not ok or ok[-1]["startedAt"] < now - timedelta(hours=26)):
@@ -547,3 +548,36 @@ def search_cards(gsc: dict | None, rows: list[dict], now) -> list[dict]:
                          "Usually the Search Console connection lost access or its key expired. The Actions log shows the error on the \"gsc\" step.",
                          at=ok[-1]["startedAt"] if ok else None, action={"kind": "link", "url": ACTIONS_URL, "label": "Open the Actions log"}))
     return out
+
+
+RANKING_MIN_IMPRESSIONS = 50  # per week, both weeks: below it one search swings the average
+RANKING_MIN_MOVE = 3.0  # places
+
+
+def ranking_cards(gsc: dict | None) -> list[dict]:
+    """An info card when the average Google position moved notably between the last 7 reported
+    days and the 7 before, with enough impressions on both sides to trust the move."""
+    from .gsc import weighted_position
+
+    days = [r for r in (gsc or {}).get("perDay") or [] if r.get("day")]
+    if len(days) < 14:
+        return []
+    week, before = days[-7:], days[-14:-7]
+    imp_now, imp_before = sum(r.get("impressions") or 0 for r in week), sum(r.get("impressions") or 0 for r in before)
+    now, prev = weighted_position(week), weighted_position(before)
+    if now is None or prev is None or min(imp_now, imp_before) < RANKING_MIN_IMPRESSIONS:
+        return []
+    move = prev - now  # positive: the site moved up
+    if abs(move) < max(RANKING_MIN_MOVE, prev * 0.15):
+        return []
+
+    def page(p: float) -> str:
+        return "the first page" if p <= 10 else f"page {int(-(-p // 10))}"
+
+    what = (f"Google ranks the site higher this week: average position {now:.1f}, up from {prev:.1f}." if move > 0
+            else f"Google ranks the site lower this week: average position {now:.1f}, down from {prev:.1f}.")
+    why = (f"On average the site now appears on {page(now)} of Google's results, against {page(prev)} the week before "
+           f"({imp_now} impressions this week, {imp_before} the week before). 1 is the top result.")
+    todo = ("No action needed. The Search tab shows which searches moved." if move > 0
+            else "Open the Search tab to see which searches and pages dropped; a drop in one popular search often explains it.")
+    return [_card("search:ranking", "info", what, why, todo, action={"kind": "link", "url": "#seo", "label": "Open the Search tab"})]

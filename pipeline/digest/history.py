@@ -27,7 +27,7 @@ EVENT_TYPES = {"view": "views", "click_source": "clicks", "save": "saves", "foll
                "share": "shares", "listen": "listens", "push_on": "alert_signups"}
 EVENT_COLS = ["sessions", "visitors", "views", "dwell_seconds", "dwell_reads", "clicks", "saves", "follows", "shares", "listens", "alert_signups"]
 CONTENT_COLS = ["stories_published", "articles_published", "articles_fetched"]
-GOOGLE_COLS = ["google_clicks", "google_impressions"]
+GOOGLE_COLS = ["google_clicks", "google_impressions", "google_position", "google_position_sum", "google_queries"]
 GROUPS = {"events": EVENT_COLS, "content": CONTENT_COLS, "social": ["social_posts"], "runs": ["crashed_steps"]}
 METRIC_COLS = EVENT_COLS + CONTENT_COLS + ["social_posts", "crashed_steps"] + GOOGLE_COLS
 
@@ -66,24 +66,48 @@ def _first_day(conn, col) -> str | None:
     return db.as_utc(v).date().isoformat()
 
 
-def google_days(path: Path | None = None) -> dict[str, tuple[int, int]]:
-    """(clicks, impressions) per day from the gsc.json the gsc step wrote this run. Search
-    Console leaves out days without data, so days inside its range count as zero; days after its
-    end (the reporting lag) are left out, so they stay unknown."""
+def google_days(path: Path | None = None) -> dict[str, tuple]:
+    """(clicks, impressions, position, queries) per day from the gsc.json the gsc step wrote this
+    run. Search Console leaves out days without data, so days inside its range count as zero;
+    days after its end (the reporting lag) are left out, so they stay unknown. Position and
+    queries are None where the file does not say (older files, days outside the query window)."""
     p = path or config.SITE_DATA_DIR / "gsc.json"
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     rows = data.get("history") or data.get("perDay") or []
-    got = {r["day"]: (int(r.get("clicks") or 0), int(r.get("impressions") or 0)) for r in rows if r.get("day")}
+    got = {r["day"]: (int(r.get("clicks") or 0), int(r.get("impressions") or 0), r.get("position"), r.get("queries"))
+           for r in rows if r.get("day")}
     if not got:
         return {}
     last = max(data.get("end") or "", max(got))
-    return {d: got.get(d, (0, 0)) for d in _days(min(got), last)}
+    return {d: got.get(d, (0, 0, None, 0)) for d in _days(min(got), last)}
 
 
-def update(eng: Engine, now: datetime | None = None, google: dict[str, tuple[int, int]] | None = None) -> list[dict]:
+def google_values(value: tuple, old: dict | None = None) -> dict:
+    """The daily_stats Google columns for one day. `value` is (clicks, impressions) or
+    (clicks, impressions, position, queries); a None position or query count on a day with
+    impressions means "not reported", so the stored value is kept. With no impressions the day
+    has no position at all (NULL, never 0) and contributes nothing to a period's average."""
+    old = old or {}
+    clicks, imp, pos, queries = (tuple(value) + (None, None))[:4]
+    row = {"google_clicks": clicks, "google_impressions": imp}
+    if not imp:
+        row.update(google_position=None, google_position_sum=0.0, google_queries=0)
+        return row
+    if pos is None:
+        # Keep a stored position only if it belongs to the same impressions.
+        same = old.get("google_impressions") == imp and old.get("google_position") is not None
+        row.update(google_position=old.get("google_position") if same else None,
+                   google_position_sum=old.get("google_position_sum") if same else None)
+    else:
+        row.update(google_position=round(float(pos), 2), google_position_sum=round(float(pos) * imp, 2))
+    row["google_queries"] = int(queries) if queries is not None else old.get("google_queries")
+    return row
+
+
+def update(eng: Engine, now: datetime | None = None, google: dict[str, tuple] | None = None) -> list[dict]:
     """Upsert the recent and missing days, then return the whole history for admin.json."""
     now = db.as_utc(now or db.utcnow())
     today = now.date().isoformat()
@@ -198,17 +222,18 @@ def update(eng: Engine, now: datetime | None = None, google: dict[str, tuple[int
             for c in cols:
                 # Unmeasured now: keep whatever an earlier run recorded for that day.
                 row[c] = got.get(c, 0) if measured else old.get(c)
-        if d in google:
-            row["google_clicks"], row["google_impressions"] = google[d]
-        else:
-            row["google_clicks"], row["google_impressions"] = old.get("google_clicks"), old.get("google_impressions")
+        row.update(google_values(google[d], old) if d in google else {c: old.get(c) for c in GOOGLE_COLS})
         rows.append(row)
 
-    # Search Console revises recent days and covers ~16 months: refresh older stored days too.
+    # Search Console revises recent days and covers ~16 months: refresh older stored days too
+    # (this also fills in positions for days stored before positions were recorded).
     compute_set = set(compute)
-    fixes = [(d, c, i) for d, (c, i) in google.items()
-             if d not in compute_set and d in existing
-             and (existing[d]["google_clicks"], existing[d]["google_impressions"]) != (c, i)]
+    fixes = []
+    for d, value in google.items():
+        if d not in compute_set and d in existing:
+            new = google_values(value, existing[d])
+            if any(existing[d].get(c) != v for c, v in new.items()):
+                fixes.append((d, new))
 
     # Delete and insert in one transaction: portable between SQLite and Postgres.
     with eng.begin() as conn:
@@ -216,8 +241,8 @@ def update(eng: Engine, now: datetime | None = None, google: dict[str, tuple[int
             conn.execute(t.delete().where(t.c.day.in_(compute[k:k + 500])))
         if rows:
             conn.execute(t.insert(), rows)
-        for d, c, i in fixes:
-            conn.execute(t.update().where(t.c.day == d).values(google_clicks=c, google_impressions=i, updated_at=now))
+        for d, new in fixes:
+            conn.execute(t.update().where(t.c.day == d).values(**new, updated_at=now))
     log.info("daily history: %d days written, %d Search Console days corrected", len(rows), len(fixes))
 
     with eng.connect() as conn:

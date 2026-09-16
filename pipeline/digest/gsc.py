@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import timedelta
+from datetime import date, timedelta
 
 import requests
 
@@ -28,7 +28,91 @@ def _token(sa_info: dict) -> str:
     return creds.token
 
 
-KEY_PAGES = ["/", "/today", "/listen", "/models", "/funding"]
+LIST_ROWS = 1000  # queries or pages asked for per 28-day window; the file keeps the top TOP_ROWS
+TOP_ROWS = 50
+DAY_QUERY_ROWS = 10000  # date x query rows: plenty for a young site, bounded for a big one
+SPARK_QUERIES = 15  # queries that carry their daily positions in gsc.json
+
+
+def _days(first: str, last: str) -> list[str]:
+    d, stop, out = date.fromisoformat(first), date.fromisoformat(last), []
+    while d <= stop:
+        out.append(d.isoformat())
+        d += timedelta(days=1)
+    return out
+
+
+def weighted_position(rows) -> float | None:
+    """Average position over several rows, weighted by impressions: a day with 100 impressions
+    counts 100 times as much as a day with one. None when Google showed the site nowhere."""
+    rows = [r for r in rows if r.get("position") is not None and r.get("impressions")]
+    imp = sum(r["impressions"] for r in rows)
+    if not imp:
+        return None
+    return round(sum(r["position"] * r["impressions"] for r in rows) / imp, 1)
+
+
+def _row(r: dict, key: str, value: str) -> dict:
+    return {key: value, "clicks": int(r["clicks"]), "impressions": int(r["impressions"]),
+            "ctr": round(r["ctr"], 4), "position": round(r["position"], 1)}
+
+
+def build(by_day: list, by_day_query: list, queries: list, prev_queries: list, pages: list, prev_pages: list,
+          start: str, end: str) -> dict:
+    """Turn Search Console rows into the ranking part of gsc.json. Search Console leaves out days
+    without impressions; they are filled in with no position (never position 0), so charts can
+    leave them as gaps. `prev_*` are the 28 days before `start`, for the change in position."""
+    n_queries: dict[str, int] = {}
+    daily: dict[str, list] = {}
+    for r in by_day_query:
+        d, q = r["keys"][0], r["keys"][1]
+        if r["impressions"] > 0:
+            n_queries[d] = n_queries.get(d, 0) + 1
+            daily.setdefault(q, []).append([d, int(r["impressions"]), round(r["position"], 1)])
+    got = {r["keys"][0]: r for r in by_day}
+    first = min(got) if got else start
+    history, per_day = [], []
+    for d in _days(min(first, start), end):
+        r = got.get(d)
+        imp = int(r["impressions"]) if r else 0
+        row = {"day": d, "clicks": int(r["clicks"]) if r else 0, "impressions": imp,
+               "position": round(r["position"], 2) if r and imp else None}
+        if d >= start:
+            row["queries"] = n_queries.get(d, 0)
+        if d >= first:
+            history.append(row)
+        if d >= start:
+            per_day.append({**row, "ctr": round(r["ctr"], 4) if r and imp else 0,
+                            "position": round(row["position"], 1) if row["position"] is not None else None})
+    before_q = {r["keys"][0]: r for r in prev_queries}
+    before_p = {r["keys"][0]: r for r in prev_pages}
+
+    def with_prev(row: dict, old: dict | None) -> dict:
+        if old and old["impressions"] > 0:
+            row.update(prevImpressions=int(old["impressions"]), prevClicks=int(old["clicks"]), prevPosition=round(old["position"], 1))
+        return row
+
+    order = lambda r: (-r["impressions"], -r["clicks"], r["keys"][0])  # noqa: E731
+    out_q = []
+    for i, r in enumerate(sorted(queries, key=order)[:TOP_ROWS]):
+        row = with_prev(_row(r, "query", r["keys"][0]), before_q.get(r["keys"][0]))
+        if i < SPARK_QUERIES:
+            row["days"] = sorted(daily.get(r["keys"][0], []))  # [day, impressions, position]
+        out_q.append(row)
+    out_p = [with_prev(_row(r, "page", r["keys"][0].replace(config.SITE_URL, "") or "/"), before_p.get(r["keys"][0]))
+             for r in sorted(pages, key=order)[:TOP_ROWS]]
+    seen = lambda rows: sum(1 for r in rows if r["impressions"] > 0)  # noqa: E731
+    return {
+        "history": history, "perDay": per_day, "queries": out_q, "pages": out_p,
+        # Google leaves out rare searches for privacy, so the query count is a floor.
+        "queryCount": seen(queries), "prevQueryCount": seen(prev_queries),
+        "pageCount": seen(pages), "prevPageCount": seen(prev_pages),
+        "totals": {"clicks": sum(r["clicks"] for r in per_day), "impressions": sum(r["impressions"] for r in per_day),
+                   "position": weighted_position(per_day)},
+    }
+
+
+KEY_PAGES = ["/","/today", "/listen", "/models", "/funding"]
 TOP_STORIES_TO_INSPECT = 3
 
 
@@ -110,28 +194,30 @@ def run() -> dict:
             raise RuntimeError(f"{r.status_code} {r.text[:160]}")
         return r.json().get("rows", [])
 
+    prev_end = start - timedelta(days=1)
+    prev_start = prev_end - timedelta(days=27)
+    out.update(prevStart=prev_start.isoformat(), prevEnd=prev_end.isoformat())
+
+    def window(dimension: str, a: date, b: date) -> list:
+        return query({"startDate": a.isoformat(), "endDate": b.isoformat(), "dimensions": [dimension], "rowLimit": LIST_ROWS})
+
     try:
         by_day = query({"startDate": history_start.isoformat(), "endDate": end.isoformat(), "dimensions": ["date"], "rowLimit": 1000})
-        out["history"] = [{"day": r["keys"][0], "clicks": int(r["clicks"]), "impressions": int(r["impressions"])} for r in by_day]
-        out["perDay"] = [{"day": r["keys"][0], "clicks": r["clicks"], "impressions": r["impressions"], "ctr": round(r["ctr"], 4), "position": round(r["position"], 1)}
-                         for r in by_day if r["keys"][0] >= start.isoformat()]
-        q = query({"startDate": start.isoformat(), "endDate": end.isoformat(), "dimensions": ["query"], "rowLimit": 50})
-        out["queries"] = [{"query": r["keys"][0], "clicks": r["clicks"], "impressions": r["impressions"], "ctr": round(r["ctr"], 4), "position": round(r["position"], 1)} for r in q]
-        p = query({"startDate": start.isoformat(), "endDate": end.isoformat(), "dimensions": ["page"], "rowLimit": 50})
-        out["pages"] = [{"page": r["keys"][0].replace(config.SITE_URL, ""), "clicks": r["clicks"], "impressions": r["impressions"], "ctr": round(r["ctr"], 4), "position": round(r["position"], 1)} for r in p]
+        by_day_query = query({"startDate": start.isoformat(), "endDate": end.isoformat(), "dimensions": ["date", "query"], "rowLimit": DAY_QUERY_ROWS})
+        out.update(build(by_day, by_day_query, window("query", start, end), window("query", prev_start, prev_end),
+                         window("page", start, end), window("page", prev_start, prev_end), start.isoformat(), end.isoformat()))
         sm = s.get(f"{API}/sites/{requests.utils.quote(prop, safe='')}/sitemaps", timeout=30)
         out["sitemaps"] = [{"path": x.get("path", "").replace(config.SITE_URL, ""), "lastSubmitted": x.get("lastSubmitted"), "errors": x.get("errors"), "warnings": x.get("warnings"),
                             "submitted": sum(int(c.get("submitted", 0)) for c in x.get("contents", [])), "indexed": sum(int(c.get("indexed", 0)) for c in x.get("contents", []))}
                            for x in sm.json().get("sitemap", [])] if sm.ok else []
         out["inspections"] = _inspections(s, prop)
         out["inspectedAt"] = db.utcnow().isoformat()
-        out["totals"] = {"clicks": sum(r["clicks"] for r in out["perDay"]), "impressions": sum(r["impressions"] for r in out["perDay"])}
     except Exception as exc:  # noqa: BLE001
         log.warning("GSC query failed: %s", str(exc)[:200])
         stats["error"] = str(exc)[:120]
         return stats
     (config.SITE_DATA_DIR / "gsc.json").write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
-    stats.update(clicks=out["totals"]["clicks"], impressions=out["totals"]["impressions"], queries=len(out["queries"]),
+    stats.update(clicks=out["totals"]["clicks"], impressions=out["totals"]["impressions"], queries=out["queryCount"], position=out["totals"]["position"],
                  inspected=len(out["inspections"]),
                  indexed=sum(1 for c in out["inspections"] if c["state"].lower().startswith(("submitted and indexed", "indexed"))))
     return stats
