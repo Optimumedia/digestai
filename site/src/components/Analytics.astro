@@ -1,0 +1,76 @@
+---
+/* Google Analytics, only after the reader accepts (basic consent mode: gtag.js is not even loaded
+   before that). The choice is kept in localStorage; "Cookie settings" in the footer reopens it, and
+   declining after accepting deletes Google's _ga cookies. Bots and browsers that switched off
+   counting on /admin (notrack) never load it. Our own anonymous counts in app.js need no consent
+   and run either way. */
+const gaId = import.meta.env.PUBLIC_GA_ID ?? "G-KFWT7G66Y8";
+---
+
+{gaId && (
+  <>
+    <div class="consent" id="consent" role="dialog" aria-labelledby="consent-title" aria-describedby="consent-text" hidden>
+      <p class="consent-title" id="consent-title">Help us improve Digest AI</p>
+      <p class="consent-text" id="consent-text">
+        May we use Google Analytics to see which stories are read? It sets cookies and sends your visit to Google.
+        Our own anonymous counts use no cookies either way. <a href="/about#privacy">Privacy</a>
+      </p>
+      <div class="consent-actions">
+        <button type="button" class="consent-btn primary" data-consent="accept">Accept</button>
+        <button type="button" class="consent-btn" data-consent="decline">Decline</button>
+      </div>
+    </div>
+    <script is:inline define:vars={{ gaId }}>
+      (() => {
+        const KEY = "analyticsConsent";
+        const get = () => { try { return localStorage.getItem(KEY); } catch { return null; } };
+        const set = (v) => { try { localStorage.setItem(KEY, v); } catch {} };
+        let noTrack = false;
+        try { noTrack = JSON.parse(localStorage.getItem("notrack")) === true; } catch {}
+        const bot = navigator.webdriver === true || /bot\b|bot\/|crawl|spider|slurp|headless|lighthouse|pagespeed/i.test(navigator.userAgent || "");
+        const banner = document.getElementById("consent");
+        if (!banner || bot) return;
+        let loaded = false;
+        const load = () => {
+          if (loaded || noTrack) return;
+          loaded = true;
+          window.dataLayer = window.dataLayer || [];
+          window.gtag = function () { window.dataLayer.push(arguments); };
+          window.gtag("consent", "default", { ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied", analytics_storage: "granted" });
+          window.gtag("js", new Date());
+          window.gtag("config", gaId, { allow_google_signals: false, allow_ad_personalization_signals: false });
+          const s = document.createElement("script");
+          s.async = true;
+          s.src = `https://www.googletagmanager.com/gtag/js?id=${gaId}`;
+          document.head.appendChild(s);
+        };
+        const dropCookies = () => {
+          const host = location.hostname.replace(/^www\./, "");
+          for (const c of document.cookie.split(";")) {
+            const name = c.split("=")[0].trim();
+            if (!name.startsWith("_ga")) continue;
+            for (const domain of ["", `; domain=.${host}`, `; domain=${host}`]) document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/${domain}`;
+          }
+        };
+        const show = () => { banner.hidden = false; banner.querySelector("[data-consent=accept]").focus({ preventScroll: true }); };
+        const choice = get();
+        if (choice === "denied") dropCookies();  // anything left from an earlier accept
+        if (choice === "granted") load();
+        else if (choice !== "denied") banner.hidden = false;
+        banner.querySelector("[data-consent=accept]").addEventListener("click", () => { set("granted"); banner.hidden = true; load(); });
+        banner.querySelector("[data-consent=decline]").addEventListener("click", () => {
+          const was = get();
+          set("denied");
+          banner.hidden = true;
+          if (was === "granted") {
+            // Stop Google Analytics writing cookies first, or it rewrites them before the reload.
+            if (typeof window.gtag === "function") window.gtag("consent", "update", { analytics_storage: "denied" });
+            dropCookies();
+            location.reload();
+          }
+        });
+        document.querySelectorAll("[data-consent-open]").forEach((b) => b.addEventListener("click", show));
+      })();
+    </script>
+  </>
+)}

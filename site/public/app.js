@@ -144,6 +144,8 @@
       if (p.query === lastSent) return;
       lastSent = p.query;
       send("search", Math.min(p.results, 3600), { detail: p.query, path: location.pathname.startsWith("/search") ? "/search" : "/404" });
+      // Google Analytics exists only after the reader accepted it (components/Analytics.astro).
+      if (typeof window.gtag === "function") window.gtag("event", "search", { search_term: p.query });
     };
     addEventListener("digest:search", (e) => {
       const { term, auto } = e.detail || {};

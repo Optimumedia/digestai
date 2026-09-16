@@ -1,5 +1,6 @@
 ---
 import SocialLinks from "../components/SocialLinks.astro";
+import Analytics from "../components/Analytics.astro";
 import "../styles/global.css";
 import { categories, meta, byScore, byRecency } from "../lib/data";
 
@@ -205,9 +206,10 @@ const clientConfig = {
       <div class="footer-bar">
         <div class="wrap">
           <p class="gen"><span class="gen-dot" aria-hidden="true"></span>Updated <time datetime={meta.generatedAt}></time> · {meta.storyCount} stories from {meta.articleCount} articles</p>
-          <p class="footer-copy">© {footerYear} Digest AI · Built from public sources, linked in every story</p>
+          <p class="footer-copy">© {footerYear} Digest AI · Built from public sources, linked in every story{!noindex && <> · <button type="button" class="footer-link-btn" data-consent-open>Cookie settings</button></>}</p>
         </div>
       </div>
     </footer>
+    {!noindex && <Analytics />}
   </body>
 </html>
