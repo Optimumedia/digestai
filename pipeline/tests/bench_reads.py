@@ -29,6 +29,11 @@ COMPANIES = ["OpenAI", "Anthropic", "Google", "Meta", "Nvidia", "Mistral", "xAI"
              "DeepSeek", "Cohere", "Perplexity", "Figure", "Scale", "Databricks", "Hugging Face", "Qwen"]
 
 
+def ts(dt: datetime) -> str:
+    """A timestamp as SQLAlchemy stores it in SQLite, so comparisons in SQL work as in the pipeline."""
+    return dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
 def text(rng: random.Random, chars: int) -> str:
     out, n = [], 0
     while n < chars:
@@ -57,7 +62,7 @@ def build(path: Path, days: int, per_day: int, rejected_per_day: int, seed: int 
     con = sqlite3.connect(path)
     cur = con.cursor()
     sources = [(i, f"src{i}", f"Source {i}", f"https://src{i}.test/feed", "rss", rng.choice(["press", "primary", "newsletter", "community"]),
-                None, 1.0, 1, 0, 1, 0, None, (now - timedelta(minutes=30)).isoformat(), None, 0, 1.0) for i in range(1, 67)]
+                None, 1.0, 1, 0, 1, 0, None, ts((now - timedelta(minutes=30))), None, 0, 1.0) for i in range(1, 67)]
     cur.executemany("insert into sources values (" + ",".join("?" * 17) + ")", sources)
     aid, sid, tid = 0, 0, 0
     arts, stories, threads = [], [], []
@@ -77,7 +82,7 @@ def build(path: Path, days: int, per_day: int, rejected_per_day: int, seed: int 
                 arts.append({
                     "id": aid, "url": f"https://pub{aid % 500}.test/{aid}", "source_id": rng.randint(1, 66), "story_id": sid,
                     "slug": f"article-{aid}", "raw_title": text(rng, 80), "title": text(rng, 80), "headline": text(rng, 90),
-                    "author": "A. Writer", "domain": f"pub{aid % 500}.test", "published_at": pub.isoformat(), "fetched_at": pub.isoformat(),
+                    "author": "A. Writer", "domain": f"pub{aid % 500}.test", "published_at": ts(pub), "fetched_at": ts(pub),
                     "lang": "en", "description": text(rng, 280), "feed_content": text(rng, 1500), "content_md": text(rng, 8000),
                     "content_text": text(rng, 8000), "word_count": 1300, "image_url": f"https://img.test/{aid}.jpg",
                     "extraction_method": "trafilatura", "extraction_ok": 1, "show_fulltext": 1, "status": "published",
@@ -89,30 +94,30 @@ def build(path: Path, days: int, per_day: int, rejected_per_day: int, seed: int 
                     "model_release": None, "funding": None, "discussion_site": "hn" if k == 0 and rng.random() < 0.3 else None,
                     "discussion_url": None, "discussion_points": rng.randint(5, 400) if rng.random() < 0.3 else None,
                     "trend_score": rng.randint(0, 50) if rng.random() < 0.3 else None, "discussion_checked_at": None,
-                    "created_at": pub.isoformat(),
+                    "created_at": ts(pub),
                 })
             if sid % 4 == 1:
                 tid += 1
                 threads.append((tid, f"thread-{tid}", text(rng, 60), text(rng, 300), "models", json.dumps(ents), json.dumps(base), 1, 0,
-                                 first.isoformat(), first.isoformat(), "published"))
+                                 ts(first), ts(first), "published"))
             stories.append((sid, f"story-{sid}", text(rng, 90), text(rng, 1000), json.dumps([text(rng, 150) for _ in range(3)]), text(rng, 300),
                             "models", json.dumps(ents), members[0], n, rng.randint(3, 9), rng.random(), json.dumps(base), "published", 0,
                             tid if rng.random() < 0.6 else None, text(rng, 400) if rng.random() < 0.1 else None, None, None,
-                            first.isoformat(), (first + timedelta(hours=2 * (n - 1))).isoformat()))
+                            ts(first), ts((first + timedelta(hours=2 * (n - 1))))))
         for _ in range(rejected_per_day):
             aid += 1
             t = now - timedelta(days=d, minutes=rng.randint(0, 1439))
             arts.append({
                 "id": aid, "url": f"https://rej{aid % 700}.test/{aid}", "source_id": rng.randint(1, 66), "story_id": None, "slug": None,
                 "raw_title": text(rng, 80), "title": text(rng, 80), "headline": None, "author": None, "domain": f"rej{aid % 700}.test",
-                "published_at": t.isoformat(), "fetched_at": t.isoformat(), "lang": "en", "description": text(rng, 280),
+                "published_at": ts(t), "fetched_at": ts(t), "lang": "en", "description": text(rng, 280),
                 "feed_content": text(rng, 1500), "content_md": text(rng, 8000), "content_text": text(rng, 8000), "word_count": 1300,
                 "image_url": None, "extraction_method": "trafilatura", "extraction_ok": 1, "show_fulltext": 1, "status": "rejected",
                 "reject_reason": rng.choice(["gate: not about AI (score 1.0)", "gate: duplicate title of #3", "llm: not ai news", "extract: failed"]),
                 "simhash": rng.randint(-2**62, 2**62), "summary_md": None, "key_points": None, "why_it_matters": None, "category": None,
                 "entities": None, "content_type": None, "importance": None, "enrich_model": None, "embedding": None, "predicted_score": None,
                 "engagement": 0.0, "model_release": None, "funding": None, "discussion_site": None, "discussion_url": None,
-                "discussion_points": None, "trend_score": None, "discussion_checked_at": None, "created_at": t.isoformat(),
+                "discussion_points": None, "trend_score": None, "discussion_checked_at": None, "created_at": ts(t),
             })
     cols = list(arts[0])
     for i in range(0, len(arts), 2000):
@@ -125,13 +130,13 @@ def build(path: Path, days: int, per_day: int, rejected_per_day: int, seed: int 
         t = now - timedelta(hours=h)
         for step in ["fetch", "extract", "gate", "enrich", "cluster", "threads", "discuss", "pulse", "rank", "export", "push", "topics",
                      "intros", "images", "audio", "social", "newsletter", "gsc", "admin", "notify", "indexnow"]:
-            runs.append((t.isoformat(), (t + timedelta(seconds=20)).isoformat(), step, json.dumps({"items": 1200, "inserted": 40, "seconds": 12.5, "reasons": {"not about AI": 30, "duplicate title": 12}})))
+            runs.append((ts(t), ts((t + timedelta(seconds=20))), step, json.dumps({"items": 1200, "inserted": 40, "seconds": 12.5, "reasons": {"not about AI": 30, "duplicate title": 12}})))
     cur.executemany("insert into runs (started_at, finished_at, step, stats) values (?,?,?,?)", runs)
     events = []
     for _ in range(days * 400):
         a = rng.randint(1, aid)
         t = now - timedelta(minutes=rng.randint(0, days * 1440))
-        events.append((a, None, rng.choice(["view", "view", "dwell", "click_source"]), rng.random() * 60, f"s{rng.randint(1, 5000)}", f"v{rng.randint(1, 3000)}", "direct", f"/story/story-{rng.randint(1, sid)}", None, t.isoformat()))
+        events.append((a, None, rng.choice(["view", "view", "dwell", "click_source"]), rng.random() * 60, f"s{rng.randint(1, 5000)}", f"v{rng.randint(1, 3000)}", "direct", f"/story/story-{rng.randint(1, sid)}", None, ts(t)))
     cur.executemany("insert into events (article_id, story_id, type, value, session, visitor, source, path, detail, created_at) values (?,?,?,?,?,?,?,?,?,?)", events)
     con.commit()
     con.close()
@@ -150,16 +155,16 @@ def add_batch(path: Path, run_no: int, n_new: int = 25) -> None:
     for k in range(n_new):
         i = base + k + 1
         t = now - timedelta(minutes=rng.randint(0, 50))
-        rows.append((f"https://new{run_no}.test/{i}", rng.randint(1, 66), text(rng, 80), text(rng, 80), f"new{i % 90}.test", t.isoformat(), t.isoformat(),
+        rows.append((f"https://new{run_no}.test/{i}", rng.randint(1, 66), text(rng, 80), text(rng, 80), f"new{i % 90}.test", ts(t), ts(t),
                      "OpenAI AI model launch. " + text(rng, 280), text(rng, 8000), "OpenAI releases a new AI model for agents. " * 20 + text(rng, 6000),
-                     1300, 1, "extracted" if k % 3 == 0 else "gated", rng.randint(-2**62, 2**62), t.isoformat(), "trafilatura", 1, 0.0))
+                     1300, 1, "extracted" if k % 3 == 0 else "gated", rng.randint(-2**62, 2**62), ts(t), "trafilatura", 1, 0.0))
     con.executemany("insert into articles (url, source_id, raw_title, title, domain, published_at, fetched_at, description, content_md, content_text, word_count, show_fulltext, status, simhash, created_at, extraction_method, extraction_ok, engagement) values (" + ",".join("?" * 18) + ")", rows)
     for a, pts in con.execute("select id, abs(random()) % 300 from articles where status = 'published' order by id desc limit 15").fetchall():
         con.execute("update articles set discussion_site = 'hn', discussion_url = ?, discussion_points = ? where id = ?", (f"https://news.ycombinator.com/item?id={a}", pts, a))
     for _ in range(300):
         a = con.execute("select id from articles where status = 'published' order by random() limit 1").fetchone()[0]
         con.execute("insert into events (article_id, type, value, session, visitor, source, path, created_at) values (?, 'view', 1, ?, ?, 'direct', '/', ?)",
-                    (a, f"s{rng.randint(1, 5000)}", f"v{rng.randint(1, 3000)}", now.isoformat()))
+                    (a, f"s{rng.randint(1, 5000)}", f"v{rng.randint(1, 3000)}", ts(now)))
     con.commit()
     con.close()
 
@@ -200,15 +205,51 @@ def main() -> int:
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--steps", default=",".join(STEPS))
     ap.add_argument("--rebuild", action="store_true")
+    ap.add_argument("--cold", action="store_true", help="start without the runner's cache")
+    ap.add_argument("--queries", action="store_true", help="list the statements that read the most in each run")
     args = ap.parse_args()
     path = Path(args.db).resolve()
     os.environ["DATABASE_URL"] = f"sqlite:///{path.as_posix()}"
     for k in ("GEMINI_API_KEY", "GROQ_API_KEY", "OLLAMA_URL", "KIT_API_KEY", "VAPID_PRIVATE_KEY", "BLUESKY_APP_PASSWORD"):
         os.environ[k] = ""
+    # The runner's copy of earlier reads (cache.py) lives next to the benchmark database.
+    cache_dir = path.with_name(path.stem + "-cache")
+    os.environ["CACHE_DIR"] = str(cache_dir)
     sys.path.insert(0, str(HERE))
     if args.rebuild and path.exists():
         path.unlink()
     fresh = not path.exists()
+    if fresh or args.cold:
+        import shutil
+
+        shutil.rmtree(cache_dir, ignore_errors=True)
+    per_query: dict[str, float] = {}
+    if args.queries:
+        # Attribute the bytes of each fetched row to the statement that produced it.
+        from sqlalchemy import event
+
+        from digest import db as dbmod
+
+        current = {"sql": ""}
+        original = dbmod._count_rows
+
+        def counting(cursor, row):
+            before = dbmod._bytes_read[0]
+            original(cursor, row)
+            per_query[current["sql"]] = per_query.get(current["sql"], 0) + dbmod._bytes_read[0] - before
+            return row
+
+        dbmod._count_rows = counting
+        real_engine = dbmod.engine
+
+        def engine():
+            new = dbmod._engine is None
+            eng = real_engine()
+            if new:
+                event.listen(eng, "before_cursor_execute", lambda c, cur, stmt, *a: current.update(sql=" ".join(stmt.split())[:150]))
+            return eng
+
+        dbmod.engine = engine
     if fresh:
         build(path, args.days, args.stories_per_day, args.rejected_per_day)
     patch_offline()
@@ -233,6 +274,11 @@ def main() -> int:
         for step, stats in rows:
             table.setdefault(step, []).append((stats or {}).get("readKB"))
         print(f"run {r + 1}: {time.time() - t0:.0f} s", file=sys.stderr)
+        if args.queries:
+            print(f"\nrun {r + 1}: biggest queries")
+            for sql, n in sorted(per_query.items(), key=lambda kv: -kv[1])[:12]:
+                print(f"{n / 1024:>9.1f} KB  {sql}")
+            per_query.clear()
     print("\nstep        " + "".join(f"run{i + 1:>2} KB  " for i in range(args.runs)))
     totals = [0.0] * args.runs
     for step, vals in table.items():

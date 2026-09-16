@@ -6,13 +6,14 @@ thread's centre AND share at least one named entity, within a rolling window.
 """
 from __future__ import annotations
 
+import copy
 import logging
 from datetime import timedelta
 
 import numpy as np
 from sqlalchemy import insert, select, update
 
-from . import config, db
+from . import cache, config, db
 from .textutil import short_hash, slugify
 
 log = logging.getLogger("digest.threads")
@@ -59,7 +60,8 @@ def name_threads(eng) -> int:
     named = 0
     with eng.connect() as conn:
         candidates = conn.execute(
-            select(db.threads).where(db.threads.c.story_count >= 2, db.threads.c.status == "published")
+            select(db.threads.c.id, db.threads.c.slug, db.threads.c.summary, db.threads.c.story_count, db.threads.c.named_count)
+            .where(db.threads.c.story_count >= 2, db.threads.c.status == "published")
             .order_by(db.threads.c.updated_at.desc()).limit(40)
         ).all()
         allowance = enrich.allowance(conn, "groq") if config.GROQ_API_KEY else enrich.allowance(conn, "gemini")
@@ -104,41 +106,46 @@ def run() -> dict:
     now = db.utcnow()
     since = now - timedelta(days=WINDOW_DAYS)
     with eng.begin() as conn:
-        stories = conn.execute(
-            # Only the columns used, and only stories inside the window: this ran over every unthreaded
-            # story ever published, embeddings included, 48 times a day.
-            select(db.stories.c.id, db.stories.c.category, db.stories.c.embedding, db.stories.c.entities,
-                   db.stories.c.first_published_at, db.stories.c.headline, db.stories.c.why_it_matters)
-            .where(db.stories.c.thread_id.is_(None), db.stories.c.status == "published",
-                   db.stories.c.embedding.isnot(None), db.stories.c.first_published_at >= since)
-            .order_by(db.stories.c.first_published_at.asc())
-        ).all()
+        # Stories, their embeddings and entities come from the runner's copy (cache.py): this once read
+        # every thread's embedding and one story per thread on every run, megabytes each time.
+        window = [s for s in cache.stories(conn).values() if (db.as_utc(s.first_published_at) or since) >= since]
+        stories = sorted((s for s in window if s.thread_id is None and s.status == "published" and s.len_embedding >= 0),
+                         key=lambda s: (db.as_utc(s.first_published_at), s.id))
         if not stories:
             stats["named"] = name_threads(eng)
             return stats
-        threads = conn.execute(select(db.threads).where(db.threads.c.updated_at >= since, db.threads.c.story_count < MAX_EPISODES)).all()
-        vecs = {t.id: np.asarray(t.embedding, dtype=np.float32) for t in threads}
-        meta = {t.id: {"names": _names(t.entities), "count": t.story_count, "ents": t.entities or {}} for t in threads}
+        story_vecs = cache.story_vectors(conn, stories)
+        text = cache.story_text(conn, window)
+        stories = [cache.merged(s, text.get(s.id)) for s in stories if story_vecs.get(s.id) is not None and s.id in text]
+        threads = sorted((t for t in cache.threads(conn).values()
+                          if db.as_utc(t.updated_at) >= since and t.story_count < MAX_EPISODES), key=lambda t: t.id)
+        t_vecs = cache.thread_vectors(conn, threads)
+        t_text = cache.thread_text(conn, threads)
+        threads = [t for t in threads if t_vecs.get(t.id) is not None and t.id in t_text]
+        vecs = {t.id: t_vecs[t.id] for t in threads}
+        meta = {t.id: {"names": _names(t_text[t.id].entities), "count": t.story_count, "ents": copy.deepcopy(t_text[t.id].entities or {})}
+                for t in threads}
         # The latest episode's own vector: a thread's centroid drifts as it grows, so the "very
         # close" test is made against the most recent episode rather than the average.
-        latest_vec: dict[int, np.ndarray] = {}
-        for t in threads:
-            row = conn.execute(select(db.stories.c.embedding).where(db.stories.c.thread_id == t.id, db.stories.c.embedding.isnot(None))
-                               .order_by(db.stories.c.first_published_at.desc()).limit(1)).first()
-            if row:
-                latest_vec[t.id] = np.asarray(row.embedding, dtype=np.float32)
+        latest: dict[int, object] = {}
+        for s in cache.stories(conn).values():
+            if s.thread_id in vecs and s.len_embedding >= 0:
+                cur = latest.get(s.thread_id)
+                if cur is None or (db.as_utc(s.first_published_at), s.id) > (db.as_utc(cur.first_published_at), cur.id):
+                    latest[s.thread_id] = s
+        latest_vecs = cache.story_vectors(conn, list(latest.values()))
+        latest_vec = {tid: latest_vecs[s.id] for tid, s in latest.items() if latest_vecs.get(s.id) is not None}
 
         # Entity frequency over the window decides which names are too common to be a signal.
-        recent = conn.execute(select(db.stories.c.entities).where(db.stories.c.first_published_at >= since)).all()
         freq: dict[str, int] = {}
-        for r in recent:
-            for n in _names(r.entities):
+        for s in window:
+            for n in _names(text[s.id].entities if s.id in text else None):
                 freq[n] = freq.get(n, 0) + 1
-        total = max(1, len(recent))
+        total = max(1, len(window))
         ubiquitous = {n for n, c in freq.items() if c >= 3 and c / total > UBIQUITOUS_SHARE}
 
         for s in stories:
-            v = np.asarray(s.embedding, dtype=np.float32)
+            v = story_vecs[s.id]
             names_all = _names(s.entities)
             names = names_all - ubiquitous
             best, best_sim = None, 0.0
@@ -167,7 +174,7 @@ def run() -> dict:
                         if x.lower() not in have:
                             ents.setdefault(kind, []).append(x)
                 conn.execute(update(db.threads).where(db.threads.c.id == best).values(
-                    story_count=n + 1, updated_at=now, embedding=merged.tolist(), entities=ents,
+                    story_count=n + 1, updated_at=now, embedding=db.pack_vec(merged), entities=ents,
                 ))
                 conn.execute(update(db.stories).where(db.stories.c.id == s.id).values(thread_id=best))
                 stats["assigned"] += 1
@@ -178,12 +185,12 @@ def run() -> dict:
                     slug = f"{base[:70]}-{short_hash(str(s.id))}"
                 res = conn.execute(insert(db.threads).values(
                     slug=slug, title=s.headline, summary=s.why_it_matters, category=s.category,
-                    entities=s.entities or {}, embedding=v.tolist(), story_count=1,
+                    entities=s.entities or {}, embedding=db.pack_vec(v), story_count=1,
                     first_at=db.as_utc(s.first_published_at) or now, updated_at=now, status="published",
                 ))
                 tid = res.inserted_primary_key[0]
                 vecs[tid] = v
-                meta[tid] = {"names": set(names_all), "count": 1, "ents": dict(s.entities or {})}
+                meta[tid] = {"names": set(names_all), "count": 1, "ents": copy.deepcopy(s.entities or {})}
                 conn.execute(update(db.stories).where(db.stories.c.id == s.id).values(thread_id=tid))
                 stats["new_threads"] += 1
     stats["named"] = name_threads(eng)

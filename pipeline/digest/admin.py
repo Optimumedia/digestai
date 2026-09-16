@@ -7,12 +7,12 @@ import re
 import json
 import logging
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 
-from . import config, db, history
+from . import cache, config, db, history
 from . import quality as content_quality
 
 log = logging.getLogger("digest.admin")
@@ -103,15 +103,17 @@ def run() -> dict:
 
     with eng.connect() as conn:
         # ---- runs: one row per step; the dashboard groups them into pipeline runs.
-        runs = conn.execute(select(db.runs).where(db.runs.c.started_at >= since).order_by(db.runs.c.started_at.desc()).limit(600)).all()
+        # A finished step's row never changes, so the runner's copy (cache.py) serves all but the newest.
+        run_ids = conn.execute(
+            select(db.runs.c.id, case((db.runs.c.finished_at.isnot(None), 1), else_=0).label("done"))
+            .where(db.runs.c.started_at >= since).order_by(db.runs.c.started_at.desc()).limit(600)).all()
+        got = cache.RUNS.get(conn, {r.id: [r.done] for r in run_ids})
+        runs = [got[r.id] for r in run_ids if r.id in got]
         out["runs"] = [{"step": r.step, "startedAt": _iso(r.started_at), "finishedAt": _iso(r.finished_at), "stats": r.stats or {}} for r in runs]
 
-        # ---- funnel per day from article status.
-        arts = conn.execute(
-            select(db.articles.c.created_at, db.articles.c.status, db.articles.c.reject_reason, db.articles.c.enrich_model,
-                   db.articles.c.source_id, db.articles.c.discussion_points, db.articles.c.trend_score, db.articles.c.category)
-            .where(db.articles.c.created_at >= since)
-        ).all()
+        # ---- funnel per day from article status (the runner's copy of recent articles).
+        mirror = cache.articles(conn)
+        arts = sorted((a for a in mirror.values() if db.as_utc(a.created_at) >= since), key=lambda a: a.id)
         funnel = {d: {"fetched": 0, "rejectedExtract": 0, "rejectedGate": 0, "rejectedLlm": 0, "published": 0, "pending": 0} for d in days}
         by_model: dict[str, dict[str, int]] = {}
         for a in arts:
@@ -125,7 +127,7 @@ def run() -> dict:
                 m = (a.enrich_model or "heuristic").split(":")[0]
                 by_model.setdefault(d, {})[m] = by_model.get(d, {}).get(m, 0) + 1
             elif a.status in ("rejected", "unpublished"):
-                r = a.reject_reason or ""
+                r = a.reject_kind or ""
                 key = "rejectedExtract" if r.startswith("extract") else "rejectedLlm" if r.startswith("llm") else "rejectedGate"
                 f[key] += 1
             else:
@@ -163,12 +165,11 @@ def run() -> dict:
         }
 
         # ---- content mix.
-        stories = conn.execute(
-            select(db.stories.c.id, db.stories.c.slug, db.stories.c.headline, db.stories.c.category, db.stories.c.score,
-                   db.stories.c.importance, db.stories.c.article_count, db.stories.c.pinned, db.stories.c.status,
-                   db.stories.c.first_published_at, db.stories.c.thread_id, db.stories.c.pulse)
-            .where(db.stories.c.updated_at >= since)
-        ).all()
+        story_mirror = sorted((s for s in cache.stories(conn).values() if db.as_utc(s.updated_at) >= since), key=lambda s: s.id)
+        titles = cache.story_titles(conn, story_mirror)
+        stories = [cache.merged(s, titles.get(s.id)) for s in story_mirror if s.id in titles]
+        for s in stories:
+            s.pulse = (s.len_pulse or 0) > 0  # only whether there is one
         cats: dict[str, int] = {}
         per_day_stories = {d: 0 for d in days}
         for s in stories:
@@ -229,15 +230,27 @@ def run() -> dict:
         since7 = db.utcnow() - timedelta(days=7)
         who = func.coalesce(db.events.c.visitor, db.events.c.session)
         # Grouped per visitor, so one person arriving as "bluesky" and "bsky.app" counts once.
-        by_source: dict[str, dict] = {}
-        for raw, visitor_key, n_views in conn.execute(
-            select(db.events.c.source, who, func.count())
+        # Counted in the database per referrer; only a name several referrers share ("bluesky" and
+        # "bsky.app") needs a second count across them, so no visitor list is read.
+        by_raw = conn.execute(
+            select(db.events.c.source, func.count(), func.count(func.distinct(who)))
             .where(db.events.c.created_at >= since7, db.events.c.type == "view")
-            .group_by(db.events.c.source, who)
-        ).all():
-            row = by_source.setdefault(source_name(raw), {"name": source_name(raw), "who": set(), "views": 0})
-            row["who"].add(visitor_key); row["views"] += int(n_views or 0)
-        sources7 = sorted(({"name": r["name"], "visitors": len(r["who"]), "views": r["views"]} for r in by_source.values()),
+            .group_by(db.events.c.source)
+        ).all()
+        by_source: dict[str, dict] = {}
+        for raw, n_views, n_who in by_raw:
+            row = by_source.setdefault(source_name(raw), {"name": source_name(raw), "raws": [], "visitors": 0, "views": 0})
+            row["raws"].append(raw); row["views"] += int(n_views or 0); row["visitors"] = int(n_who or 0)
+        for row in by_source.values():
+            if len(row["raws"]) > 1:
+                named = [r for r in row["raws"] if r is not None]
+                cond = db.events.c.source.in_(named) if named else db.events.c.source.is_(None)
+                if len(named) < len(row["raws"]):
+                    cond = cond | db.events.c.source.is_(None)
+                row["visitors"] = int(conn.execute(
+                    select(func.count(func.distinct(who)))
+                    .where(db.events.c.created_at >= since7, db.events.c.type == "view", cond)).scalar() or 0)
+        sources7 = sorted(({"name": r["name"], "visitors": r["visitors"], "views": r["views"]} for r in by_source.values()),
                           key=lambda r: (-r["visitors"], -r["views"]))
         pages7 = [{"path": p or "/", "views": int(n), "visitors": int(v or 0)} for p, n, v in conn.execute(
             select(db.events.c.path, func.count(), func.count(func.distinct(who)))
@@ -293,12 +306,9 @@ def run() -> dict:
                 elif etype == "save": row["saves"] += int(n)
                 elif etype == "share": row["shares"] += int(n)
         art_by_story: dict[int, list] = {}
-        for a in conn.execute(
-            select(db.articles.c.story_id, db.articles.c.predicted_score, db.articles.c.engagement, db.articles.c.discussion_points,
-                   db.articles.c.trend_score, db.articles.c.published_at, db.articles.c.created_at, db.articles.c.source_id)
-            .where(db.articles.c.status == "published", db.articles.c.created_at >= week)
-        ).all():
-            art_by_story.setdefault(a.story_id, []).append(a)
+        for a in arts:
+            if a.status == "published" and db.as_utc(a.created_at) >= week:
+                art_by_story.setdefault(a.story_id, []).append(a)
         src_type = {s.id: s.source_type for s in src}
         perf = []
         for s in stories:
@@ -325,10 +335,7 @@ def run() -> dict:
         out["performance"] = perf[:60]
 
         # ---- freshness: minutes from publication to appearing in our database.
-        lat_rows = conn.execute(
-            select(db.articles.c.created_at, db.articles.c.published_at, db.articles.c.source_id)
-            .where(db.articles.c.created_at >= since, db.articles.c.published_at.isnot(None), db.articles.c.status == "published")
-        ).all()
+        lat_rows = [a for a in arts if a.published_at is not None and a.status == "published"]
         by_day_lat: dict[str, list[float]] = {d: [] for d in days}
         by_src_lat: dict[int, list[float]] = {}
         for r in lat_rows:
@@ -356,17 +363,13 @@ def run() -> dict:
             s_out["medianMinutes"] = median(by_src_lat.get(sid, []))
 
         # ---- extraction quality per publisher domain, 7 days vs last 24 hours.
-        ex_rows = conn.execute(
-            select(db.articles.c.domain, db.articles.c.extraction_method, db.articles.c.status, db.articles.c.reject_reason,
-                   db.articles.c.created_at, db.articles.c.show_fulltext)
-            .where(db.articles.c.created_at >= week, db.articles.c.status != "new")
-        ).all()
+        ex_rows = [a for a in arts if db.as_utc(a.created_at) >= week and a.status != "new"]
         day_ago = now - timedelta(days=1)
         quality: dict[str, dict] = {}
         for r in ex_rows:
             q = quality.setdefault(r.domain, {"domain": r.domain, "full": 0, "short": 0, "description": 0, "failed": 0, "total": 0, "recentTotal": 0, "recentBad": 0})
             m = r.extraction_method or ""
-            if (r.reject_reason or "").startswith("extract"):
+            if (r.reject_kind or "").startswith("extract"):
                 cls = "failed"
             elif m.endswith("-short"):
                 cls = "short"
@@ -389,8 +392,10 @@ def run() -> dict:
         # ---- action cards: the things that need a human, each with why it matters and what to do.
         step_rows = [{"step": r.step, "startedAt": db.as_utc(r.started_at), "stats": r.stats or {}} for r in runs]
         actions = run_cards(step_rows, now)
-        if not runs or db.as_utc(runs[0].started_at) < now - timedelta(hours=2):
-            actions.append(_card("pipeline:silent", "critical", "No pipeline run has started in the last 2 hours.",
+        # Silent after two scheduled runs were missed (at least two hours).
+        silent_hours = max(2, round(2.5 * config.RUN_INTERVAL_MINUTES / 60))
+        if not runs or db.as_utc(runs[0].started_at) < now - timedelta(hours=silent_hours):
+            actions.append(_card("pipeline:silent", "critical", f"No pipeline run has started in the last {silent_hours} hours.",
                                  "The site only updates when the pipeline runs, so no new stories are appearing.",
                                  "Start a run now. If nothing starts, the schedule may be paused in GitHub Actions.",
                                  action={"kind": "run", "label": "Run pipeline now"}))
@@ -425,13 +430,26 @@ def run() -> dict:
         actions += search_cards(_read_json("gsc.json"), step_rows, now)
         actions += site_search_cards(out["engagement"]["searches7"])
 
+        # ---- the database against the free plan: its size, and how much the pipeline reads.
+        try:
+            size = db.database_size(conn)
+        except Exception as exc:  # noqa: BLE001 - a size query must never cost the dashboard
+            log.warning("database size failed: %s", str(exc)[:200])
+            size = None
+        out["database"] = database_summary(size, step_rows, out["history"], now, out["dbMode"])
+        out["schedule"] = {"runsPerDay": config.RUNS_PER_DAY, "intervalMinutes": config.RUN_INTERVAL_MINUTES,
+                           "runMinutes": config.RUN_MINUTES}
+        actions += database_cards(out["database"])
+
         # ---- content quality: sample older story pages that should still be online.
         cut_hi, cut_lo = now - timedelta(days=2), now - timedelta(days=60)
-        older = conn.execute(select(db.stories.c.slug, db.stories.c.headline)
-                             .where(db.stories.c.status == "published", db.stories.c.first_published_at < cut_hi, db.stories.c.first_published_at >= cut_lo)
-                             .order_by(db.stories.c.first_published_at.desc())).all()
+        older = sorted((s for s in cache.stories(conn).values()
+                        if s.status == "published" and cut_lo <= db.as_utc(s.first_published_at) < cut_hi),
+                       key=lambda s: (db.as_utc(s.first_published_at), s.id), reverse=True)
         step = max(1, len(older) // content_quality.MAX_STORY_PAGES)
-        own_pages = [{"slug": r.slug, "headline": r.headline} for r in older[::step]][:content_quality.MAX_STORY_PAGES]
+        sample = older[::step][:content_quality.MAX_STORY_PAGES]
+        sample_titles = cache.story_titles(conn, sample)
+        own_pages = [{"slug": sample_titles[r.id].slug, "headline": sample_titles[r.id].headline} for r in sample if r.id in sample_titles]
         out["storyTimes"] = sorted(_iso(s.first_published_at) for s in stories if s.status == "published" and s.first_published_at)
 
     try:
@@ -583,6 +601,98 @@ def search_cards(gsc: dict | None, rows: list[dict], now) -> list[dict]:
                          "The Search tab and the Google figures in Compare are out of date, so they can hide a drop or a rise.",
                          "Usually the Search Console connection lost access or its key expired. The Actions log shows the error on the \"gsc\" step.",
                          at=ok[-1]["startedAt"] if ok else None, action={"kind": "link", "url": ACTIONS_URL, "label": "Open the Actions log"}))
+    return out
+
+
+DB_WARN_MB, DB_CRITICAL_MB = 350, 450
+READS_WARN_MB_PER_MONTH = 4096
+
+
+def billing_cycle(now, day: int | None = None) -> tuple:
+    """(start, end) dates of the Supabase billing cycle containing `now`; it starts on `day` each month."""
+    from datetime import date
+
+    day = day or config.SUPABASE_CYCLE_DAY
+
+    def on(y: int, m: int) -> date:
+        import calendar
+
+        return date(y, m, min(day, calendar.monthrange(y, m)[1]))
+
+    today = now.date()
+    y, m = today.year, today.month
+    start = on(y, m) if today >= on(y, m) else on(y - (m == 1), 12 if m == 1 else m - 1)
+    ny, nm = start.year + (start.month == 12), 1 if start.month == 12 else start.month + 1
+    return start, on(ny, nm)
+
+
+def database_summary(size: dict | None, rows: list[dict], history: list[dict], now, mode: str) -> dict:
+    """Database size against the free plan, what the pipeline read per step in its latest run, and
+    what that comes to over a month and over this billing cycle. Reads are the pipeline's own estimate
+    (readKB per step); Supabase's usage page is the authority and also counts anything else."""
+    kb = lambda g: sum(float((s["stats"] or {}).get("readKB") or 0) for s in g)  # noqa: E731
+    measured = [g for g in group_runs(rows) if any((s["stats"] or {}).get("readKB") is not None for s in g)]
+    # The newest group is this run, still going (this step has not recorded its reads yet).
+    done = measured[:-1] if len(measured) > 1 else measured
+    latest = done[-1] if done else None
+    day = [g for g in done if g[0]["startedAt"] >= now - timedelta(hours=24)] or ([latest] if latest else [])
+    avg_run_kb = sum(kb(g) for g in day) / len(day) if day else None
+    monthly_mb = avg_run_kb * config.RUNS_PER_DAY * 30 / 1024 if avg_run_kb is not None else None
+    steps: dict[str, float] = {}
+    for s in latest or []:
+        if (s["stats"] or {}).get("readKB") is not None:
+            steps[s["step"]] = steps.get(s["step"], 0.0) + float(s["stats"]["readKB"])
+
+    start, end = billing_cycle(now)
+    in_cycle = [r for r in history if start.isoformat() <= r.get("day", "") <= now.date().isoformat() and r.get("dbReadKb") is not None]
+    cycle_mb = sum(float(r["dbReadKb"]) for r in in_cycle) / 1024
+    days_left = max(0.0, (datetime.combine(end, datetime.min.time(), tzinfo=timezone.utc) - now).total_seconds() / 86400)
+    projected = cycle_mb + (monthly_mb / 30 * days_left if monthly_mb is not None else 0.0)
+    return {
+        "mode": mode,
+        "sizeMB": round(size["bytes"] / 1048576, 1) if size else None,
+        "limitMB": config.SUPABASE_DB_MB,
+        "tables": [{"name": t["name"], "mb": round(t["bytes"] / 1048576, 1)} for t in (size or {}).get("tables", [])],
+        "reads": {
+            "latestRunAt": _iso(latest[0]["startedAt"]) if latest else None,
+            "latestRunKB": round(kb(latest), 1) if latest else None,
+            "steps": [{"step": k, "readKB": round(v, 1)} for k, v in sorted(steps.items(), key=lambda kv: -kv[1])],
+            "avgRunKB": round(avg_run_kb, 1) if avg_run_kb is not None else None,
+            "runsAveraged": len(day),
+            "runsPerDay": config.RUNS_PER_DAY,
+            "monthlyMB": round(monthly_mb, 1) if monthly_mb is not None else None,
+            "quotaMB": config.SUPABASE_EGRESS_GB * 1024,
+        },
+        "cycle": {
+            "start": start.isoformat(), "end": end.isoformat(),
+            "measuredMB": round(cycle_mb, 1),
+            "measuredSince": in_cycle[0]["day"] if in_cycle else None,
+            "projectedMB": round(projected, 1),
+        },
+    }
+
+
+def database_cards(d: dict) -> list[dict]:
+    out = []
+    size, limit = d.get("sizeMB"), d.get("limitMB") or 500
+    if size is not None and size >= DB_WARN_MB:
+        critical = size >= DB_CRITICAL_MB
+        out.append(_card("database:size", "critical" if critical else "warning",
+                         f"The database holds {size:.0f} MB of the {limit:.0f} MB the free plan allows.",
+                         "When it is full, Supabase stops the database from accepting new data, so no new stories could be saved.",
+                         "Ask for old article text to be cleared sooner (the tidy step), or move to a paid plan."
+                         if critical else "No action needed yet. If it keeps growing week after week, ask for old article text to be cleared sooner."))
+    reads = d.get("reads") or {}
+    monthly, quota = reads.get("monthlyMB"), reads.get("quotaMB") or 5120
+    if monthly is not None and monthly >= READS_WARN_MB_PER_MONTH:
+        heavy = (reads.get("steps") or [{}])[0]
+        out.append(_card("database:reads", "warning",
+                         f"At the current rate the pipeline reads about {monthly / 1024:.1f} GB a month from the database; the free plan includes {quota / 1024:.0f} GB.",
+                         "Above the allowance Supabase charges for the extra or limits the project.",
+                         "Open the Pipeline tab to see which step reads the most. Running the pipeline less often lowers it in proportion.",
+                         detail=f"Latest run: {reads.get('latestRunKB', 0) / 1024:.1f} MB, most of it in the {heavy.get('step')} step."
+                         if heavy.get("step") else None,
+                         action={"kind": "link", "url": "#pipeline", "label": "Open the Pipeline tab"}))
     return out
 
 

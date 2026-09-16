@@ -73,6 +73,9 @@ stories = Table(
     Column("pushed_at", DateTime(timezone=True)),  # browser push alert sent
     Column("first_published_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
+    # Stamped by the database on every insert and update (install_change_tracking), so a run reads
+    # only the rows written since the previous one (cache.py). Never set by the pipeline itself.
+    Column("rev", BigInteger),
 )
 
 threads = Table(
@@ -90,6 +93,7 @@ threads = Table(
     Column("first_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     Column("status", String(20), nullable=False, default="published"),
+    Column("rev", BigInteger),  # see stories.rev
 )
 
 articles = Table(
@@ -140,6 +144,7 @@ articles = Table(
     Column("trend_score", Integer),  # web popularity outside HN: Mastodon shares, Reddit score
     Column("discussion_checked_at", DateTime(timezone=True)),
     Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("rev", BigInteger),  # see stories.rev
 )
 
 newsletters = Table(
@@ -253,6 +258,7 @@ daily_stats = Table(
     Column("google_position", Float),
     Column("google_position_sum", Float),
     Column("google_queries", Integer),  # searches the site appeared for that day (Google hides rare ones)
+    Column("db_read_kb", Float),  # estimated database reads by the pipeline that day (the free plan meters them)
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
@@ -265,6 +271,20 @@ runs = Table(
     Column("step", String(30)),
     Column("stats", JSON),
 )
+
+# Stories, articles and threads removed from the database (by hand; the pipeline never deletes them), so the
+# runner's copy drops them too. Filled by a database trigger; pruned after 30 days by tidy.py.
+deleted_rows = Table(
+    "deleted_rows",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("table_name", String(40), nullable=False),
+    Column("row_id", Integer, nullable=False),
+    Column("rev", BigInteger, nullable=False),
+    Column("created_at", DateTime(timezone=True)),
+)
+
+TRACKED_TABLES = ("stories", "articles", "threads")
 
 _engine: Engine | None = None
 
@@ -335,14 +355,248 @@ def engine() -> Engine:
         url = _normalize_url(config.DATABASE_URL)
         _engine = create_engine(url, future=True, pool_pre_ping=True)
         install_read_meter(_engine)
-        metadata.create_all(_engine)
-        _migrate(_engine)
+        # Checking every table's columns reads the database catalogue (tens of KB on Postgres); skip it
+        # when this runner already brought this database up to this schema.
+        schema_key = _schema_key(_engine)
+        if _read_schema_marker() != schema_key:
+            metadata.create_all(_engine)
+            _migrate(_engine)
         if _engine.dialect.name == "postgresql":
             _harden_postgres(_engine)
         if _engine.dialect.name == "sqlite":
             with _engine.begin() as conn:
                 conn.execute(text("PRAGMA journal_mode=WAL"))
+        if install_change_tracking(_engine):
+            _write_schema_marker(schema_key)
     return _engine
+
+
+def _schema_key(eng: Engine) -> str:
+    import hashlib
+
+    parts = [eng.url.render_as_string(hide_password=False), CHANGE_TRACKING_VERSION]
+    for table in metadata.sorted_tables:
+        parts += [f"{table.name}.{c.name}:{c.type!r}" for c in table.columns]
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()
+
+
+def _read_schema_marker() -> str | None:
+    try:
+        return (config.CACHE_DIR / "schema.key").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+
+def _write_schema_marker(key: str) -> None:
+    try:
+        config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        (config.CACHE_DIR / "schema.key").write_text(key, encoding="utf-8")
+    except OSError:
+        pass
+
+
+# ---------------------------------------------------------------------------- change tracking
+# Every insert and update of a story or an article gets a revision number from the database, and a
+# deletion leaves a row in deleted_rows. A run keeps a copy of what it read (cache.py) and next time
+# asks only for rows with a revision at or above the watermark it saw, so unchanged rows are never
+# sent again. On Postgres the revision is the writing transaction's id and the watermark the oldest
+# transaction still running, so a write that was in flight during the previous read is not missed.
+# SQLite (one writer at a time) uses a counter table. tidy.py empties old text inside a transaction
+# marked with revision_kept(), so storage clean-up does not make the rows look changed.
+
+CHANGE_TRACKING_VERSION = "1"
+
+CHANGE_TRACKING_PG_FUNCTION = """create or replace function public.digest_row_rev() returns trigger
+  language plpgsql set search_path = public as $$
+begin
+  if tg_op = 'DELETE' then
+    insert into deleted_rows (table_name, row_id, rev, created_at) values (tg_table_name, old.id, txid_current(), now());
+    return old;
+  end if;
+  if coalesce(current_setting('digest.keep_rev', true), '') <> 'on' then
+    new.rev := txid_current();
+  end if;
+  return new;
+end $$;"""
+
+
+def _sqlite_tracking_sql(table: str) -> list[str]:
+    bump = "UPDATE digest_clock SET n = n + 1 WHERE id = 1;"
+    stamp = f"UPDATE {table} SET rev = (SELECT n FROM digest_clock WHERE id = 1) WHERE id = NEW.id;"
+    return [
+        f"CREATE TRIGGER IF NOT EXISTS {table}_rev_insert AFTER INSERT ON {table} BEGIN {bump} {stamp} END",
+        f"CREATE TRIGGER IF NOT EXISTS {table}_rev_update AFTER UPDATE ON {table} "
+        f"WHEN NEW.rev IS OLD.rev AND (SELECT keep FROM digest_clock WHERE id = 1) = 0 BEGIN {bump} {stamp} END",
+        f"CREATE TRIGGER IF NOT EXISTS {table}_rev_delete AFTER DELETE ON {table} BEGIN {bump} "
+        f"INSERT INTO deleted_rows (table_name, row_id, rev, created_at) "
+        f"VALUES ('{table}', OLD.id, (SELECT n FROM digest_clock WHERE id = 1), CURRENT_TIMESTAMP); END",
+    ]
+
+
+def _tracking_triggers(dialect: str) -> list[str]:
+    if dialect == "sqlite":
+        return [f"{t}_rev_{op}" for t in TRACKED_TABLES for op in ("insert", "update", "delete")]
+    return [f"{t}_{kind}" for t in TRACKED_TABLES for kind in ("rev", "deleted")]
+
+
+_tracking_ready: dict[str, bool] = {}
+
+
+def install_change_tracking(eng: Engine) -> bool:
+    """Create the revision triggers where missing. False when they could not be created (the cache
+    then reads everything, as before)."""
+    import logging
+
+    try:
+        if eng.dialect.name == "sqlite":
+            with eng.begin() as conn:
+                conn.execute(text("CREATE TABLE IF NOT EXISTS digest_clock (id INTEGER PRIMARY KEY CHECK (id = 1), "
+                                  "n INTEGER NOT NULL, keep INTEGER NOT NULL DEFAULT 0)"))
+                conn.execute(text("INSERT OR IGNORE INTO digest_clock (id, n, keep) VALUES (1, 1, 0)"))
+                for t in TRACKED_TABLES:
+                    for stmt in _sqlite_tracking_sql(t):
+                        conn.execute(text(stmt))
+        elif eng.dialect.name == "postgresql":
+            with eng.begin() as conn:
+                conn.execute(text(CHANGE_TRACKING_PG_FUNCTION))  # replacing a function takes no table lock
+            with eng.begin() as conn:
+                have = {r[0] for r in conn.execute(text(
+                    "select tgname from pg_trigger where not tgisinternal and tgname = any(:names)"),
+                    {"names": _tracking_triggers("postgresql")}).all()}
+                missing = [n for n in _tracking_triggers("postgresql") if n not in have]
+                if missing:
+                    # Creating a trigger locks the table briefly: give up fast and retry next run.
+                    conn.execute(text("SET LOCAL lock_timeout = '3s'"))
+                    for t in TRACKED_TABLES:
+                        if f"{t}_rev" in missing:
+                            conn.execute(text(f"create trigger {t}_rev before insert or update on {t} "
+                                              "for each row execute function public.digest_row_rev()"))
+                        if f"{t}_deleted" in missing:
+                            conn.execute(text(f"create trigger {t}_deleted after delete on {t} "
+                                              "for each row execute function public.digest_row_rev()"))
+        else:
+            return False
+    except Exception as exc:  # noqa: BLE001 - without tracking the cache falls back to full reads
+        logging.getLogger("digest.db").warning("could not install change tracking: %s", str(exc)[:160])
+        _tracking_ready.pop(_engine_key(eng), None)
+        return False
+    _tracking_ready.pop(_engine_key(eng), None)
+    return True
+
+
+def _engine_key(eng: Engine) -> str:
+    return eng.url.render_as_string(hide_password=False)
+
+
+def change_tracking_ready(conn) -> bool:
+    """Whether every revision trigger exists on this database (checked once per process)."""
+    key = _engine_key(conn.engine)
+    if key not in _tracking_ready:
+        names = _tracking_triggers(conn.engine.dialect.name)
+        try:
+            if conn.engine.dialect.name == "sqlite":
+                n = conn.execute(text("SELECT count(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ("
+                                      + ",".join(f"'{x}'" for x in names) + ")")).scalar()
+            elif conn.engine.dialect.name == "postgresql":
+                n = conn.execute(text("select count(*) from pg_trigger where not tgisinternal and tgname = any(:names)"),
+                                 {"names": names}).scalar()
+            else:
+                n = 0
+        except Exception:  # noqa: BLE001
+            n = 0
+        _tracking_ready[key] = n == len(names)
+    return _tracking_ready[key]
+
+
+def watermark(conn) -> int:
+    """Rows stamped with a revision at or above this value were written after this moment (or by a
+    transaction still running now)."""
+    if conn.engine.dialect.name == "sqlite":
+        return int(conn.execute(text("SELECT n + 1 FROM digest_clock WHERE id = 1")).scalar())
+    return int(conn.execute(text("select txid_snapshot_xmin(txid_current_snapshot())")).scalar())
+
+
+class revision_kept:
+    """Inside a transaction: updates do not get a new revision. Only for changes nothing reads
+    through the cache (emptying old text and embeddings)."""
+
+    def __init__(self, conn):
+        self.conn = conn
+
+    def __enter__(self):
+        if self.conn.engine.dialect.name == "sqlite":
+            self.conn.execute(text("UPDATE digest_clock SET keep = 1 WHERE id = 1"))
+        else:
+            self.conn.execute(text("SET LOCAL digest.keep_rev = 'on'"))
+        return self.conn
+
+    def __exit__(self, *exc):
+        if self.conn.engine.dialect.name == "sqlite":
+            self.conn.execute(text("UPDATE digest_clock SET keep = 0 WHERE id = 1"))
+        else:
+            self.conn.execute(text("SET LOCAL digest.keep_rev = 'off'"))
+        return False
+
+
+# ---------------------------------------------------------------------------- embeddings
+# Stored as "f16:" + base64 of little-endian float16 (1,030 bytes) instead of a JSON list of 384
+# full-precision floats (~8,500 bytes). Rounding to float16 moves a cosine similarity between two
+# unit vectors by well under 0.001 (tests/test_reads.py), far inside the clustering margins (0.82
+# to merge, 0.03 lead margin, 0.78/0.88 for threads). Older rows keep their JSON lists; both read.
+VEC_PREFIX = "f16:"
+
+
+def pack_vec(values) -> str:
+    import base64
+
+    import numpy as np
+
+    arr = np.asarray(values, dtype=np.float32).astype("<f2")
+    return VEC_PREFIX + base64.b64encode(arr.tobytes()).decode("ascii")
+
+
+def unpack_vec(value):
+    """A stored embedding (packed string, JSON list, or JSON text of a list) as float32, or None."""
+    import base64
+
+    import numpy as np
+
+    if value is None:
+        return None
+    if isinstance(value, str):
+        if value.startswith(VEC_PREFIX):
+            return np.frombuffer(base64.b64decode(value[len(VEC_PREFIX):]), dtype="<f2").astype(np.float32)
+        import json
+
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return None
+    if not isinstance(value, (list, tuple)) or not value:
+        return None
+    return np.asarray(value, dtype=np.float32)
+
+
+# ---------------------------------------------------------------------------- size
+def database_size(conn) -> dict:
+    """Database size in bytes and the biggest tables (Postgres: including indexes and TOAST)."""
+    if conn.engine.dialect.name == "postgresql":
+        total = conn.execute(text("select pg_database_size(current_database())")).scalar()
+        tables = conn.execute(text(
+            "select relname, pg_total_relation_size(relid) from pg_statio_user_tables "
+            "where schemaname = 'public' order by 2 desc limit 6")).all()
+        return {"bytes": int(total or 0), "tables": [{"name": n, "bytes": int(b or 0)} for n, b in tables]}
+    if conn.engine.dialect.name == "sqlite":
+        pages = conn.execute(text("PRAGMA page_count")).scalar() or 0
+        size = conn.execute(text("PRAGMA page_size")).scalar() or 0
+        tables = []
+        try:  # dbstat exists only when SQLite was built with it
+            tables = [{"name": n, "bytes": int(b)} for n, b in conn.execute(text(
+                "SELECT name, sum(pgsize) FROM dbstat GROUP BY name ORDER BY 2 DESC LIMIT 6")).all()]
+        except Exception:  # noqa: BLE001
+            pass
+        return {"bytes": int(pages) * int(size), "tables": tables}
+    return {"bytes": 0, "tables": []}
 
 
 def _normalize_url(url: str) -> str:

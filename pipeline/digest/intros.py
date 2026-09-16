@@ -11,9 +11,9 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import func, insert, select, update
 
-from . import config, db, enrich
+from . import cache, config, db, enrich
 
 log = logging.getLogger("digest.intros")
 
@@ -95,14 +95,17 @@ def run() -> dict:
 
     eng = db.engine()
     now = db.utcnow()
+    # Whether a page has a description, not the text itself (every byte read is metered).
+    page_cols = (db.topics.c.id, db.topics.c.slug, db.topics.c.described_at_count,
+                 func.coalesce(func.length(db.topics.c.description), 0).label("described"))
     with eng.begin() as conn:
-        existing = {t.slug: t for t in conn.execute(select(db.topics).where(db.topics.c.kind == "page")).all()}
+        existing = {t.slug: t for t in conn.execute(select(*page_cols).where(db.topics.c.kind == "page")).all()}
         for j in jobs:
             if j["slug"] in existing:
                 conn.execute(update(db.topics).where(db.topics.c.slug == j["slug"]).values(story_count=j["count"], updated_at=now))
             else:
                 conn.execute(insert(db.topics).values(slug=j["slug"], name=j["name"], kind="page", story_count=j["count"], described_at_count=0, updated_at=now))
-        existing = {t.slug: t for t in conn.execute(select(db.topics).where(db.topics.c.kind == "page")).all()}
+        existing = {t.slug: t for t in conn.execute(select(*page_cols).where(db.topics.c.kind == "page")).all()}
 
     provider = "groq" if config.GROQ_API_KEY else "gemini" if config.GEMINI_API_KEY else None
     if not provider:
@@ -114,7 +117,7 @@ def run() -> dict:
         if stats["written"] >= budget:
             break
         t = existing[j["slug"]]
-        if t.description:
+        if t.described:
             # Past weeks are settled once written; the current week and the trackers refresh
             # when they have grown by a third since the last write.
             if not (j["slug"] == this_week or j["slug"].startswith("page-")):
@@ -139,7 +142,7 @@ def run() -> dict:
 def _export(eng, stats: dict) -> dict:
     """Rewrite topics.json with every described row (topics and pages)."""
     with eng.connect() as conn:
-        rows = conn.execute(select(db.topics).where(db.topics.c.description.isnot(None))).all()
+        rows = cache.described_topics(conn)
     (config.SITE_DATA_DIR / "topics.json").write_text(
         json.dumps({r.slug: {"name": r.name, "kind": r.kind, "description": r.description} for r in rows}, ensure_ascii=False), encoding="utf-8")
     return stats

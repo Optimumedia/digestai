@@ -6,9 +6,9 @@ import re
 from datetime import timedelta
 
 from langdetect import DetectorFactory, LangDetectException, detect
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 
-from . import config, db
+from . import cache, config, db
 from .textutil import hamming, title_year, word_count
 
 DetectorFactory.seed = 0
@@ -134,12 +134,17 @@ def run() -> dict:
         stats["old_published_removed"] = old
     since = db.utcnow() - timedelta(days=7)
     with eng.connect() as conn:
-        rows = conn.execute(select(db.articles).where(db.articles.c.status == "extracted")).all()
-        recent = conn.execute(
-            select(db.articles.c.id, db.articles.c.simhash)
-            .where(db.articles.c.created_at >= since, db.articles.c.status.in_(["enriched", "published"]),
-                   db.articles.c.simhash.isnot(None))
+        a = db.articles.c
+        # The checks look at no more than the first 6,000 characters of the text (relevance_score),
+        # so no more than that is read.
+        rows = conn.execute(
+            select(a.id, a.url, a.domain, a.title, a.raw_title, a.published_at, a.simhash, a.description,
+                   func.substr(a.content_text, 1, 6000).label("content_text"))
+            .where(a.status == "extracted")
         ).all()
+        recent = sorted((r for r in cache.articles(conn).values()
+                         if r.status in ("enriched", "published") and r.simhash is not None and db.as_utc(r.created_at) >= since),
+                        key=lambda r: r.id)
     recent_hashes = [(r.id, db.from_signed64(r.simhash)) for r in recent]
     for row in rows:
         stats["checked"] += 1

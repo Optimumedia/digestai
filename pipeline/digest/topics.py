@@ -8,9 +8,9 @@ from __future__ import annotations
 import json
 import logging
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import func, insert, select, update
 
-from . import config, db, enrich
+from . import cache, config, db, enrich
 from .textutil import slugify
 
 log = logging.getLogger("digest.topics")
@@ -45,7 +45,7 @@ def run() -> dict:
         m = merged.setdefault(slug, {"name": e["name"], "kind": e["kind"], "ids": set()})
         m["ids"].update(e["storyIds"])
     with eng.begin() as conn:
-        existing = {t.slug: t for t in conn.execute(select(db.topics)).all()}
+        existing = {t.slug for t in conn.execute(select(db.topics.c.slug)).all()}
         for slug, m in merged.items():
             if slug in existing:
                 conn.execute(update(db.topics).where(db.topics.c.slug == slug).values(story_count=len(m["ids"]), updated_at=now))
@@ -57,7 +57,9 @@ def run() -> dict:
         return stats
     with eng.connect() as conn:
         due = conn.execute(
-            select(db.topics).where(db.topics.c.story_count >= MIN_STORIES, db.topics.c.kind != "page")
+            select(db.topics.c.id, db.topics.c.slug, db.topics.c.name, db.topics.c.kind, db.topics.c.story_count,
+                   db.topics.c.described_at_count)
+            .where(db.topics.c.story_count >= MIN_STORIES, db.topics.c.kind != "page")
             .order_by(db.topics.c.story_count.desc())
         ).all()
         allowance = enrich.allowance(conn, "groq") if config.GROQ_API_KEY else enrich.allowance(conn, "gemini")
@@ -87,7 +89,7 @@ def run() -> dict:
         stats["described"] += 1
 
     with eng.connect() as conn:
-        rows = conn.execute(select(db.topics).where(db.topics.c.description.isnot(None))).all()
+        rows = cache.described_topics(conn)
     (config.SITE_DATA_DIR / "topics.json").write_text(
         json.dumps({r.slug: {"name": r.name, "kind": r.kind, "description": r.description} for r in rows}, ensure_ascii=False), encoding="utf-8")
     return stats

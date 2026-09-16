@@ -8,7 +8,7 @@ import time
 
 from sqlalchemy import insert, update
 
-from . import admin, audio, cluster, db, discuss, enrich, export, extract, fetch, gate, images, indexnow, newsletter, notify, pulse, gsc, intros, push, rank, social, threads, topics
+from . import admin, audio, cache, cluster, db, discuss, enrich, export, extract, fetch, gate, images, indexnow, newsletter, notify, pulse, gsc, intros, push, rank, social, threads, tidy, topics
 
 STEPS = {
     "admin": admin.run,
@@ -20,6 +20,7 @@ STEPS = {
     "audio": audio.run,
     "social": social.run,
     "gsc": gsc.run,
+    "tidy": tidy.run,
     "fetch": fetch.run,
     "extract": extract.run,
     "gate": gate.run,
@@ -33,7 +34,7 @@ STEPS = {
     "images": images.run,
     "newsletter": newsletter.run,
 }
-ORDER = ["fetch", "extract", "gate", "enrich", "cluster", "threads", "discuss", "pulse", "rank", "export", "push", "topics", "intros", "images", "audio", "social", "newsletter", "gsc", "admin", "notify", "indexnow"]
+ORDER = ["fetch", "extract", "gate", "enrich", "cluster", "threads", "discuss", "pulse", "rank", "export", "push", "topics", "intros", "images", "audio", "social", "newsletter", "gsc", "tidy", "admin", "notify", "indexnow"]
 
 
 def main(argv: list[str]) -> int:
@@ -67,6 +68,8 @@ def main(argv: list[str]) -> int:
         with eng.begin() as conn:
             conn.execute(update(db.runs).where(db.runs.c.id == run_id).values(finished_at=db.utcnow(), stats=stats))
         logging.getLogger("digest").info("%s: %s", step, json.dumps(stats, default=str))
+        # Saved after every step: a run stopped by the time limit still leaves a usable copy.
+        cache.save_all()
     print(json.dumps(summary, indent=2, default=str))
     return 1 if any(s.get("crashed") for s in summary.values()) else 0
 

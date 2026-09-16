@@ -15,7 +15,7 @@ import yaml
 from dateutil import parser as dateparser
 from sqlalchemy import insert, select, update
 
-from . import config, db
+from . import cache, config, db
 from .textutil import SKIP_DOMAINS, clean_title, domain_of, is_skipped_domain, normalize_url, simhash, title_year, word_count  # noqa: F401
 
 log = logging.getLogger("digest.fetch")
@@ -32,13 +32,12 @@ TITLE_DUPLICATE_DISTANCE = 10
 def recent_titles(conn) -> list[dict]:
     """Title fingerprints of recent articles that are still alive (not rejected)."""
     since = db.utcnow() - timedelta(days=config.MAX_ARTICLE_AGE_DAYS)
-    rows = conn.execute(
-        select(db.articles.c.id, db.articles.c.simhash, db.articles.c.domain,
-               db.articles.c.discussion_url, db.articles.c.discussion_points)
-        .where(db.articles.c.created_at >= since, db.articles.c.status != "rejected", db.articles.c.simhash.isnot(None))
-    ).all()
+    # From the runner's copy (cache.py). Only whether an article has a discussion link matters here
+    # (should_merge_discussion), so the link itself is not read.
+    rows = sorted((r for r in cache.articles(conn).values()
+                   if db.as_utc(r.created_at) >= since and r.status != "rejected" and r.simhash is not None), key=lambda r: r.id)
     return [{"id": r.id, "hash": db.from_signed64(r.simhash), "domain": r.domain,
-             "discussion_url": r.discussion_url, "points": r.discussion_points} for r in rows]
+             "discussion_url": "known" if r.has_discussion_url else None, "points": r.discussion_points} for r in rows]
 
 
 def near_duplicate(h: int, recent: list[dict], max_distance: int = TITLE_DUPLICATE_DISTANCE) -> dict | None:
@@ -314,6 +313,7 @@ def run() -> dict:
         sync_sources(conn)
         source_rows = conn.execute(select(db.sources).where(db.sources.c.enabled.is_(True))).all()
         recent = recent_titles(conn)
+        known = cache.known_urls(conn)
 
     cutoff = db.utcnow() - timedelta(days=config.MAX_ARTICLE_AGE_DAYS)
     this_year = db.utcnow().year
@@ -331,6 +331,7 @@ def run() -> dict:
 
         limit = _max_items(source.key) if not source.discovered else config.MAX_DISCOVERED_ITEMS
         inserted = 0
+        added: list[str] = []
         with eng.begin() as conn:
             for item in items[:limit]:
                 stats["items"] += 1
@@ -349,8 +350,14 @@ def run() -> dict:
                 if year and year < this_year:
                     stats["too_old_title_year"] = stats.get("too_old_title_year", 0) + 1
                     continue
+                # Addresses this runner saw in the database before are not asked about again: feeds
+                # repeat their items for days, and each question is a round trip the plan meters.
+                url_key = cache.url_hash(url)
+                if url_key in known:
+                    continue
                 exists = conn.execute(select(db.articles.c.id).where(db.articles.c.url == url)).first()
                 if exists:
+                    known[url_key] = time.time()
                     continue
                 title = clean_title(item["title"])
                 if len(title) < 15:
@@ -395,10 +402,14 @@ def run() -> dict:
                 recent.append({"id": res.inserted_primary_key[0], "hash": h, "domain": dom,
                                "discussion_url": disc[1], "points": disc[2]})
                 inserted += 1
+                added.append(url_key)
             conn.execute(
                 update(db.sources).where(db.sources.c.id == source.id)
                 .values(last_fetched_at=db.utcnow(), last_error=None, error_count=0)
             )
+        # Remembered only once the insert is committed.
+        for url_key in added:
+            known[url_key] = time.time()
         stats["inserted"] += inserted
         log.info("%-22s %3d items, %2d new", source.key, len(items), inserted)
     return stats

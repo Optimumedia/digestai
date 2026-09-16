@@ -428,7 +428,9 @@ def run() -> dict:
 
     with eng.connect() as conn:
         rows = conn.execute(
-            select(db.articles, db.sources.c.category_hint, db.sources.c.name.label("source_name"), db.sources.c.weight)
+            # Only the columns used here: the article's markdown copy, feed text and embedding are not.
+            select(db.articles.c.id, db.articles.c.title, db.articles.c.description, db.articles.c.content_text,
+                   db.articles.c.published_at, db.sources.c.category_hint, db.sources.c.name.label("source_name"), db.sources.c.weight)
             .join(db.sources, db.articles.c.source_id == db.sources.c.id)
             .where(db.articles.c.status == "gated")
             # The scarce, best model takes the first rows, so the labs' own announcements and

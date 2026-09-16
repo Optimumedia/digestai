@@ -8,7 +8,7 @@ from datetime import timedelta
 import numpy as np
 from sqlalchemy import insert, select, update
 
-from . import config, db
+from . import cache, config, db
 from .textutil import short_hash, slugify, tokens
 
 log = logging.getLogger("digest.cluster")
@@ -73,9 +73,7 @@ def _unique_slug(conn, base: str, table, url_hint: str) -> str:
 
 
 def _vec(value) -> np.ndarray | None:
-    if not value:
-        return None
-    return np.asarray(value, dtype=np.float32)
+    return db.unpack_vec(value)  # a packed string or a JSON list (db.pack_vec)
 
 
 # ------------------------------------------------------------------ merge rule
@@ -184,7 +182,7 @@ def repair_oversized(eng, lead_thr: float, cap: int = None, max_detach: int = No
             values = {"article_count": len(remaining)}
             mean = _mean_vec([vecs[a] for a in remaining if vecs[a] is not None and vecs[a].shape == vecs[lead_id].shape])
             if mean is not None:
-                values["embedding"] = mean.tolist()
+                values["embedding"] = db.pack_vec(mean)
             conn.execute(update(db.stories).where(db.stories.c.id == s.id).values(**values))
             stats["stories_repaired"] += 1
             stats["articles_detached"] += len(detach)
@@ -202,16 +200,21 @@ def run() -> dict:
     if repair["stories_repaired"]:
         stats.update(repair)
 
+    a = db.articles.c
     with eng.connect() as conn:
         rows = conn.execute(
-            select(db.articles).where(db.articles.c.status == "enriched")
-            .order_by(db.articles.c.published_at.asc(), db.articles.c.id.asc())
+            # The columns used below: article text is not needed to cluster (it is read by the database
+            # meter as megabytes per run when selected with the rest of the row).
+            select(a.id, a.url, a.slug, a.title, a.headline, a.summary_md, a.key_points, a.why_it_matters, a.category,
+                   a.entities, a.importance, a.embedding, a.published_at)
+            .where(a.status == "enriched")
+            .order_by(a.published_at.asc(), a.id.asc())
         ).all()
     if not rows:
         return stats
 
     # Articles detached by a repair keep their embedding; only new ones are embedded.
-    vectors: list = [list(r.embedding) if r.embedding else None for r in rows]
+    vectors: list = [_vec(r.embedding) for r in rows]
     need = [i for i, v in enumerate(vectors) if v is None]
     if need:
         for i, vec in zip(need, embed([_story_text(rows[i]) for i in need])):
@@ -221,18 +224,22 @@ def run() -> dict:
     since = db.utcnow() - timedelta(hours=config.CLUSTER_WINDOW_HOURS)
 
     with eng.begin() as conn:
-        recent = conn.execute(
-            # Candidates are stories that broke inside the window. Filtering on updated_at let a
-            # popular story absorb new articles forever, because every merge refreshed it.
-            select(db.stories).where(db.stories.c.first_published_at >= since, db.stories.c.embedding.isnot(None))
-        ).all()
-        lead_ids = [s.lead_article_id for s in recent if s.lead_article_id]
-        lead_vecs: dict[int, np.ndarray | None] = {}
-        for i in range(0, len(lead_ids), 500):
-            for a in conn.execute(select(db.articles.c.id, db.articles.c.embedding)
-                                  .where(db.articles.c.id.in_(lead_ids[i : i + 500]))).all():
-                lead_vecs[a.id] = _vec(a.embedding)
-        candidates = {s.id: {"vec": _vec(s.embedding), "lead_vec": lead_vecs.get(s.lead_article_id), "count": s.article_count or 1}
+        # Candidates are stories that broke inside the window. Filtering on updated_at let a
+        # popular story absorb new articles forever, because every merge refreshed it. Their rows and
+        # vectors come from the runner's copy (cache.py); only stories changed since the last run are read.
+        recent = sorted((s for s in cache.stories(conn).values()
+                         if s.len_embedding >= 0 and (db.as_utc(s.first_published_at) or since) >= since), key=lambda s: s.id)
+        story_vecs = cache.story_vectors(conn, recent)
+        recent = [s for s in recent if story_vecs.get(s.id) is not None]
+        mirror = cache.articles(conn)
+        lead_rows = [mirror[s.lead_article_id] for s in recent if s.lead_article_id in mirror]
+        lead_vecs = cache.article_vectors(conn, lead_rows)
+        # A lead outside the copy's window (rare): read its embedding directly.
+        other = [s.lead_article_id for s in recent if s.lead_article_id and s.lead_article_id not in mirror]
+        for i in range(0, len(other), 500):
+            for r in conn.execute(select(a.id, a.embedding).where(a.id.in_(other[i : i + 500]))).all():
+                lead_vecs[r.id] = _vec(r.embedding)
+        candidates = {s.id: {"vec": story_vecs[s.id], "lead_vec": lead_vecs.get(s.lead_article_id), "count": s.article_count or 1}
                       for s in recent}
         story_meta = {s.id: {"importance": s.importance, "lead": s.lead_article_id} for s in recent}
 
@@ -250,7 +257,7 @@ def run() -> dict:
                 merged = (cand["vec"] * n + v) / (n + 1)
                 merged /= np.linalg.norm(merged) or 1.0
                 cand["vec"], cand["count"] = merged, n + 1
-                values = {"article_count": n + 1, "updated_at": now, "embedding": merged.tolist()}
+                values = {"article_count": n + 1, "updated_at": now, "embedding": db.pack_vec(merged)}
                 if (row.importance or 0) > (meta["importance"] or 0):
                     # A more important article becomes the lead: its digest describes the story.
                     meta["importance"], meta["lead"] = row.importance, row.id
@@ -275,7 +282,7 @@ def run() -> dict:
                     article_count=1,
                     importance=row.importance or 5,
                     score=0.0,
-                    embedding=v.tolist(),
+                    embedding=db.pack_vec(v),
                     status="published",
                     first_published_at=db.as_utc(row.published_at) or now,
                     updated_at=now,
@@ -286,6 +293,6 @@ def run() -> dict:
                 stats["new_stories"] += 1
 
             conn.execute(update(db.articles).where(db.articles.c.id == row.id).values(
-                story_id=story_id, slug=article_slug, embedding=vec, status="published",
+                story_id=story_id, slug=article_slug, embedding=db.pack_vec(v), status="published",
             ))
     return stats

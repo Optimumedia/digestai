@@ -8,6 +8,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PIPELINE_DIR = ROOT / "pipeline"
 DATA_DIR = PIPELINE_DIR / "data"
 SITE_DATA_DIR = ROOT / "site" / "src" / "data"
+# Rows earlier runs already read (cache.py); kept between runs by the Actions cache.
+CACHE_DIR = Path(os.environ.get("CACHE_DIR") or DATA_DIR / "cache")
 
 
 def _load_dotenv() -> None:
@@ -81,6 +83,16 @@ MAX_ENRICH_PER_RUN = int(os.environ.get("MAX_ENRICH_PER_RUN") or "20")
 # providers once stretched the step past the workflow's 28-minute limit and got runs cancelled.
 ENRICH_TIME_BUDGET_SECONDS = int(os.environ.get("ENRICH_TIME_BUDGET_SECONDS") or "600")
 RUNS_PER_DAY = int(os.environ.get("RUNS_PER_DAY") or "48")
+# Minutes past the hour the workflow's schedule starts a run (the dashboard's "next run due").
+RUN_MINUTES = [int(m) for m in (os.environ.get("RUN_MINUTES") or ("0,30" if RUNS_PER_DAY >= 48 else "7")).split(",") if m.strip()]
+RUN_INTERVAL_MINUTES = 24 * 60 // max(1, RUNS_PER_DAY)
+# Ranking model refit interval (rank.py). Predictions for new articles use the latest fit in between.
+RANK_TRAIN_HOURS = float(os.environ.get("RANK_TRAIN_HOURS") or "6")
+# Supabase free plan: what the admin page measures the database against. The billing cycle starts on
+# this day of the month (the project's usage page shows it).
+SUPABASE_EGRESS_GB = float(os.environ.get("SUPABASE_EGRESS_GB") or "5")
+SUPABASE_DB_MB = float(os.environ.get("SUPABASE_DB_MB") or "500")
+SUPABASE_CYCLE_DAY = int(os.environ.get("SUPABASE_CYCLE_DAY") or "11")
 DAILY_BUDGET = {
     "gemini": int(os.environ.get("GEMINI_DAILY_BUDGET") or "54"),
     "groq": int(os.environ.get("GROQ_DAILY_BUDGET") or "2400"),  # 3 models x 1,000/day, 80%

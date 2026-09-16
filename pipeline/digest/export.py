@@ -7,7 +7,7 @@ from datetime import timedelta
 
 from sqlalchemy import select, update
 
-from . import config, db, hold, trackers as tracker_rules
+from . import cache, config, db, hold, trackers as tracker_rules
 from .textutil import word_count
 
 log = logging.getLogger("digest.export")
@@ -107,50 +107,48 @@ def apply_moderation(eng, rules: dict | None = None) -> dict:
     return stats
 
 
-HEAVY_ARTICLE_COLUMNS = {"content_md", "content_text", "feed_content", "embedding"}
-
-
 def _full_text(conn, story_rows, art_rows) -> dict[int, str]:
     """Article text for the story pages: the lead article's when it may be shown, otherwise the newest
     article that has showable text (what the page's fullTextArticle picks). Reading the text of every
-    article, most of which no page shows, was most of the database's monthly transfer allowance."""
+    article, most of which no page shows, was most of the database's monthly transfer allowance; now
+    only that one article's text is read, and only when the runner's copy lacks it (cache.py)."""
     leads = {s.id: s.lead_article_id for s in story_rows}
     by_story: dict[int, list] = {}
     for a in art_rows:  # newest first, as the page lists them
         by_story.setdefault(a.story_id, []).append(a)
-    shown: dict[int, int] = {}  # story id -> article id whose text to read
-    fallback: list[int] = []
+    has_text = lambda m: (m.len_content_md or 0) > 0  # noqa: E731
+    pick = []
     for sid, members in by_story.items():
         lead = next((m for m in members if m.id == leads.get(sid)), members[0])
-        if lead.show_fulltext and (lead.word_count or 0) > 0:
-            shown[sid] = lead.id
-        fallback.extend(m.id for m in members if m.show_fulltext and m.id != lead.id)
-    texts: dict[int, str] = {}
+        if lead.show_fulltext and (lead.word_count or 0) > 0 and has_text(lead):
+            pick.append(lead)
+            continue
+        # The lead has no text to show: the newest other article that has some.
+        other = next((m for m in members if m.show_fulltext and m.id != lead.id and has_text(m)), None)
+        if other is not None:
+            pick.append(other)
+    return cache.article_bodies(conn, pick)
 
-    def read(ids):
-        for i in range(0, len(ids), 500):
-            for r in conn.execute(select(db.articles.c.id, db.articles.c.content_md)
-                                  .where(db.articles.c.id.in_(ids[i : i + 500]), db.articles.c.content_md.isnot(None))).all():
-                if r.content_md:
-                    texts[r.id] = r.content_md
 
-    read(list(shown.values()))
-    # Stories whose lead has no text: find which other articles have some without reading it, then
-    # read only the first one per story.
-    missing = {sid for sid in by_story if shown.get(sid) not in texts}
-    story_of = {a.id: a.story_id for a in art_rows}
-    candidates = [aid for aid in fallback if story_of.get(aid) in missing]
-    has_text: set[int] = set()
-    for i in range(0, len(candidates), 500):
-        has_text.update(r.id for r in conn.execute(select(db.articles.c.id).where(
-            db.articles.c.id.in_(candidates[i : i + 500]), db.articles.c.content_md.isnot(None), db.articles.c.content_md != "")).all())
-    pick = []
-    for sid in missing:
-        first = next((m.id for m in by_story[sid] if m.id in has_text), None)
-        if first:
-            pick.append(first)
-    read(pick)
-    return texts
+def load_rows(conn, since) -> tuple[list, list, dict[int, str]]:
+    """Published stories updated since `since` (newest first) and their published articles (newest
+    first), as one object per row with the columns the export uses, plus the text each story page
+    shows. Read through the runner's copy (cache.py): only rows written since the previous run come
+    from the database, so a run with a few new stories reads kilobytes, not megabytes."""
+    story_mirror = [s for s in cache.stories(conn).values()
+                    if s.status == "published" and (db.as_utc(s.updated_at) or since) >= since]
+    # Postgres order for "updated_at desc": newest first; ties by id so the order is stable.
+    story_mirror.sort(key=lambda s: (db.as_utc(s.updated_at).timestamp(), s.id), reverse=True)
+    ids = {s.id for s in story_mirror}
+    art_mirror = [a for a in cache.articles(conn).values() if a.status == "published" and a.story_id in ids]
+    # "published_at desc" as Postgres sorts it: articles without a date first, then newest first.
+    art_mirror.sort(key=lambda a: (a.published_at is None, db.as_utc(a.published_at).timestamp() if a.published_at else 0, a.id),
+                    reverse=True)
+    s_text = cache.story_text(conn, story_mirror)
+    a_text = cache.article_text(conn, art_mirror)
+    story_rows = [cache.merged(s, s_text.get(s.id)) for s in story_mirror if s.id in s_text]
+    art_rows = [cache.merged(a, a_text.get(a.id)) for a in art_mirror if a.id in a_text]
+    return story_rows, art_rows, _full_text(conn, story_mirror, art_mirror)
 
 
 def run() -> dict:
@@ -176,32 +174,26 @@ def run() -> dict:
         moderation["hold"] = {"enabled": False, "released": released or 0}
 
     with eng.connect() as conn:
-        src_rows = conn.execute(select(db.sources)).all()
+        src_rows = conn.execute(select(db.sources.c.id, db.sources.c.key, db.sources.c.name, db.sources.c.url, db.sources.c.kind,
+                                       db.sources.c.source_type, db.sources.c.weight, db.sources.c.discovered,
+                                       db.sources.c.enabled)).all()
         sources = {
             s.id: {"key": s.key, "name": s.name, "url": s.url, "kind": s.kind, "type": s.source_type,
                    "weight": s.weight, "discovered": s.discovered, "enabled": s.enabled}
             for s in src_rows
         }
-        # Supabase's free plan counts every byte read (5 GB a month) and this runs 48 times a day,
-        # so large columns are left behind: embeddings are never exported, and article text is read
-        # only for the one article per story whose text the page shows (see _full_text).
-        story_rows = conn.execute(
-            select(*[c for c in db.stories.c if c.name != "embedding"])
-            .where(db.stories.c.status == "published", db.stories.c.updated_at >= since)
-            .order_by(db.stories.c.updated_at.desc())
-        ).all()
-        story_ids = [s.id for s in story_rows]
-        art_rows = []
-        for i in range(0, len(story_ids), 500):
-            chunk = story_ids[i : i + 500]
-            art_rows.extend(conn.execute(
-                select(*[c for c in db.articles.c if c.name not in HEAVY_ARTICLE_COLUMNS])
-                .where(db.articles.c.story_id.in_(chunk), db.articles.c.status == "published")
-                .order_by(db.articles.c.published_at.desc())
-            ).all())
-        full_text = _full_text(conn, story_rows, art_rows)
-        sent = {n.date: {"publicUrl": n.public_url, "subject": n.subject} for n in conn.execute(select(db.newsletters)).all()}
-        thread_rows = conn.execute(select(db.threads).where(db.threads.c.status == "published")).all()
+        # Supabase's free plan counts every byte read (5 GB a month): embeddings are never exported,
+        # article text is read only for the one article per story the page shows, and rows the
+        # runner already has are not read again (load_rows).
+        story_rows, art_rows, full_text = load_rows(conn, since)
+        sent = {n.date: {"publicUrl": n.public_url, "subject": n.subject}
+                for n in conn.execute(select(db.newsletters.c.date, db.newsletters.c.public_url, db.newsletters.c.subject)).all()}
+        # Only threads a story points at can get a page, so only those are read.
+        thread_ids = {s.thread_id for s in story_rows if s.thread_id}
+        thread_meta = sorted((t for t in cache.threads(conn).values() if t.id in thread_ids and t.status == "published"),
+                             key=lambda t: t.id)
+        t_text = cache.thread_text(conn, thread_meta)
+        thread_rows = [cache.merged(t, t_text.get(t.id)) for t in thread_meta if t.id in t_text]
 
     by_story: dict[int, list] = {}
     for a in art_rows:

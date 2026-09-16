@@ -15,7 +15,7 @@ from pathlib import Path
 from sqlalchemy import case, func, literal_column, select
 from sqlalchemy.engine import Engine
 
-from . import config, db
+from . import cache, config, db
 
 log = logging.getLogger("digest.history")
 
@@ -29,7 +29,7 @@ EVENT_COLS = ["sessions", "visitors", "views", "dwell_seconds", "dwell_reads", "
 CONTENT_COLS = ["stories_published", "articles_published", "articles_fetched"]
 GOOGLE_COLS = ["google_clicks", "google_impressions", "google_position", "google_position_sum", "google_queries"]
 GROUPS = {"events": EVENT_COLS, "content": CONTENT_COLS, "social": ["social_posts"], "runs": ["crashed_steps"]}
-METRIC_COLS = EVENT_COLS + CONTENT_COLS + ["social_posts", "crashed_steps"] + GOOGLE_COLS
+METRIC_COLS = EVENT_COLS + CONTENT_COLS + ["social_posts", "crashed_steps"] + GOOGLE_COLS + ["db_read_kb"]
 
 
 def _camel(name: str) -> str:
@@ -204,14 +204,23 @@ def update(eng: Engine, now: datetime | None = None, google: dict[str, tuple] | 
             if starts["runs"] and compute[-1] >= starts["runs"]:
                 r = db.runs.c
                 crashed: dict[str, int] = {}
-                for started, stats in conn.execute(
-                    select(r.started_at, r.stats).where(r.started_at >= lo("runs"), r.started_at < hi)
-                ).all():
-                    if isinstance(stats, dict) and stats.get("crashed"):
-                        d = db.as_utc(started).date().isoformat()
+                read_kb: dict[str, float] = {}
+                # Finished step rows never change: the runner's copy (cache.py) has all but the newest.
+                ids = conn.execute(select(r.id, case((r.finished_at.isnot(None), 1), else_=0))
+                                   .where(r.started_at >= lo("runs"), r.started_at < hi)).all()
+                for row in cache.RUNS.get(conn, {i: [done] for i, done in ids}).values():
+                    stats = row.stats
+                    if not isinstance(stats, dict):
+                        continue
+                    d = db.as_utc(row.started_at).date().isoformat()
+                    if stats.get("crashed"):
                         crashed[d] = crashed.get(d, 0) + 1
+                    if stats.get("readKB") is not None:
+                        read_kb[d] = read_kb.get(d, 0.0) + float(stats["readKB"])
                 for d, n in crashed.items():
                     put(d, "crashed_steps", n)
+                for d, kb in read_kb.items():
+                    put(d, "db_read_kb", round(kb, 1))
 
     rows = []
     for d in compute:
@@ -223,6 +232,8 @@ def update(eng: Engine, now: datetime | None = None, google: dict[str, tuple] | 
                 # Unmeasured now: keep whatever an earlier run recorded for that day.
                 row[c] = got.get(c, 0) if measured else old.get(c)
         row.update(google_values(google[d], old) if d in google else {c: old.get(c) for c in GOOGLE_COLS})
+        # Database reads the pipeline measured that day (runs record readKB since 16 Sep 2026); empty before.
+        row["db_read_kb"] = got.get("db_read_kb", old.get("db_read_kb"))
         rows.append(row)
 
     # Search Console revises recent days and covers ~16 months: refresh older stored days too

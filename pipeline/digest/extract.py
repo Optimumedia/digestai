@@ -474,7 +474,10 @@ def run() -> dict:
             stats["expired"] = expired
     with eng.connect() as conn:
         rows = conn.execute(
-            select(db.articles, db.sources.c.content_from_feed, db.sources.c.fulltext)
+            # Only the columns used here (new rows have no text or embedding yet, but never read them).
+            select(db.articles.c.id, db.articles.c.url, db.articles.c.domain, db.articles.c.title, db.articles.c.feed_content,
+                   db.articles.c.published_at, db.articles.c.image_url, db.articles.c.author, db.articles.c.description,
+                   db.sources.c.content_from_feed, db.sources.c.fulltext)
             .join(db.sources, db.articles.c.source_id == db.sources.c.id)
             .where(db.articles.c.status == "new")
             # Curated, heavier sources first, then oldest first: newest-first starved the queue,

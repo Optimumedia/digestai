@@ -20,13 +20,13 @@ from __future__ import annotations
 import logging
 import math
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote_plus
 
 import numpy as np
-from sqlalchemy import bindparam, func, insert, select, update
+from sqlalchemy import and_, bindparam, case, func, insert, or_, select, update
 
-from . import config, db
+from . import cache, config, db
 
 log = logging.getLogger("digest.rank")
 
@@ -35,6 +35,8 @@ EVENT_WEIGHTS = {"view": 1.0, "click_source": 3.0, "dwell": 1.0 / 30.0, "share":
 MIN_TRAINING_ARTICLES = 40
 RIDGE_LAMBDA = 1.0
 HALF_LIFE_HOURS = 18.0
+ENGAGEMENT_FULL_HOURS = 24  # reader engagement is recounted in full this often (_engagement)
+LATE_EVENT_HOURS = 25  # an event may carry a time up to a day before it was recorded
 MAX_DISCOVERED_SOURCES = config.MAX_DISCOVERED_SOURCES
 DISCOVERY_TTL_DAYS = 3
 # Entity names that are not a company or model worth a search feed: publications, funds,
@@ -58,21 +60,51 @@ def _engagement(conn) -> dict[int, float]:
     # Views of the previous site's /article/ addresses were recorded from our not-found page before it
     # stopped counting (15 Sep); they are crawlers re-checking old links, not readers.
     conn.execute(db.events.delete().where(db.events.c.path.like("/article/%")))
-    day = func.date(db.events.c.created_at)
-    # One row per article, type, session and day. Dwell adds up across the visits of a session
-    # (the browser sends one increment per visible stretch); other types count once.
-    rows = conn.execute(
-        select(db.events.c.article_id, db.events.c.type, db.events.c.session, day.label("d"),
-               func.sum(db.events.c.value).label("total"), func.max(db.events.c.value).label("mx"))
-        .where(db.events.c.created_at >= since, db.events.c.article_id.isnot(None))
-        .group_by(db.events.c.article_id, db.events.c.type, db.events.c.session, day)
-    ).all()
-    raw: dict[int, float] = {}
-    for article_id, etype, _session, _d, total, mx in rows:
-        w = EVENT_WEIGHTS.get(etype, 0.0)
+    e = db.events.c
+    day = func.date(e.created_at)
+
+    def count(*where) -> dict[int, float]:
+        # One row per article, type, session and day. Dwell adds up across the visits of a session
+        # (the browser sends one increment per visible stretch); other types count once. The database
+        # adds these up per article and type, so this reads one row per article with readers, not one
+        # per visit.
+        visits = (
+            select(e.article_id, e.type, func.sum(e.value).label("total"), func.max(e.value).label("mx"))
+            .where(e.created_at >= since, e.article_id.isnot(None), *where)
+            .group_by(e.article_id, e.type, e.session, day)
+        ).subquery()
         # Ten minutes of reading is the most one visit may count for; other events count once.
-        val = min(float(total or 0), 600.0) if etype == "dwell" else min(float(mx or 0), 1.0)
-        raw[article_id] = raw.get(article_id, 0.0) + w * val
+        capped = case((visits.c.type == "dwell", case((visits.c.total > 600.0, 600.0), else_=visits.c.total)),
+                      else_=case((visits.c.mx > 1.0, 1.0), else_=visits.c.mx))
+        out: dict[int, float] = {}
+        for article_id, etype, value in conn.execute(
+            select(visits.c.article_id, visits.c.type, func.sum(capped)).group_by(visits.c.article_id, visits.c.type)
+        ).all():
+            w = EVENT_WEIGHTS.get(etype, 0.0)
+            out[article_id] = out.get(article_id, 0.0) + w * float(value or 0.0)
+        return out
+
+    # Recounted in full once a day; in between, only articles whose count can have changed: those
+    # with events recorded since the last count (a reader's event time may be up to a day earlier,
+    # see the events guard) and those whose events have left the 30-day window since.
+    now = db.utcnow()
+    state = cache.ENGAGEMENT.get(conn)
+    last, full_at = state.get("at"), float(state.get("full_at") or 0)
+    if last is None or now.timestamp() - full_at >= ENGAGEMENT_FULL_HOURS * 3600:
+        raw = count()
+        full_at = now.timestamp()
+    else:
+        last_dt = datetime.fromtimestamp(float(last), tz=timezone.utc)
+        changed = [r[0] for r in conn.execute(
+            select(e.article_id).distinct().where(e.article_id.isnot(None), or_(
+                e.created_at >= last_dt - timedelta(hours=LATE_EVENT_HOURS),
+                and_(e.created_at >= last_dt - timedelta(days=30, hours=1), e.created_at < since)))).all()]
+        raw = {int(k): float(v) for k, v in (state.get("raw") or {}).items()}
+        for aid in changed:
+            raw.pop(aid, None)
+        for i in range(0, len(changed), 500):
+            raw.update(count(e.article_id.in_(changed[i : i + 500])))
+    cache.ENGAGEMENT.put(conn, {"at": now.timestamp(), "full_at": full_at, "raw": {str(k): v for k, v in raw.items()}})
     return raw
 
 
@@ -98,12 +130,15 @@ def train_and_predict(conn) -> dict:
     raw = _engagement(conn)
     now = db.utcnow()
     since = now - timedelta(days=30)
-    arts = conn.execute(
-        select(db.articles.c.id, db.articles.c.embedding, db.articles.c.published_at, db.articles.c.importance,
-               db.articles.c.discussion_points, db.articles.c.trend_score, db.articles.c.story_id, db.articles.c.domain,
-               db.articles.c.engagement, db.articles.c.predicted_score)
-        .where(db.articles.c.status == "published", db.articles.c.created_at >= since, db.articles.c.embedding.isnot(None))
-    ).all()
+    # The runner's copy of the articles and their embeddings (cache.py): only articles written since
+    # the previous run are read, instead of 30 days of embeddings (~8.5 KB each) on every run.
+    arts = sorted((a for a in cache.articles(conn).values()
+                   if a.status == "published" and (db.as_utc(a.created_at) or now) >= since and a.len_embedding >= 0),
+                  key=lambda a: a.id)
+    vecs = cache.article_vectors(conn, arts) if arts else {}
+    dims = [len(v) for v in vecs.values() if v is not None]
+    dim = max(set(dims), key=dims.count) if dims else 0
+    arts = [a for a in arts if vecs.get(a.id) is not None and len(vecs[a.id]) == dim]
     if not arts:
         return stats
     story_size: dict[int, int] = {}
@@ -133,23 +168,38 @@ def train_and_predict(conn) -> dict:
     if eng_rows:
         conn.execute(update(db.articles).where(db.articles.c.id == bindparam("aid")).values(engagement=bindparam("eng")), eng_rows)
 
+    def row(a) -> np.ndarray:
+        return np.concatenate([vecs[a.id].astype(np.float64),
+                               np.asarray(_features(a, story_size[a.story_id], story_primary.get(a.story_id, False)))])
+
     train = engaged if use_engagement else [a for a in arts if y_by_id[a.id] > 0]
-    weights = None
-    if len(train) >= MIN_TRAINING_ARTICLES // 2:
-        X = np.asarray([list(a.embedding) + _features(a, story_size[a.story_id], story_primary.get(a.story_id, False)) for a in train], dtype=np.float64)
-        y = np.asarray([y_by_id[a.id] for a in train], dtype=np.float64)
-        y_mean = y.mean()
-        XtX = X.T @ X + RIDGE_LAMBDA * np.eye(X.shape[1])
-        weights = np.linalg.solve(XtX, X.T @ (y - y_mean))
-        y_max = max(float(y.max()), 1e-6)
-        stats.update(trained=True, training_rows=len(train))
+    can_train = len(train) >= MIN_TRAINING_ARTICLES // 2
+    # The model is refitted every few hours rather than every run: a refit nudges almost every
+    # prediction, and each rewritten article is read again by the next run (cache.py). Between
+    # refits, new articles and articles whose features changed get predictions from the last fit.
+    model = cache.RANK_MODEL.get(conn)
+    due = (now.timestamp() - float(model.get("trained_at") or 0) >= config.RANK_TRAIN_HOURS * 3600
+           or model.get("target") != stats["target"] or model.get("dim") != dim
+           or (model.get("weights") is not None) != can_train)
+    if due:
+        model = {"target": stats["target"], "dim": dim, "trained_at": now.timestamp(), "weights": None}
+        if can_train:
+            X = np.stack([row(a) for a in train])
+            y = np.asarray([y_by_id[a.id] for a in train], dtype=np.float64)
+            y_mean = y.mean()
+            XtX = X.T @ X + RIDGE_LAMBDA * np.eye(X.shape[1])
+            weights = np.linalg.solve(XtX, X.T @ (y - y_mean))
+            model.update(weights=weights.tolist(), y_mean=float(y_mean), y_max=max(float(y.max()), 1e-6), training_rows=len(train))
+        cache.RANK_MODEL.put(conn, model)
+    weights = np.asarray(model["weights"], dtype=np.float64) if model.get("weights") is not None else None
+    stats.update(trained=weights is not None, training_rows=int(model.get("training_rows") or 0), refitted=due,
+                 model_age_hours=round((now.timestamp() - float(model["trained_at"])) / 3600, 1))
 
     pred_rows: list[dict] = []
     for a in arts:
         if weights is not None:
-            x = np.asarray(list(a.embedding) + _features(a, story_size[a.story_id], story_primary.get(a.story_id, False)), dtype=np.float64)
-            pred = float(x @ weights) + y_mean
-            pred = max(0.0, min(1.0, pred / y_max))
+            pred = float(row(a) @ weights) + model["y_mean"]
+            pred = max(0.0, min(1.0, pred / model["y_max"]))
         else:
             pred = min(1.0, 0.5 * (a.importance or 5) / 10.0 + 0.5 * popularity(a.discussion_points, a.trend_score) / 6.0)
         if a.predicted_score is None or abs(a.predicted_score - pred) > 1e-4:
@@ -163,21 +213,13 @@ def train_and_predict(conn) -> dict:
 def score_stories(conn) -> int:
     now = db.utcnow()
     since = now - timedelta(days=config.EXPORT_DAYS)
-    stories_rows = conn.execute(
-        select(db.stories.c.id, db.stories.c.importance, db.stories.c.first_published_at, db.stories.c.score)
-        .where(db.stories.c.updated_at >= since)
-    ).all()
-    # One query for every member article instead of one query per story.
+    stories_rows = sorted((s for s in cache.stories(conn).values() if (db.as_utc(s.updated_at) or now) >= since), key=lambda s: s.id)
+    ids = {s.id for s in stories_rows}
+    source_type = dict(conn.execute(select(db.sources.c.id, db.sources.c.source_type)).all())
     members_by_story: dict[int, list] = {}
-    for m in conn.execute(
-        select(db.articles.c.story_id, db.articles.c.predicted_score, db.articles.c.engagement, db.articles.c.published_at,
-               db.articles.c.discussion_points, db.articles.c.trend_score, db.articles.c.content_type,
-               db.sources.c.source_type)
-        .join(db.sources, db.articles.c.source_id == db.sources.c.id, isouter=True)
-        .join(db.stories, db.articles.c.story_id == db.stories.c.id)
-        .where(db.stories.c.updated_at >= since, db.articles.c.status == "published")
-    ).all():
-        members_by_story.setdefault(m.story_id, []).append(m)
+    for m in sorted(cache.articles(conn).values(), key=lambda a: a.id):
+        if m.status == "published" and m.story_id in ids:
+            members_by_story.setdefault(m.story_id, []).append(m)
 
     updates: list[dict] = []
     n = 0
@@ -192,7 +234,8 @@ def score_stories(conn) -> int:
         first = min(db.as_utc(s.first_published_at) or latest, latest)
         # Breaking news earns its freshness; a daily digest or a tutorial published this morning
         # is not "new" in the same sense, so its recency counts for less.
-        breaking = any((m.content_type in (None, "news", "product", "research")) and m.source_type != "newsletter" for m in members)
+        breaking = any((m.content_type in (None, "news", "product", "research")) and source_type.get(m.source_id) != "newsletter"
+                       for m in members)
         recency_weight = 1.0 if breaking else 0.55
         breadth = min(1.0, math.log1p(len(members)) / math.log(6))
         pop = max(popularity(m.discussion_points, m.trend_score) for m in members)
@@ -220,15 +263,13 @@ def score_stories(conn) -> int:
 def update_source_weights(conn) -> None:
     """Sources whose articles perform (readers or the web) drift up; the rest drift down."""
     since = db.utcnow() - timedelta(days=14)
-    rows = conn.execute(
-        select(db.articles.c.source_id, db.articles.c.engagement, db.articles.c.discussion_points, db.articles.c.trend_score)
-        .where(db.articles.c.status == "published", db.articles.c.created_at >= since)
-    ).all()
+    rows = [a for a in sorted(cache.articles(conn).values(), key=lambda a: a.id)
+            if a.status == "published" and db.as_utc(a.created_at) >= since]
     if not rows:
         return
     per_source: dict[int, list[float]] = {}
-    for sid, eng, pts, trend in rows:
-        per_source.setdefault(sid, []).append(float(eng or 0.0) + popularity(pts, trend))
+    for a in rows:
+        per_source.setdefault(a.source_id, []).append(float(a.engagement or 0.0) + popularity(a.discussion_points, a.trend_score))
     means = {sid: sum(v) / len(v) for sid, v in per_source.items()}
     overall = sum(means.values()) / len(means)
     if overall <= 0:
@@ -292,13 +333,12 @@ def cap_discovered_sources(conn, preferred_keys: list[str] | tuple = ()) -> int:
 def discover(conn) -> int:
     """Turn the best-performing companies and models into temporary Bing News search feeds."""
     since = db.utcnow() - timedelta(days=7)
-    rows = conn.execute(
-        select(db.articles.c.headline, db.articles.c.entities, db.articles.c.engagement,
-               db.articles.c.discussion_points, db.articles.c.trend_score)
-        .where(db.articles.c.status == "published", db.articles.c.created_at >= since)
-    ).all()
+    rows = [a for a in sorted(cache.articles(conn).values(), key=lambda a: a.id)
+            if a.status == "published" and db.as_utc(a.created_at) >= since]
     scored = [(float(a.engagement or 0.0) + 3.0 * popularity(a.discussion_points, a.trend_score), a) for a in rows]
     top = [a for s, a in sorted(scored, key=lambda x: -x[0]) if s > 0][:25]
+    text = cache.article_text(conn, top)  # entities of the 25 best only
+    top = [cache.merged(a, text.get(a.id)) for a in top if a.id in text]
     if len(top) < 5:
         cap_discovered_sources(conn)
         return 0
