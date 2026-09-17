@@ -7,7 +7,7 @@ from datetime import timedelta
 
 from sqlalchemy import select, update
 
-from . import cache, config, db, hold, trackers as tracker_rules
+from . import archive, cache, config, db, hold, trackers as tracker_rules
 from .textutil import word_count
 
 log = logging.getLogger("digest.export")
@@ -194,6 +194,8 @@ def run() -> dict:
                              key=lambda t: t.id)
         t_text = cache.thread_text(conn, thread_meta)
         thread_rows = [cache.merged(t, t_text.get(t.id)) for t in thread_meta if t.id in t_text]
+        # Stories that just aged out of the window keep a small page (archive.py).
+        archived = archive.update(conn, now, since, sources, [s.strip() for s in rules.get("unpublish") or [] if s])
 
     by_story: dict[int, list] = {}
     for a in art_rows:
@@ -365,6 +367,7 @@ def run() -> dict:
     (out_dir / "entities.json").write_text(json.dumps(entities_out, ensure_ascii=False), encoding="utf-8")
     (out_dir / "briefing.json").write_text(json.dumps(briefing, ensure_ascii=False), encoding="utf-8")
     (out_dir / "newsletters.json").write_text(json.dumps(sent, ensure_ascii=False), encoding="utf-8")
+    archived["pages"] = archive.export(out_dir, {s["slug"] for s in stories_out})
     (out_dir / "sources.json").write_text(
         json.dumps([v for v in sources.values() if v["enabled"] and not v["discovered"]], ensure_ascii=False), encoding="utf-8")
     (out_dir / "meta.json").write_text(json.dumps({
@@ -376,7 +379,7 @@ def run() -> dict:
     }), encoding="utf-8")
     return {"stories": len(stories_out), "entities": len(entities_out), "briefing": len(briefing["storyIds"]),
             "threads": len(threads_out), "models": len(trackers["models"]), "funding": len(trackers["funding"]),
-            "moderation": moderation, "dir": str(out_dir)}
+            "moderation": moderation, "archive": archived, "dir": str(out_dir)}
 
 
 # Domains whose posts are the primary source of a story regardless of which feed found them.
