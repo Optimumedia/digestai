@@ -804,7 +804,6 @@ def run() -> dict:
             break
         last_start = now_m
         text = row.content_text or row.description or ""
-        prompt = build_prompt(row, text, "gemini", local_only)
         result, model_used, used_fn = None, "heuristic", None
         for name, fn in list(providers):
             provider = name.split(":")[0]

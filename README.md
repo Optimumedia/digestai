@@ -16,12 +16,13 @@ supabase/   SQL to run once in the Supabase project (indexes, row security, edit
 | fetch   | pulls new links from `pipeline/digest/sources.yaml` (RSS, Hacker News, Reddit)  |
 | extract | fetches each page and extracts the article body (JSON-LD, trafilatura, readability) with boilerplate scrubbing and validation |
 | gate    | English only, AI relevance score, spam and press-release filters, date sanity, duplicate titles |
-| enrich  | one Gemini Flash call per article (Groq fallback): headline, digest, key points, why it matters, category, entities, importance, and a practical AI at Work card when a small team can act on it |
+| enrich  | one Gemini Flash call per article (Ollama Cloud, then Groq, then a local model as fallbacks): headline, digest, key points, why it matters, category, entities, importance, and a practical AI at Work card when a small team can act on it. The waiting articles are ranked first, so the strongest provider reads the ones most likely to lead a story (a company's own announcement, a high-weight source, a continuation of a front-page story, the focus category, what the web is reacting to); every answer is then checked against its article (`checks.py`) and a figure or a name the article does not contain is asked about again or taken out |
 | cluster | local sentence embeddings group articles covering the same event into one story |
 | threads | groups stories about the same saga over 14 days into developing threads ("the story so far") |
 | pulse   | summarises the top Hacker News comments on well-discussed stories (LLM, budgeted) |
 | discuss | finds the Hacker News thread for articles that arrived via feeds (Algolia API) |
 | rank    | learns from reader events which articles perform, predicts for new ones, scores stories, adjusts source weights, spins up discovery feeds for hot topics |
+| upgrade | rewrites the digest of a story that turned out to matter (several independent sources, a high score, or readers engaging with it) with the strongest provider that is ahead of its daily pace, and writes it from the best three or four sources together where the story has them, so it says what the sources agree on and where they differ. Bounded per run and per day, never twice for the same material, and it never touches a story's dates |
 | export  | writes `site/src/data/*.json` for the site build, including the daily briefing selection and the AI at Work section (`work.json`, `work-briefing.json`) |
 | push    | sends one breaking story per run (three a day at most) to browsers that turned on alerts, via Web Push with our own VAPID keys; prunes dead subscriptions |
 | topics  | writes model-authored introductions for topic hubs (companies, models, people) |
