@@ -179,6 +179,17 @@ def tracker_gaps(trackers: dict) -> list[dict]:
     return out
 
 
+def hedged_headlines(stories: list[dict], now: datetime) -> list[dict]:
+    """Live stories whose headline states as fact what the source only suggests (export.py sets
+    `hedged` from the source title and our headline; enrich.headline_hedged has the rule)."""
+    out = []
+    for s in live_stories(stories, now):
+        lead = _lead(s)
+        if s.get("hedged") or lead.get("hedged"):
+            out.append(_item(s, f"The source titled it \"{lead.get('title') or '?'}\", which only suggests it.", _unpublish(s)))
+    return out
+
+
 def audio_mismatch(episodes: list[dict], briefing: dict, by_id: dict[int, dict]) -> dict | None:
     ep = next((e for e in episodes or [] if e.get("date") == briefing.get("date")), None)
     ids = briefing.get("storyIds") or []
@@ -290,6 +301,11 @@ def cards(flags: dict[str, list[dict]]) -> list[dict]:
         "A model without its lab, or a deal without its company, looks unfinished to readers comparing them.",
         "Nothing urgent. If a row is plainly wrong, unpublish the story it came from; otherwise the next model update usually fills it in.",
         gaps, {"kind": "link", "url": gaps[0].get("page", "/models") if gaps else "/models", "label": "Open the page"})
+    add("hedged", "info", n(f.get("hedged", []), "A headline states as fact what the source only suggests.",
+                            "{n} headlines state as fact what their sources only suggest."),
+        "The source hedged (may, could, reportedly, or a question) and our headline dropped the hedge, so readers take a possibility for a confirmed fact.",
+        "Read the source. If the claim is not confirmed, unpublish the story. The summariser is told to keep the source's hedging, so new stories should do better.",
+        f.get("hedged", []))
     add("audio", "info", "The audio briefing starts with a different story than /today.",
         "Listeners and readers get a different top story. The audio is recorded once a day, while /today keeps updating as news arrives.",
         "No action needed; tomorrow's audio follows the briefing again. If the audio's first story was a mistake, unpublish it.",
@@ -320,6 +336,7 @@ def run(now: datetime, own_pages: list[dict] | None = None, fetch: Callable[[str
         "overMerged": over_merged(stories),
         "duplicates": duplicates(stories, now),
         "trackerGaps": tracker_gaps(_load("trackers.json", {})),
+        "hedged": hedged_headlines(stories, now),
         "audio": audio_mismatch(_load("episodes.json", []), briefing, by_id),
         "brokenImages": [], "brokenLinks": [],
     }

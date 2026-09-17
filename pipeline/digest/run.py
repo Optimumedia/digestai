@@ -8,7 +8,7 @@ import time
 
 from sqlalchemy import insert, update
 
-from . import admin, audio, cache, cluster, db, discuss, enrich, export, extract, fetch, gate, images, indexnow, newsletter, notify, pulse, gsc, intros, push, rank, social, threads, tidy, topics
+from . import admin, audio, cache, cluster, db, discuss, enrich, export, extract, fetch, gate, images, indexnow, newsletter, notify, pulse, gsc, intros, push, rank, repair, social, threads, tidy, topics
 
 STEPS = {
     "admin": admin.run,
@@ -30,11 +30,12 @@ STEPS = {
     "discuss": discuss.run,
     "pulse": pulse.run,
     "rank": rank.run,
+    "repair": repair.run,
     "export": export.run,
     "images": images.run,
     "newsletter": newsletter.run,
 }
-ORDER = ["fetch", "extract", "gate", "enrich", "cluster", "threads", "discuss", "pulse", "rank", "export", "push", "topics", "intros", "images", "audio", "social", "newsletter", "gsc", "tidy", "admin", "notify", "indexnow"]
+ORDER = ["fetch", "extract", "gate", "enrich", "cluster", "threads", "discuss", "pulse", "rank", "repair", "export", "push", "topics", "intros", "images", "audio", "social", "newsletter", "gsc", "tidy", "admin", "notify", "indexnow"]
 
 
 def main(argv: list[str]) -> int:

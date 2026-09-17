@@ -37,6 +37,8 @@ export interface Article {
   discussion: Discussion | null;
   modelRelease: ModelRelease | null;
   funding: Funding | null;
+  /** The source's own title hedged (may, could, a question) and our headline does not (admin card). */
+  hedged?: boolean;
 }
 
 export interface ModelRelease {

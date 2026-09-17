@@ -9,6 +9,7 @@ from langdetect import DetectorFactory, LangDetectException, detect
 from sqlalchemy import func, or_, select, update
 
 from . import cache, config, db
+from .extract import teaser_reason
 from .textutil import hamming, title_year, word_count
 
 DetectorFactory.seed = 0
@@ -72,6 +73,10 @@ def check(row, recent_hashes: list[tuple[int, int]]) -> str | None:
         return f"blocked domain {row.domain}"
     if TITLE_BLOCK.search(row.title or ""):
         return "blocked title pattern"
+    # A subscription wall's pitch is not an article; without a feed description to stand in, there is
+    # nothing to summarise (rows extracted before this check existed can still carry one).
+    if row.content_text and teaser_reason(row.content_text) and word_count(row.description or "") < 40:
+        return "paywalled, no readable text"
     lang = detect_lang(f"{row.title}. {text}")
     if lang not in ("en", "unknown"):
         return f"language {lang}"
