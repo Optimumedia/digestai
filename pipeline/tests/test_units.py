@@ -148,19 +148,103 @@ def test_cluster_merge_rule_resists_drift_and_caps():
     drifted_mean = _unit([1, 1, 0, 0])  # a big story's mean, pulled toward the generic topic
     stories = {1: {"vec": drifted_mean, "lead_vec": lead, "count": 30}}
     on_topic_only = _unit([0.55, 1, 0, 0])  # 0.96 to the mean, 0.48 to the lead
-    assert pick_story(on_topic_only, stories, 0.82, 0.79, 40) == (None, -1.0)
+    assert pick_story(on_topic_only, stories, 0.82, 0.79) == (None, -1.0)
     same_event = _unit([1, 0.3, 0, 0])  # 0.88 to the mean, 0.96 to the lead
-    sid, sim = pick_story(same_event, stories, 0.82, 0.79, 40)
+    sid, sim = pick_story(same_event, stories, 0.82, 0.79)
     assert sid == 1 and 0.82 <= sim < 0.9
-    stories[1]["count"] = 40
-    assert pick_story(same_event, stories, 0.82, 0.79, 40)[0] is None  # full: a new story starts
-    assert pick_story(same_event, {2: {"vec": drifted_mean, "lead_vec": None, "count": 3}}, 0.82, 0.79, 40)[0] == 2
+    stories[1]["count"] = stories[1]["shown"] = 40
+    assert pick_story(same_event, stories, 0.82, 0.79)[0] == 1  # full: still the same story (as overflow), never a second one
+    assert pick_story(same_event, {2: {"vec": drifted_mean, "lead_vec": None, "count": 3}}, 0.82, 0.79)[0] == 2
 
     members = ([(1, lead)] + [(10 + i, _unit([1, 0.1 * i, 0, 0])) for i in range(5)]
                + [(20 + i, _unit([0.2, 0, 1, 0.1 * i])) for i in range(3)] + [(30, None)])
-    keep, detach = split_members(1, lead, members, 0.79, 4)
+    keep, overflow, detach = split_members(1, lead, members, 0.79, 4)
     assert keep == [1, 10, 11, 12]
-    assert detach == [22, 21, 20, 30, 14, 13]  # far from the lead first, then the overflow
+    assert overflow == [13, 14, 30]  # close to the lead but beyond the cap: counted, not shown
+    assert detach == [22, 21, 20]  # far from the lead, least similar first
+
+
+def test_cluster_full_story_takes_overflow_instead_of_a_second_story():
+    import tempfile
+    from datetime import datetime, timedelta, timezone
+
+    import numpy as np
+    from sqlalchemy import create_engine, insert, select
+
+    from digest import cluster, config, db
+
+    tmp = Path(tempfile.mkdtemp()) / "overflow.db"
+    eng = create_engine(f"sqlite:///{tmp.as_posix()}", future=True)
+    db.metadata.create_all(eng)
+    now = datetime.now(timezone.utc)
+    rng = np.random.default_rng(1)
+
+    def vec(base):
+        v = np.asarray(base, dtype=np.float32) + 0.03 * rng.standard_normal(8).astype(np.float32)
+        return (v / np.linalg.norm(v)).tolist()
+
+    event, other = [1, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 1, 0]
+    cap = config.CLUSTER_MAX_ARTICLES
+    with eng.begin() as conn:
+        conn.execute(insert(db.sources).values(id=1, key="s", name="S", url="https://s.test/feed"))
+        # A story already at the cap, and three new articles: two on the same event, one on another.
+        conn.execute(insert(db.stories).values(
+            id=1, slug="mistral-raises", headline="Mistral raises 3B", lead_article_id=1, article_count=cap, importance=8,
+            embedding=db.pack_vec(vec(event)), status="published", first_published_at=now - timedelta(hours=2), updated_at=now))
+        conn.execute(insert(db.articles), [
+            {"id": i, "url": f"https://s.test/{i}", "source_id": 1, "story_id": 1, "slug": f"a-{i}", "title": f"Article {i}",
+             "headline": f"Article {i}", "importance": 8 if i == 1 else 5, "embedding": vec(event), "status": "published",
+             "content_type": "news", "published_at": now - timedelta(hours=1), "fetched_at": now, "created_at": now}
+            for i in range(1, cap + 1)])
+        conn.execute(insert(db.articles), [
+            {"id": 100 + i, "url": f"https://s.test/new{i}", "source_id": 1, "title": f"More on Mistral {i}", "headline": f"More on Mistral {i}",
+             "importance": 9, "embedding": vec(event if i < 2 else other), "status": "enriched", "content_type": "news",
+             "published_at": now, "fetched_at": now, "created_at": now} for i in range(3)])
+
+    saved = (db._engine, cluster._MODEL, cluster._MODEL_NAME)
+    db._engine, cluster._MODEL, cluster._MODEL_NAME = eng, False, "fallback-hash"
+    try:
+        stats = cluster.run()
+    finally:
+        db._engine, cluster._MODEL, cluster._MODEL_NAME = saved
+    assert (stats["overflow"], stats["merged"], stats["new_stories"]) == (2, 0, 1), stats
+    with eng.connect() as conn:
+        story = conn.execute(select(db.stories).where(db.stories.c.id == 1)).one()
+        arts = {a.id: a for a in conn.execute(select(db.articles)).all()}
+    assert story.article_count == cap + 2 and story.headline == "Mistral raises 3B" and story.lead_article_id == 1
+    assert arts[100].story_id == 1 and arts[100].status == "overflow" and arts[101].status == "overflow"
+    assert arts[102].story_id not in (None, 1) and arts[102].status == "published"
+
+
+def test_lead_rules_keep_news_over_commentary():
+    from digest.merge import better_lead, opinion_headline, pick_lead
+
+    crowdstrike = {"headline": "CrowdStrike buys an AI security startup", "content_type": "news", "importance": 6, "primary": False}
+    amodei = {"headline": "Amodei urges AI slowdown as models outpace safety work", "content_type": "opinion", "importance": 9, "primary": False}
+    assert not better_lead(amodei, crowdstrike)  # commentary never displaces news, however important
+    assert better_lead(crowdstrike, amodei)  # news always displaces commentary
+    assert not better_lead({**crowdstrike, "importance": 7}, crowdstrike)  # one point is not clearly better
+    assert better_lead({**crowdstrike, "importance": 8}, crowdstrike)
+    assert better_lead({**crowdstrike, "primary": True}, crowdstrike)  # a primary source at least as important leads
+    assert not better_lead({**crowdstrike, "primary": True, "importance": 5}, crowdstrike)
+    for h in ("Is the AI bubble about to burst?", "Why I stopped using Copilot", "How Mistral raised 3B in a week", "What the EU AI Act means for you"):
+        assert opinion_headline(h), h
+        assert not better_lead({**crowdstrike, "headline": h, "importance": 10}, crowdstrike), h
+    assert not opinion_headline("A.I. startup raises $50M") and not opinion_headline("OpenAI ships GPT-6")
+    assert better_lead({**amodei, "importance": 9}, {**amodei, "importance": 7})  # among commentary only: the margin rule
+
+    from types import SimpleNamespace as NS
+    members = [NS(id=1, status="published", content_type="opinion", importance=9, domain="blog.test", source_id=3),
+               NS(id=2, status="published", content_type="news", importance=7, domain="press.test", source_id=3),
+               NS(id=3, status="published", content_type="news", importance=7, domain="mistral.ai", source_id=1),
+               NS(id=4, status="overflow", content_type="news", importance=10, domain="press.test", source_id=3)]
+    texts = {1: NS(title="Why Mistral's round matters", headline="Why Mistral's round matters"),
+             2: NS(title="Mistral raises 3B at 12B valuation", headline="Mistral raises 3B at 12B valuation"),
+             3: NS(title="Announcing our Series C", headline="Mistral announces Series C"),
+             4: NS(title="Mistral raises 3B", headline="Mistral raises 3B")}
+    primary = lambda m: m.domain == "mistral.ai"  # noqa: E731
+    assert pick_lead(members, texts, primary).id == 3  # news, primary and wording shared with the others
+    assert pick_lead(members, texts, lambda m: False).id == 2  # without the primary point: equal, the earlier one
 
 
 def test_cluster_repairs_oversized_story_and_reclusters():
