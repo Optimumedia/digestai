@@ -7,7 +7,8 @@ from datetime import timedelta
 
 from sqlalchemy import select, update
 
-from . import cache, config, db, hold, trackers as tracker_rules
+from . import cache, config, db, funding as funding_rules, hold, trackers as tracker_rules
+from .enrich import headline_hedged
 from .textutil import word_count
 
 log = logging.getLogger("digest.export")
@@ -248,6 +249,8 @@ def run() -> dict:
                 "isLead": m.id == lead.id,
                 "modelRelease": m.model_release,
                 "funding": m.funding,
+                # The source hedged (may, could, reportedly, a question) and our headline does not.
+                "hedged": headline_hedged(m.title, m.headline),
                 "discussion": (
                     {"site": m.discussion_site, "url": m.discussion_url, "points": m.discussion_points}
                     if m.discussion_url else None
@@ -287,6 +290,8 @@ def run() -> dict:
             "imageUrl": lead.image_url or next((a["imageUrl"] for a in articles if a["imageUrl"]), None),
             "ogImage": f"/og/{s.slug}.png",
             "leadArticleId": lead.id,
+            # The story headline states as fact what the lead article's own title only suggests.
+            "hedged": headline_hedged(lead.title, s.headline),
             "articles": articles,
         }
         stories_out.append(story)
@@ -331,7 +336,6 @@ def run() -> dict:
 
     # Trackers: one row per model / funding event, deduplicated across articles.
     models: dict[str, dict] = {}
-    funding: dict[str, dict] = {}
     for st in stories_out:
         for a in st["articles"]:
             r = a.get("modelRelease")
@@ -345,19 +349,14 @@ def run() -> dict:
                 for f in ("license", "context", "link", "lab"):
                     if not row.get(f) and r.get(f):
                         row[f] = r[f]
-            f = a.get("funding")
-            if f and f.get("company"):
-                k = f"{f['company'].lower()}|{f.get('round')}|{int(f['amount_usd']) if f.get('amount_usd') else ''}"
-                row = funding.setdefault(k, {**f, "date": a["publishedAt"], "storySlug": st["slug"], "storyHeadline": st["headline"], "sources": 0})
-                row["sources"] += 1
-                if not row.get("valuation_usd") and f.get("valuation_usd"):
-                    row["valuation_usd"] = f["valuation_usd"]
-                if len(f.get("investors") or []) > len(row.get("investors") or []):
-                    row["investors"] = f["investors"]
     models = tracker_rules.fold_versions(models)
+    # Funding: one row per deal, with figures the coverage agrees on and that the articles' own text
+    # states (funding.py); the page's total adds these rows only.
+    funding_rows, funding_dropped = funding_rules.build(stories_out, now)
     trackers = {
         "models": sorted(models.values(), key=lambda r: r["date"] or "", reverse=True),
-        "funding": sorted(funding.values(), key=lambda r: r["date"] or "", reverse=True),
+        "funding": funding_rows,
+        "fundingTotalUsd": funding_rules.total(funding_rows),
     }
     # Hub pages: every entity with two or more stories, plus any model or company that has a
     # tracker row (a fact box makes a page worthwhile even with one story).
@@ -384,6 +383,7 @@ def run() -> dict:
     }), encoding="utf-8")
     return {"stories": len(stories_out), "entities": len(entities_out), "briefing": len(briefing["storyIds"]),
             "threads": len(threads_out), "models": len(trackers["models"]), "funding": len(trackers["funding"]),
+            "fundingDropped": funding_dropped, "hedged": sum(1 for s in stories_out if s["hedged"]),
             "moderation": moderation, "dir": str(out_dir)}
 
 

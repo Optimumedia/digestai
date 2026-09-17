@@ -72,6 +72,37 @@ TICKER_LINE = re.compile(r"^[A-Z]{2,6}[▲▼]", re.MULTILINE)
 JUNK_SHORT = re.compile(r"^[\W\d]*$")
 SHORT_MIN_WORDS = 100  # accept a short post when every candidate agrees it is the whole article
 
+# Paywall teasers: what a subscription wall leaves for the extractor when the article itself is
+# hidden. The FT's reads "was undefined now undefined ... Subscribe to unlock this article. Try
+# unlimited access ... Only $1 for 4 weeks"; it carries the headline, so the title check passes it.
+TEASER_PATTERNS = re.compile(
+    r"\b(?:subscribe to (?:unlock|read|continue|access|get)|sign in to (?:read|continue|unlock|access)|"
+    r"log ?in to (?:read|continue|unlock)|already (?:a|an) (?:subscriber|member)|start your (?:free )?trial|"
+    r"(?:try|start|get) unlimited access|subscribers? only|for subscribers|premium (?:content|article)|"
+    r"unlock (?:this|all|the) (?:article|story|content)|(?:complete|full) digital access|cancel anytime|"
+    r"(?:\$|€|£)\s?\d+(?:\.\d+)? (?:for|per) (?:\d+ )?(?:weeks?|months?|year)|"
+    r"was undefined|now undefined|\bundefined\b)", re.I)
+STRONG_TEASER = re.compile(r"\b(?:subscribe to (?:unlock|read|continue)|was undefined|now undefined|\bundefined\b)", re.I)
+TEASER_MAX_WORDS = 400     # a wall's pitch is short; an article this long with a pitch is an article
+TEASER_FLOOR_WORDS = 60    # below this nothing is an article
+TEASER_FEED_RATIO = 0.3    # the page gave far less than the feed's own copy of the text
+
+
+def teaser_reason(text: str, feed_words: int | None = None) -> str | None:
+    """Why this text is a paywall pitch rather than the article, or None when it reads as an article:
+    subscribe/sign-in/trial wording or "undefined" in a short text, or a text far below the feed's
+    copy or below a floor."""
+    words = word_count(text)
+    if words < TEASER_FLOOR_WORDS:
+        return f"too short to be an article ({words} words)"
+    if words <= TEASER_MAX_WORDS:
+        hits = {h.lower() for h in TEASER_PATTERNS.findall(text)}
+        if len(hits) >= 2 or (hits and STRONG_TEASER.search(text)):
+            return f"paywall teaser ({sorted(hits)[0]})"
+        if feed_words and feed_words >= TEASER_FLOOR_WORDS and words < TEASER_FEED_RATIO * feed_words:
+            return f"far shorter than the feed's copy ({words} of {feed_words} words)"
+    return None
+
 
 @dataclass
 class Extraction:
@@ -85,6 +116,7 @@ class Extraction:
     image: str | None = None
     words: int = 0
     reason: str | None = None
+    teaser: bool = False  # the only text found was a paywall pitch (teaser_reason)
     notes: list[str] = field(default_factory=list)
 
 
@@ -341,6 +373,21 @@ def _fill_date(result: "Extraction", soup: BeautifulSoup, html: str) -> None:
 
 def extract(url: str, html: str | None, title: str, feed_content: str | None = None,
             content_from_feed: bool = False, min_words: int | None = None) -> Extraction:
+    """The article's text, or why none was found. A text that is only a paywall pitch (teaser_reason)
+    does not count as found: the page must not show it, and the gate rejects the article unless the
+    feed description can stand in."""
+    result = _extract(url, html, title, feed_content, content_from_feed, min_words)
+    if result.ok and not (content_from_feed and result.method == "feed"):
+        why = teaser_reason(result.text, word_count(feed_content) if feed_content else None)
+        if why:
+            result.ok, result.teaser = False, True
+            result.reason = f"paywalled, no readable text ({why})"
+            result.notes.append(f"{result.method}: {why}")
+    return result
+
+
+def _extract(url: str, html: str | None, title: str, feed_content: str | None = None,
+             content_from_feed: bool = False, min_words: int | None = None) -> Extraction:
     min_words = min_words if min_words is not None else config.MIN_WORDS
     result = Extraction()
     rule = domain_rule(url)
@@ -535,6 +582,8 @@ def run() -> dict:
             stats["ok"] += 1
             stats["methods"][res.method] = stats["methods"].get(res.method, 0) + 1
         else:
+            if res.teaser:
+                stats["teasers"] = stats.get("teasers", 0) + 1
             # Keep the article as digest-only when the feed at least has a description.
             if row.description and word_count(row.description) >= 40:
                 values.update(status="extracted", content_text=None, content_md=None, show_fulltext=False)

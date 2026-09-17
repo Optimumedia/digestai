@@ -693,6 +693,180 @@ def test_topic_intro_grounding():
     assert grounded_description("Nemotron", "AI model", stories, boom) == (line, False)
 
 
+# The FT's subscription wall as the extractor saw it for the Houthi missiles story (16 Sep 2026).
+FT_TEASER = ("Houthis use Anthropic AI to develop ballistic missiles\n\n"
+             "was undefined now undefined\n\n"
+             "Subscribe to unlock this article. Try unlimited access. Only $1 for 4 weeks. Then $75 per month. "
+             "New customers only. Cancel anytime during your trial.\n\n"
+             "Complete digital access to quality FT journalism on any device. Pay a year upfront and get 20% off. "
+             "Explore more offers. Standard Digital: Essential digital access to quality FT journalism. "
+             "Premium Digital: Complete digital access with expert analysis. "
+             "Already a subscriber? Sign in to read the article. Check whether you already have access via your university or organisation. "
+             "Terms and conditions apply. Prices shown are in US dollars.")
+ARTICLE_300 = ("The lab said on Monday that its new model handles longer documents and answers questions about them. " * 15
+               + "Subscribe to our newsletter for more stories like this one every morning.")
+
+
+def test_teaser_reason_catches_paywall_pitches():
+    from digest.extract import teaser_reason
+
+    assert teaser_reason(FT_TEASER).startswith("paywall teaser"), teaser_reason(FT_TEASER)
+    assert teaser_reason("undefined now undefined " + "word " * 100).startswith("paywall teaser")  # "undefined" alone is enough
+    assert teaser_reason(ARTICLE_300) is None  # one newsletter line in a real article is not a wall
+    assert teaser_reason("A short brief with ninety words. " * 18) is None  # short but honest
+    assert teaser_reason("Only forty words. " * 12).startswith("too short")
+    assert teaser_reason("Only the opening paragraph came through. " * 15, feed_words=600).startswith("far shorter")
+    assert teaser_reason("Only the opening paragraph came through. " * 15, feed_words=100) is None
+
+
+def test_extract_and_gate_treat_a_teaser_as_no_text():
+    from types import SimpleNamespace
+
+    from digest import extract as ex, gate
+
+    saved = ex._extract
+
+    def fake(url, html, title, feed_content=None, content_from_feed=False, min_words=None):
+        return ex.Extraction(ok=True, method="feed" if content_from_feed else "trafilatura-short", markdown=FT_TEASER, text=FT_TEASER, words=110)
+
+    ex._extract = fake
+    try:
+        res = ex.extract("https://ft.com/content/x", "<html></html>", "Houthis use Anthropic AI to develop ballistic missiles")
+        assert not res.ok and res.teaser and res.reason.startswith("paywalled, no readable text"), res
+        # A publisher whose feed carries the whole article is never a paywall.
+        res = ex.extract("https://blog.test/x", None, "Title", feed_content=FT_TEASER, content_from_feed=True)
+        assert res.ok and not res.teaser
+    finally:
+        ex._extract = saved
+    row = SimpleNamespace(id=1, domain="ft.com", title="Houthis use Anthropic AI to develop ballistic missiles", raw_title=None,
+                          published_at=None, simhash=None, content_text=FT_TEASER, description="")
+    assert gate.check(row, []) == "paywalled, no readable text"
+    row.description = "The Houthi movement has been using Anthropic's models to work on missile guidance, according to a report. " * 3
+    assert gate.check(row, []) != "paywalled, no readable text"  # the feed description can be the digest
+
+
+def test_headline_hedged_when_the_source_only_suggests():
+    from digest.enrich import _clean, headline_hedged
+
+    title = "Have You Protested AI Recently? Anthropic May Be Watching You"
+    assert headline_hedged(title, "Anthropic builds predictive surveillance system to monitor AI critics")
+    assert not headline_hedged(title, "Anthropic may be monitoring AI critics, report says")
+    assert not headline_hedged(title, "Is Anthropic watching AI protesters?")
+    assert not headline_hedged("Is the AI boom a bubble?", "Opinion: the AI boom looks like a bubble")
+    assert headline_hedged("OpenAI could raise $40B, sources say", "OpenAI raises $40B")
+    assert not headline_hedged("OpenAI could raise $40B, sources say", "OpenAI in talks to raise $40B")
+    assert not headline_hedged("OpenAI raises $40B", "OpenAI closes $40B round")  # nothing hedged to lose
+    # A company describing its own action is attribution, not a hedge (a false positive on the export check).
+    assert not headline_hedged("Anthropic says Claude thwarted bioweapon research from state-sponsored actors",
+                               "Anthropic Blocks State-Sponsored Actors Using Claude for Bioweapon Research")
+    assert headline_hedged("Nvidia reportedly in talks to buy Groq", "Nvidia buys Groq")
+    assert not headline_hedged("Nvidia reportedly in talks to buy Groq", "Nvidia in talks to buy Groq, report says")
+    assert not headline_hedged(None, "x") and not headline_hedged(title, title)
+    from types import SimpleNamespace
+
+    row = SimpleNamespace(title=title)
+    assert _clean({"headline": "Anthropic builds predictive surveillance system to monitor AI critics"}, row, None)["hedged"]
+    assert not _clean({"headline": "Anthropic may be monitoring AI critics"}, row, None)["hedged"]
+
+
+def _repair_db():
+    """A temporary SQLite database with change tracking, as db.engine() sets it up."""
+    import tempfile
+
+    from sqlalchemy import create_engine
+
+    from digest import db
+
+    tmp = Path(tempfile.mkdtemp()) / "repair.db"
+    eng = create_engine(f"sqlite:///{tmp.as_posix()}", future=True)
+    db.metadata.create_all(eng)
+    assert db.install_change_tracking(eng)
+    return eng
+
+
+def test_repair_unwraps_bing_links_in_bounded_batches():
+    from datetime import datetime, timezone
+
+    from sqlalchemy import insert, select
+
+    from digest import db, repair
+
+    eng = _repair_db()
+    now = datetime.now(timezone.utc)
+    bing = lambda tid, target: f"https://bing.com/news/apiclick.aspx?ref=FexRss&aid=&tid={tid}&url={target}&c=1"  # noqa: E731
+    verge = "https%3a%2f%2fwww.theverge.com%2fai%2f123%2fopenai-model"
+    with eng.begin() as conn:
+        conn.execute(insert(db.sources).values(id=1, key="s", name="S", url="https://s.test/feed"))
+        conn.execute(insert(db.stories).values(id=1, slug="s", headline="S", lead_article_id=2, first_published_at=now, updated_at=now))
+        base = {"source_id": 1, "story_id": 1, "status": "published", "fetched_at": now, "created_at": now, "title": "OpenAI model"}
+        conn.execute(insert(db.articles), [
+            {**base, "id": 1, "url": "https://theverge.com/ai/123/openai-model", "domain": "theverge.com", "slug": "a1"},
+            {**base, "id": 2, "url": bing("aa", verge), "domain": "bing.com", "slug": "a2"},  # already stored unwrapped as #1
+            {**base, "id": 3, "url": bing("bb", "https%3a%2f%2fwww.wired.com%2fstory%2fx"), "domain": "bing.com", "slug": "a3"},
+            {**base, "id": 4, "url": bing("cc", "https%3a%2f%2fwww.wired.com%2fstory%2fx%3futm_source%3dbing"), "domain": "bing.com", "slug": "a4"},
+            {**base, "id": 5, "url": bing("dd", "javascript%3aalert(1)"), "domain": "bing.com", "slug": "a5"},
+            {**base, "id": 6, "url": bing("ee", "https%3a%2f%2fwww.wired.com%2fstory%2fy"), "domain": "bing.com", "slug": "a6", "status": "rejected"},
+        ])
+        wm = db.watermark(conn)
+    first = repair.bing_links(eng, limit=2)
+    assert first == {"duplicates": 1, "unwrapped": 1}, first  # #2 duplicates #1, #3 becomes wired.com
+    second = repair.bing_links(eng, limit=2)
+    assert second == {"duplicates": 1, "unwrappable": 1}, second  # #4 duplicates #3 (same page, tracking stripped), #5 has no target
+    assert repair.bing_links(eng) == {}  # done; the rejected #6 is left alone
+    a = db.articles.c
+    with eng.connect() as conn:
+        rows = {r.id: r for r in conn.execute(select(a.id, a.url, a.domain, a.status, a.reject_reason, a.rev)).all()}
+    assert (rows[3].url, rows[3].domain, rows[3].status) == ("https://wired.com/story/x", "wired.com", "published")
+    assert (rows[2].status, rows[2].reject_reason) == ("rejected", "repair: duplicate of #1")
+    assert (rows[4].status, rows[4].reject_reason) == ("rejected", "repair: duplicate of #3")
+    assert rows[5].status == "rejected" and "unwrapped" in rows[5].reject_reason
+    assert rows[1].rev < wm and rows[6].url.startswith("https://bing.com")
+    # The pages show links and domains, so every repaired row must look changed to the runner's copy.
+    assert all(rows[i].rev >= wm for i in (2, 3, 4, 5)), {i: rows[i].rev for i in rows}
+
+
+def test_repair_hides_teasers_and_unpublishes_bare_stories():
+    from datetime import datetime, timezone
+
+    from sqlalchemy import insert, select
+
+    from digest import db, repair
+
+    eng = _repair_db()
+    now = datetime.now(timezone.utc)
+    with eng.begin() as conn:
+        conn.execute(insert(db.sources).values(id=1, key="s", name="S", url="https://s.test/feed"))
+        conn.execute(insert(db.stories), [
+            {"id": 1, "slug": "houthis", "headline": "Houthis use Anthropic AI", "lead_article_id": 1, "first_published_at": now, "updated_at": now},
+            {"id": 2, "slug": "covered", "headline": "Covered elsewhere", "lead_article_id": 2, "first_published_at": now, "updated_at": now},
+            {"id": 3, "slug": "described", "headline": "Feed description only", "lead_article_id": 4, "first_published_at": now, "updated_at": now},
+        ])
+        # executemany takes its columns from the first row: every row must name description.
+        base = {"source_id": 1, "status": "published", "fetched_at": now, "created_at": now, "show_fulltext": True, "extraction_ok": True,
+                "description": None}
+        conn.execute(insert(db.articles), [
+            {**base, "id": 1, "url": "https://ft.com/1", "story_id": 1, "content_md": FT_TEASER, "word_count": 110},
+            {**base, "id": 2, "url": "https://ft.com/2", "story_id": 2, "content_md": FT_TEASER, "word_count": 110},
+            {**base, "id": 3, "url": "https://wired.com/2", "story_id": 2, "content_md": ARTICLE_300, "word_count": 300},
+            {**base, "id": 4, "url": "https://ft.com/3", "story_id": 3, "content_md": FT_TEASER, "word_count": 110},
+            {**base, "id": 5, "url": "https://blog.test/3", "story_id": 3, "content_md": None, "word_count": 0, "show_fulltext": False,
+             "description": "A feed description long enough to be the digest of this story on its own. " * 4},
+            {**base, "id": 6, "url": "https://long.test/6", "story_id": 2, "content_md": "Subscribe to unlock " + ARTICLE_300 * 3, "word_count": 900},
+        ])
+        wm = db.watermark(conn)
+    assert repair.teasers(eng, limit=2) == {"hidden": 2, "stories_unpublished": 1}  # #1 and #2; story 1 had nothing else
+    assert repair.teasers(eng) == {"hidden": 1}  # #4; story 3 keeps its described article
+    assert repair.teasers(eng) == {}
+    a, s = db.articles.c, db.stories.c
+    with eng.connect() as conn:
+        arts = {r.id: r for r in conn.execute(select(a.id, a.show_fulltext, a.extraction_ok, a.status, a.rev)).all()}
+        stories = dict(conn.execute(select(s.id, s.status)).all())
+    assert all(not arts[i].show_fulltext and not arts[i].extraction_ok and arts[i].status == "published" for i in (1, 2, 4))
+    assert arts[3].show_fulltext and arts[6].show_fulltext  # a long article that mentions a wall is an article
+    assert stories == {1: "unpublished", 2: "published", 3: "published"}
+    assert all(arts[i].rev >= wm for i in (1, 2, 4)) and arts[3].rev < wm
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

@@ -66,6 +66,22 @@ def test_over_merged_and_duplicates():
     assert quality.headline_similarity("Meta buys a robotics startup", "Apple sues a chip designer") < 0.5
 
 
+def test_hedged_headlines_make_an_info_card():
+    lead = {"url": "https://x.test/1", "title": "Have You Protested AI Recently? Anthropic May Be Watching You", "publishedAt": iso(2),
+            "isLead": True, "hedged": True}
+    flagged = story(1, "Anthropic builds predictive surveillance system to monitor AI critics", articles=[lead])
+    flagged["hedged"] = True
+    plain = story(2, "OpenAI closes $40B round")
+    plain["hedged"] = False
+    old = story(3, "Old but hedged", first=iso(days_ago=5))
+    old["hedged"] = True
+    items = quality.hedged_headlines([flagged, plain, old], NOW)
+    assert [i["slug"] for i in items] == ["s1"] and "Protested AI" in items[0]["detail"] and items[0]["action"]["kind"] == "unpublish"
+    cards = {c["id"]: c for c in quality.cards({"hedged": items})}
+    assert set(cards) == {"quality:hedged"} and cards["quality:hedged"]["level"] == "info"
+    assert "as fact" in cards["quality:hedged"]["what"] and cards["quality:hedged"]["items"][0]["slug"] == "s1"
+
+
 def test_tracker_gaps():
     trackers = {"models": [{"name": "X-1", "lab": "unknown", "kind": "llm", "storySlug": "a"},
                            {"name": "Y-2", "lab": "Acme", "kind": "other", "storySlug": "b"},
