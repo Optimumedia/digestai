@@ -642,7 +642,7 @@ def test_topic_intro_grounding():
     ]
     evidence = story_lines(stories)
     # Newest first, digest under the headline, key points when there is no digest.
-    assert evidence.startswith("- Hugging Face adds Nemotron 4") and "340B parameters" in evidence
+    assert evidence.startswith("- Hugging Face adds Nemotron 4") and "a 340B model" in evidence and "Beats Llama 4 on MMLU" in evidence
     assert "**" not in evidence and "More detail" not in evidence
     prompt = PROMPT.format(name="Nemotron", kind="AI model", stories=evidence)
     assert "Do not add anything you know from elsewhere" in prompt
