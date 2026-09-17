@@ -303,7 +303,10 @@ def test_archive_appends_stories_leaving_the_window_and_rebuilds_when_lost():
         window = timedelta(days=config.EXPORT_DAYS)
         sources = {1: {"name": "Lab", "type": "primary"}, 2: {"name": "HN", "type": "community"}, 3: {"name": "Press", "type": "press"}}
         with eng.connect() as conn:
-            st = archive.update(conn, tr.NOW, tr.NOW - window, sources)
+            try:
+                st = archive.update(conn, tr.NOW, tr.NOW - window, sources)
+            finally:
+                archive._download = saved_download
         assert st["rebuilt"] and st["total"] == 0
         tr.new_process()
         # Two stories age out: their last update is now older than the window.
@@ -356,7 +359,6 @@ def test_archive_appends_stories_leaving_the_window_and_rebuilds_when_lost():
         tr.new_process()
         stats = export.run()
         assert (config.SITE_DATA_DIR / "archive.json").exists() and "archive" in stats
-        archive._download = saved_download
 
 
 # ---------------------------------------------------------------------------- backup
