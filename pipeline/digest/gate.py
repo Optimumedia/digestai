@@ -143,7 +143,7 @@ def run() -> dict:
             .where(a.status == "extracted")
         ).all()
         recent = sorted((r for r in cache.articles(conn).values()
-                         if r.status in ("enriched", "published") and r.simhash is not None and db.as_utc(r.created_at) >= since),
+                         if r.status in ("enriched", "published", "overflow") and r.simhash is not None and db.as_utc(r.created_at) >= since),
                         key=lambda r: r.id)
     recent_hashes = [(r.id, db.from_signed64(r.simhash)) for r in recent]
     for row in rows:

@@ -239,15 +239,16 @@ ARTICLES = Mirror(
      case((func.coalesce(func.length(_a.discussion_url), 0) > 0, 1), else_=0).label("has_discussion_url"),
      _len(_a.content_md).label("len_content_md"), _len(_a.embedding).label("len_embedding"),
      _sig(*[c for c in ARTICLE_TEXT_COLUMNS if c.name != "fetched_at"]).label("sig")],
+    # "overflow": a member of a full story, counted as coverage but not shown (cluster.py).
     scope=lambda now: or_(_a.created_at >= now - timedelta(days=RECENT_ARTICLE_DAYS),
-                          and_(_a.status == "published", _a.created_at >= now - timedelta(days=horizon_days()))),
+                          and_(_a.status.in_(["published", "overflow"]), _a.created_at >= now - timedelta(days=horizon_days()))),
     keep=lambda r, now: (db.as_utc(r.created_at) or now) >= now - timedelta(days=RECENT_ARTICLE_DAYS)
-    or (r.status == "published" and (db.as_utc(r.created_at) or now) >= now - timedelta(days=horizon_days())),
+    or (r.status in ("published", "overflow") and (db.as_utc(r.created_at) or now) >= now - timedelta(days=horizon_days())),
 )
 
 STORIES = Mirror(
     "stories", db.stories,
-    [_s.id, _s.status, _s.score, _s.pinned, _s.thread_id, _s.lead_article_id, _s.importance, _s.article_count,
+    [_s.id, _s.status, _s.score, _s.pinned, _s.thread_id, _s.lead_article_id, _s.importance, _s.article_count, _s.redirect_to,
      _s.category, _s.first_published_at, _s.updated_at, _s.pushed_at, _len(_s.pulse).label("len_pulse"),
      _len(_s.embedding).label("len_embedding"), _sig(*STORY_TEXT_COLUMNS).label("sig")],
     scope=lambda now: _s.updated_at >= now - timedelta(days=horizon_days()),
@@ -272,7 +273,7 @@ def threads(conn) -> dict[int, tuple]:
 
 
 def articles(conn) -> dict[int, tuple]:
-    """Articles created in the last 16 days (any status) and published ones in the export window."""
+    """Articles created in the last 16 days (any status) and published or overflow ones in the export window."""
     return ARTICLES.rows(conn)
 
 
@@ -488,6 +489,7 @@ class Blob(_Store):
 RANK_MODEL = Blob("rank_model")
 ENGAGEMENT = Blob("engagement")
 KNOWN_URLS = Blob("known_urls")
+SUSPECTS = Blob("suspect_duplicates")  # story pairs that may be one event (merge.py), for the dashboard
 
 
 def url_hash(url: str) -> str:

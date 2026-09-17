@@ -8,7 +8,7 @@ from datetime import timedelta
 import numpy as np
 from sqlalchemy import insert, select, update
 
-from . import cache, config, db
+from . import cache, config, db, merge
 from .textutil import short_hash, slugify, tokens
 
 log = logging.getLogger("digest.cluster")
@@ -78,19 +78,18 @@ def _vec(value) -> np.ndarray | None:
 
 # ------------------------------------------------------------------ merge rule
 
-def pick_story(v: np.ndarray, stories: dict[int, dict], thr: float, lead_thr: float, cap: int) -> tuple[int | None, float]:
+def pick_story(v: np.ndarray, stories: dict[int, dict], thr: float, lead_thr: float) -> tuple[int | None, float]:
     """The story an article joins, or None for a new story.
 
-    A story's embedding is the running mean of its members. As a story grows that mean turns
+    A story's embedding is the running mean of its shown members. As a story grows that mean turns
     into a generic "about Mistral" vector that attracts everything on the topic (one story had
-    446 sources), so an article must also be close to the story's lead article, and a story
-    stops absorbing at `cap` articles (related stories are linked by threads instead).
-    `stories` maps id -> {"vec": mean, "lead_vec": lead embedding or None, "count": n}.
+    446 sources), so an article must also be close to the story's lead article. A full story
+    (CLUSTER_MAX_ARTICLES shown) still matches: the caller attaches the article as overflow, which
+    counts as coverage but is not shown, rather than starting a second story for the same event.
+    `stories` maps id -> {"vec": mean, "lead_vec": lead embedding or None, ...}.
     """
     best_id, best_sim = None, -1.0
     for sid, s in stories.items():
-        if s["count"] >= cap:
-            continue
         sv = s["vec"]
         if sv is None or sv.shape != v.shape:
             continue
@@ -111,10 +110,11 @@ def pick_story(v: np.ndarray, stories: dict[int, dict], thr: float, lead_thr: fl
 
 
 def split_members(lead_id: int, lead_vec: np.ndarray, members: list[tuple[int, np.ndarray | None]],
-                  lead_thr: float, cap: int) -> tuple[list[int], list[int]]:
-    """Repair of an oversized story: keep the lead and the members closest to it (at most `cap`),
-    detach the rest, least similar first. Members without a comparable embedding rank after the
-    close ones (the cluster step embeds them again if they are detached)."""
+                  lead_thr: float, cap: int) -> tuple[list[int], list[int], list[int]]:
+    """Repair of an oversized story: the lead and the members closest to it (at most `cap`) stay
+    shown; close members beyond the cap become overflow (counted, not shown); members far from the
+    lead are detached, least similar first, and clustered again. Members without a comparable
+    embedding rank after the close ones."""
     judged, unjudged = [], []
     for aid, vec in members:
         if aid == lead_id:
@@ -127,10 +127,8 @@ def split_members(lead_id: int, lead_vec: np.ndarray, members: list[tuple[int, n
     close = [aid for sim, aid in judged if sim >= lead_thr]
     far = [aid for sim, aid in judged if sim < lead_thr]
     ranked = [lead_id] + close + unjudged
-    keep, overflow = ranked[:cap], ranked[cap:]
     # Least similar first, so a bounded run detaches the worst matches before the borderline ones.
-    detach = list(reversed(far)) + list(reversed(overflow))
-    return keep, detach
+    return ranked[:cap], ranked[cap:], list(reversed(far))
 
 
 def _mean_vec(vecs: list[np.ndarray]) -> np.ndarray | None:
@@ -145,57 +143,83 @@ def lead_threshold(thr: float) -> float:
     return thr - config.CLUSTER_LEAD_MARGIN
 
 
+def merge_threshold() -> float:
+    _load_model()
+    return config.MERGE_THRESHOLD_MODEL if _MODEL_NAME != "fallback-hash" else config.MERGE_THRESHOLD_FALLBACK
+
+
+def _is_primary(row, source_type: dict) -> bool:
+    from .export import PRIMARY_DOMAINS
+
+    return row is not None and (row.domain in PRIMARY_DOMAINS or source_type.get(row.source_id) == "primary")
+
+
 def repair_oversized(eng, lead_thr: float, cap: int = None, max_detach: int = None) -> dict:
-    """Split stories that grew past the cap under the old merge rule: members far from the lead
-    go back to status 'enriched' (embedding kept) and are clustered again in this run."""
+    """Stories showing more members than the cap (grown under the old merge rule, or two stories
+    merged into one): members far from the lead go back to status 'enriched' (embedding kept) and
+    are clustered again in this run; close members beyond the cap become overflow. Members and
+    their embeddings come from the runner's copy (cache.py), so a run with nothing to repair
+    reads nothing."""
     cap = cap or config.CLUSTER_MAX_ARTICLES
     max_detach = config.CLUSTER_REPAIR_MAX_PER_RUN if max_detach is None else max_detach
-    stats = {"stories_repaired": 0, "articles_detached": 0}
+    stats = {"stories_repaired": 0, "articles_detached": 0, "articles_overflow": 0}
     with eng.begin() as conn:
-        big = conn.execute(
-            select(db.stories.c.id, db.stories.c.lead_article_id)
-            .where(db.stories.c.article_count > cap, db.stories.c.status == "published")
-            .order_by(db.stories.c.article_count.desc())
-        ).all()
-        for s in big:
-            budget = max_detach - stats["articles_detached"]
+        members_of: dict[int, list] = {}
+        for a in cache.articles(conn).values():
+            if a.story_id and a.status in ("published", "overflow"):
+                members_of.setdefault(a.story_id, []).append(a)
+        shown_n = {sid: sum(1 for m in ms if m.status == "published") for sid, ms in members_of.items()}
+        big = sorted((sid for sid, n in shown_n.items() if n > cap), key=lambda sid: (-shown_n[sid], sid))
+        if not big:
+            return stats
+        stories = cache.stories(conn)
+        for sid in big:
+            s = stories.get(sid)
+            if s is None or s.status != "published":
+                continue
+            budget = max_detach - stats["articles_detached"] - stats["articles_overflow"]
             if budget <= 0:
                 break
-            members = conn.execute(
-                select(db.articles.c.id, db.articles.c.embedding, db.articles.c.importance)
-                .where(db.articles.c.story_id == s.id, db.articles.c.status == "published")
-            ).all()
-            vecs = {m.id: _vec(m.embedding) for m in members}
+            shown = sorted((m for m in members_of[sid] if m.status == "published"), key=lambda m: m.id)
+            vecs = cache.article_vectors(conn, shown)
             lead_id = s.lead_article_id if vecs.get(s.lead_article_id) is not None else None
             if lead_id is None:
-                with_vec = [m for m in members if vecs[m.id] is not None]
+                with_vec = [m for m in shown if vecs.get(m.id) is not None]
                 if not with_vec:
                     continue
                 lead_id = max(with_vec, key=lambda m: (m.importance or 0, -m.id)).id
-            keep, detach = split_members(lead_id, vecs[lead_id], [(m.id, vecs[m.id]) for m in members], lead_thr, cap)
+            keep, overflow, detach = split_members(lead_id, vecs[lead_id], [(m.id, vecs.get(m.id)) for m in shown], lead_thr, cap)
             detach = detach[:budget]
-            gone = set(detach)
-            remaining = [m.id for m in members if m.id not in gone]
+            overflow = overflow[:budget - len(detach)]
             if detach:
                 conn.execute(update(db.articles).where(db.articles.c.id.in_(detach))
                              .values(story_id=None, status="enriched"))
-            values = {"article_count": len(remaining)}
-            mean = _mean_vec([vecs[a] for a in remaining if vecs[a] is not None and vecs[a].shape == vecs[lead_id].shape])
+            if overflow:
+                conn.execute(update(db.articles).where(db.articles.c.id.in_(overflow)).values(status="overflow"))
+            values = {"article_count": len(members_of[sid]) - len(detach)}
+            mean = _mean_vec([vecs[a] for a in keep if vecs.get(a) is not None and vecs[a].shape == vecs[lead_id].shape])
             if mean is not None:
                 values["embedding"] = db.pack_vec(mean)
-            conn.execute(update(db.stories).where(db.stories.c.id == s.id).values(**values))
+            conn.execute(update(db.stories).where(db.stories.c.id == sid).values(**values))
             stats["stories_repaired"] += 1
             stats["articles_detached"] += len(detach)
-            log.info("story #%s: %d members, detached %d far from the lead", s.id, len(members), len(detach))
+            stats["articles_overflow"] += len(overflow)
+            log.info("story #%s: %d shown, detached %d far from the lead, %d beyond the cap kept as overflow",
+                     sid, len(shown), len(detach), len(overflow))
     return stats
 
 
 def run() -> dict:
-    stats = {"embedded": 0, "new_stories": 0, "merged": 0, "model": None}
+    stats = {"embedded": 0, "new_stories": 0, "merged": 0, "overflow": 0, "model": None}
     eng = db.engine()
     thr = threshold()
     lead_thr = lead_threshold(thr)
     cap = config.CLUSTER_MAX_ARTICLES
+    # Two published stories for one event become one (the older keeps its address) before new
+    # articles are placed, so they join the surviving story.
+    duplicates = merge.run(eng, merge_threshold())
+    if duplicates["merged_stories"] or duplicates["suspects"]:
+        stats["duplicates"] = duplicates
     repair = repair_oversized(eng, lead_thr, cap)
     if repair["stories_repaired"]:
         stats.update(repair)
@@ -206,7 +230,7 @@ def run() -> dict:
             # The columns used below: article text is not needed to cluster (it is read by the database
             # meter as megabytes per run when selected with the rest of the row).
             select(a.id, a.url, a.slug, a.title, a.headline, a.summary_md, a.key_points, a.why_it_matters, a.category,
-                   a.entities, a.importance, a.embedding, a.published_at)
+                   a.entities, a.importance, a.embedding, a.published_at, a.content_type, a.domain, a.source_id)
             .where(a.status == "enriched")
             .order_by(a.published_at.asc(), a.id.asc())
         ).all()
@@ -228,10 +252,15 @@ def run() -> dict:
         # popular story absorb new articles forever, because every merge refreshed it. Their rows and
         # vectors come from the runner's copy (cache.py); only stories changed since the last run are read.
         recent = sorted((s for s in cache.stories(conn).values()
-                         if s.len_embedding >= 0 and (db.as_utc(s.first_published_at) or since) >= since), key=lambda s: s.id)
+                         if s.status == "published" and s.len_embedding >= 0
+                         and (db.as_utc(s.first_published_at) or since) >= since), key=lambda s: s.id)
         story_vecs = cache.story_vectors(conn, recent)
         recent = [s for s in recent if story_vecs.get(s.id) is not None]
         mirror = cache.articles(conn)
+        shown: dict[int, int] = {}
+        for m in mirror.values():
+            if m.status == "published" and m.story_id:
+                shown[m.story_id] = shown.get(m.story_id, 0) + 1
         lead_rows = [mirror[s.lead_article_id] for s in recent if s.lead_article_id in mirror]
         lead_vecs = cache.article_vectors(conn, lead_rows)
         # A lead outside the copy's window (rare): read its embedding directly.
@@ -239,35 +268,59 @@ def run() -> dict:
         for i in range(0, len(other), 500):
             for r in conn.execute(select(a.id, a.embedding).where(a.id.in_(other[i : i + 500]))).all():
                 lead_vecs[r.id] = _vec(r.embedding)
-        candidates = {s.id: {"vec": story_vecs[s.id], "lead_vec": lead_vecs.get(s.lead_article_id), "count": s.article_count or 1}
+        # The story's headline is its lead's; with the lead's type and source it decides whether a
+        # newcomer may take over (merge.better_lead). Both come from the runner's copy.
+        story_text = cache.story_text(conn, recent)
+        source_type = dict(conn.execute(select(db.sources.c.id, db.sources.c.source_type)).all())
+        candidates = {s.id: {"vec": story_vecs[s.id], "lead_vec": lead_vecs.get(s.lead_article_id),
+                             "count": s.article_count or 1, "shown": shown.get(s.id, 1)}
                       for s in recent}
-        story_meta = {s.id: {"importance": s.importance, "lead": s.lead_article_id} for s in recent}
+        story_meta = {}
+        for s in recent:
+            lead = mirror.get(s.lead_article_id)
+            story_meta[s.id] = {"importance": s.importance, "lead": s.lead_article_id,
+                                "headline": story_text[s.id].headline if s.id in story_text else None,
+                                "content_type": lead.content_type if lead is not None else None,
+                                "primary": _is_primary(lead, source_type)}
 
         for row, vec in zip(rows, vectors):
             v = np.asarray(vec, dtype=np.float32)
-            best_id, _sim = pick_story(v, candidates, thr, lead_thr, cap)
+            best_id, _sim = pick_story(v, candidates, thr, lead_thr)
             now = db.utcnow()
             base_slug = slugify(row.headline or row.title)
             # A re-clustered article keeps its slug (links to it must not change).
             article_slug = row.slug or _unique_slug(conn, base_slug, db.articles, row.url)
+            status = "published"
 
             if best_id is not None:
                 meta, cand = story_meta[best_id], candidates[best_id]
                 n = cand["count"]
-                merged = (cand["vec"] * n + v) / (n + 1)
-                merged /= np.linalg.norm(merged) or 1.0
-                cand["vec"], cand["count"] = merged, n + 1
-                values = {"article_count": n + 1, "updated_at": now, "embedding": db.pack_vec(merged)}
-                if (row.importance or 0) > (meta["importance"] or 0):
-                    # A more important article becomes the lead: its digest describes the story.
-                    meta["importance"], meta["lead"] = row.importance, row.id
-                    cand["lead_vec"] = v
-                    values.update(headline=row.headline, summary_md=row.summary_md, key_points=row.key_points,
-                                  why_it_matters=row.why_it_matters, category=row.category, entities=row.entities,
-                                  importance=row.importance, lead_article_id=row.id)
+                cand["count"] = n + 1
+                values = {"article_count": n + 1, "updated_at": now}
+                if cand["shown"] >= cap:
+                    # The story is full: one more source counts as coverage, but the page lists no more
+                    # and the story's mean and lead stay put. Never a second story for the same event.
+                    status = "overflow"
+                    stats["overflow"] += 1
+                else:
+                    merged = (cand["vec"] * cand["shown"] + v) / (cand["shown"] + 1)
+                    merged /= np.linalg.norm(merged) or 1.0
+                    cand["vec"], cand["shown"] = merged, cand["shown"] + 1
+                    values["embedding"] = db.pack_vec(merged)
+                    new = {"headline": row.headline or row.title, "content_type": row.content_type,
+                           "importance": row.importance, "primary": _is_primary(row, source_type)}
+                    if merge.better_lead(new, meta):
+                        # The new lead's digest describes the story: news over commentary, primary
+                        # sources first, and only a clearly more important article changes the headline.
+                        meta.update(importance=row.importance, lead=row.id, headline=new["headline"],
+                                    content_type=row.content_type, primary=new["primary"])
+                        cand["lead_vec"] = v
+                        values.update(headline=new["headline"], summary_md=row.summary_md, key_points=row.key_points,
+                                      why_it_matters=row.why_it_matters, category=row.category, entities=row.entities,
+                                      importance=row.importance, lead_article_id=row.id)
+                    stats["merged"] += 1
                 conn.execute(update(db.stories).where(db.stories.c.id == best_id).values(**values))
                 story_id = best_id
-                stats["merged"] += 1
             else:
                 story_slug = _unique_slug(conn, base_slug, db.stories, row.url)
                 res = conn.execute(insert(db.stories).values(
@@ -288,11 +341,12 @@ def run() -> dict:
                     updated_at=now,
                 ))
                 story_id = res.inserted_primary_key[0]
-                candidates[story_id] = {"vec": v, "lead_vec": v, "count": 1}
-                story_meta[story_id] = {"importance": row.importance or 5, "lead": row.id}
+                candidates[story_id] = {"vec": v, "lead_vec": v, "count": 1, "shown": 1}
+                story_meta[story_id] = {"importance": row.importance or 5, "lead": row.id, "headline": row.headline or row.title,
+                                        "content_type": row.content_type, "primary": _is_primary(row, source_type)}
                 stats["new_stories"] += 1
 
             conn.execute(update(db.articles).where(db.articles.c.id == row.id).values(
-                story_id=story_id, slug=article_slug, embedding=db.pack_vec(v), status="published",
+                story_id=story_id, slug=article_slug, embedding=db.pack_vec(v), status=status,
             ))
     return stats

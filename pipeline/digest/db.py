@@ -65,7 +65,10 @@ stories = Table(
     Column("importance", Integer, nullable=False, default=5),
     Column("score", Float, nullable=False, default=0.0),
     Column("embedding", JSON),
-    Column("status", String(20), nullable=False, default="published"),  # published | unpublished
+    Column("status", String(20), nullable=False, default="published"),  # published | unpublished | merged
+    # A merged story (the same event as an older one, merge.py) keeps its row: its articles moved to the
+    # story this points at, and the site redirects its old address there.
+    Column("redirect_to", Integer),
     Column("pinned", Boolean, nullable=False, default=False),
     Column("thread_id", Integer),
     Column("pulse", Text),  # what practitioners are saying, from the HN thread

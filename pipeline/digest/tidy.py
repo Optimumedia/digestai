@@ -46,7 +46,7 @@ def rules(now) -> list[tuple[str, object, object, dict]]:
     old_text = now - timedelta(days=config.EXPORT_DAYS + 10)
     return [
         ("summarised_text", db.articles,
-         and_(a.status.in_(["enriched", "published", "unpublished", "rejected"]), or_(a.content_text.isnot(None), a.feed_content.isnot(None))),
+         and_(a.status.in_(["enriched", "published", "overflow", "unpublished", "rejected"]), or_(a.content_text.isnot(None), a.feed_content.isnot(None))),
          {"content_text": null(), "feed_content": null()}),
         ("rejected_text", db.articles,
          and_(a.status == "rejected", or_(a.content_md.isnot(None), a.embedding.isnot(None))),

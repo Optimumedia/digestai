@@ -28,6 +28,31 @@ def _coverage(articles: list[dict]) -> dict:
     return cov
 
 
+def _source_type(src: dict, domain: str | None) -> str:
+    """Community feeds point at other publishers, so their finds count as press; a primary source is
+    one the story is *about* (the lab's own post counts even when it arrived via HN)."""
+    if domain in PRIMARY_DOMAINS:
+        return "primary"
+    stype = src.get("type") or "press"
+    return "press" if stype == "community" or src.get("discovered") else stype
+
+
+def story_redirects(stories: dict[int, tuple], titles: dict[int, tuple], exported: dict[int, str]) -> list[dict]:
+    """Old address -> current address for stories folded into another one (merge.py), following a
+    chain of merges, only where the surviving story is on the site. stories: the mirror rows;
+    titles: slug and headline of the merged ones; exported: id -> slug of the stories written out."""
+    out = []
+    for s in stories.values():
+        if s.status != "merged" or not s.redirect_to or s.id not in titles:
+            continue
+        target, hops = s.redirect_to, 0
+        while target in stories and stories[target].status == "merged" and stories[target].redirect_to and hops < 10:
+            target, hops = stories[target].redirect_to, hops + 1
+        if target in exported and titles[s.id].slug != exported[target]:
+            out.append({"from": titles[s.id].slug, "to": exported[target]})
+    return sorted(out, key=lambda r: r["from"])
+
+
 def build_briefing(stories: list[dict], now) -> dict:
     """Today's top stories: first new ones, then developing ones only to fill empty places.
 
@@ -130,17 +155,20 @@ def _full_text(conn, story_rows, art_rows) -> dict[int, str]:
     return cache.article_bodies(conn, pick)
 
 
-def load_rows(conn, since) -> tuple[list, list, dict[int, str]]:
+def load_rows(conn, since) -> tuple[list, list, dict[int, str], list]:
     """Published stories updated since `since` (newest first) and their published articles (newest
     first), as one object per row with the columns the export uses, plus the text each story page
-    shows. Read through the runner's copy (cache.py): only rows written since the previous run come
-    from the database, so a run with a few new stories reads kilobytes, not megabytes."""
+    shows, plus the overflow members (coverage of a full story, cluster.py: counted, never shown,
+    so their text is not read). Read through the runner's copy (cache.py): only rows written since
+    the previous run come from the database, so a run with a few new stories reads kilobytes, not
+    megabytes."""
     story_mirror = [s for s in cache.stories(conn).values()
                     if s.status == "published" and (db.as_utc(s.updated_at) or since) >= since]
     # Postgres order for "updated_at desc": newest first; ties by id so the order is stable.
     story_mirror.sort(key=lambda s: (db.as_utc(s.updated_at).timestamp(), s.id), reverse=True)
     ids = {s.id for s in story_mirror}
-    art_mirror = [a for a in cache.articles(conn).values() if a.status == "published" and a.story_id in ids]
+    members = [a for a in cache.articles(conn).values() if a.status in ("published", "overflow") and a.story_id in ids]
+    art_mirror = [a for a in members if a.status == "published"]
     # "published_at desc" as Postgres sorts it: articles without a date first, then newest first.
     art_mirror.sort(key=lambda a: (a.published_at is None, db.as_utc(a.published_at).timestamp() if a.published_at else 0, a.id),
                     reverse=True)
@@ -148,7 +176,8 @@ def load_rows(conn, since) -> tuple[list, list, dict[int, str]]:
     a_text = cache.article_text(conn, art_mirror)
     story_rows = [cache.merged(s, s_text.get(s.id)) for s in story_mirror if s.id in s_text]
     art_rows = [cache.merged(a, a_text.get(a.id)) for a in art_mirror if a.id in a_text]
-    return story_rows, art_rows, _full_text(conn, story_mirror, art_mirror)
+    overflow = sorted((a for a in members if a.status == "overflow"), key=lambda a: a.id)
+    return story_rows, art_rows, _full_text(conn, story_mirror, art_mirror), overflow
 
 
 def run() -> dict:
@@ -185,9 +214,14 @@ def run() -> dict:
         # Supabase's free plan counts every byte read (5 GB a month): embeddings are never exported,
         # article text is read only for the one article per story the page shows, and rows the
         # runner already has are not read again (load_rows).
-        story_rows, art_rows, full_text = load_rows(conn, since)
+        story_rows, art_rows, full_text, overflow_rows = load_rows(conn, since)
         sent = {n.date: {"publicUrl": n.public_url, "subject": n.subject}
                 for n in conn.execute(select(db.newsletters.c.date, db.newsletters.c.public_url, db.newsletters.c.subject)).all()}
+        # Stories folded into another one keep their address as a redirect (merge.py); their slugs
+        # are read once and kept. Pairs that may be one event go to the dashboard (quality.py).
+        story_index = cache.stories(conn)
+        merged_titles = cache.story_titles(conn, [s for s in story_index.values() if s.status == "merged" and s.redirect_to])
+        suspects = list(cache.SUSPECTS.get(conn).get("pairs") or [])
         # Only threads a story points at can get a page, so only those are read.
         thread_ids = {s.thread_id for s in story_rows if s.thread_id}
         thread_meta = sorted((t for t in cache.threads(conn).values() if t.id in thread_ids and t.status == "published"),
@@ -198,6 +232,9 @@ def run() -> dict:
     by_story: dict[int, list] = {}
     for a in art_rows:
         by_story.setdefault(a.story_id, []).append(a)
+    overflow_by_story: dict[int, list] = {}
+    for a in overflow_rows:
+        overflow_by_story.setdefault(a.story_id, []).append(a)
 
     stories_out: list[dict] = []
     entity_index: dict[str, dict] = {}
@@ -209,8 +246,7 @@ def run() -> dict:
         articles = []
         for m in members:
             src = sources.get(m.source_id, {})
-            stype = src.get("type") or "press"
-            community = stype == "community" or src.get("discovered")
+            community = (src.get("type") or "press") == "community" or src.get("discovered")
             # Community feeds point at other publishers: credit the publisher, keep the community as "via".
             articles.append({
                 "id": m.id,
@@ -220,7 +256,7 @@ def run() -> dict:
                 "source": m.domain if community else src.get("name"),
                 "via": src.get("name") if community else None,
                 "sourceKey": src.get("key"),
-                "sourceType": "press" if community else stype,
+                "sourceType": _source_type(src, m.domain),
                 "title": m.title,
                 "headline": m.headline,
                 "author": m.author,
@@ -246,11 +282,12 @@ def run() -> dict:
                 ),
                 "trendScore": m.trend_score,
             })
-        # A primary source is one the story is *about*: the lab's own post counts even when it arrived via HN.
-        for a in articles:
-            if a["domain"] in PRIMARY_DOMAINS:
-                a["sourceType"] = "primary"
         coverage = _coverage(articles)
+        # Members of a full story beyond the page's list (cluster.py): coverage, not shown.
+        overflow = overflow_by_story.get(s.id, [])
+        for m in overflow:
+            kind = _source_type(sources.get(m.source_id, {}), m.domain)
+            coverage[kind] = coverage.get(kind, 0) + 1
         discussions = sorted(
             (a["discussion"] for a in articles if a["discussion"]),
             key=lambda d: -(d["points"] or 0),
@@ -268,7 +305,8 @@ def run() -> dict:
             "importance": s.importance,
             "score": s.score,
             "pinned": s.pinned,
-            "articleCount": len(articles),
+            "articleCount": len(articles) + len(overflow),
+            "overflowCount": len(overflow),
             "coverage": coverage,
             "hasPrimary": coverage["primary"] > 0,
             "discussions": discussions,
@@ -291,6 +329,9 @@ def run() -> dict:
                 ent["storyIds"].append(s.id)
 
     briefing = build_briefing(stories_out, now)
+    exported = {st["id"]: st["slug"] for st in stories_out}
+    redirects = story_redirects(story_index, merged_titles, exported)
+    duplicates = [p for p in suspects if p.get("a") in exported and p.get("b") in exported]
 
     # Threads: only those with 2+ stories are worth a page; singletons stay invisible.
     by_thread: dict[int, list[dict]] = {}
@@ -364,6 +405,8 @@ def run() -> dict:
     (out_dir / "stories.json").write_text(json.dumps(stories_out, ensure_ascii=False), encoding="utf-8")
     (out_dir / "entities.json").write_text(json.dumps(entities_out, ensure_ascii=False), encoding="utf-8")
     (out_dir / "briefing.json").write_text(json.dumps(briefing, ensure_ascii=False), encoding="utf-8")
+    (out_dir / "redirects.json").write_text(json.dumps(redirects, ensure_ascii=False), encoding="utf-8")
+    (out_dir / "duplicates.json").write_text(json.dumps(duplicates, ensure_ascii=False), encoding="utf-8")
     (out_dir / "newsletters.json").write_text(json.dumps(sent, ensure_ascii=False), encoding="utf-8")
     (out_dir / "sources.json").write_text(
         json.dumps([v for v in sources.values() if v["enabled"] and not v["discovered"]], ensure_ascii=False), encoding="utf-8")
@@ -376,7 +419,7 @@ def run() -> dict:
     }), encoding="utf-8")
     return {"stories": len(stories_out), "entities": len(entities_out), "briefing": len(briefing["storyIds"]),
             "threads": len(threads_out), "models": len(trackers["models"]), "funding": len(trackers["funding"]),
-            "moderation": moderation, "dir": str(out_dir)}
+            "redirects": len(redirects), "moderation": moderation, "dir": str(out_dir)}
 
 
 # Domains whose posts are the primary source of a story regardless of which feed found them.

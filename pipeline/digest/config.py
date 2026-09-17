@@ -141,6 +141,16 @@ CLUSTER_REPAIR_MAX_PER_RUN = int(os.environ.get("CLUSTER_REPAIR_MAX_PER_RUN") or
 # An article must also be this close to the story's lead article: the merge threshold minus this
 # margin (0.82 - 0.03 = 0.79 with the embedding model). Stops the mean drifting to a generic topic.
 CLUSTER_LEAD_MARGIN = float(os.environ.get("CLUSTER_LEAD_MARGIN") or "0.03")
+# One story per event (merge.py). Two published stories are the same event when their embeddings are
+# this alike and they share a named entity (or are much more alike, or carry the same headline), and
+# they broke within MERGE_PAIR_DAYS of each other. The smaller pool of pairs just under the bar is
+# listed for review on the dashboard. At most MERGE_MAX_PER_RUN stories are merged per run, among
+# stories first published in the last MERGE_LOOKBACK_DAYS (threads read the same window's vectors).
+MERGE_THRESHOLD_MODEL = float(os.environ.get("MERGE_THRESHOLD_MODEL") or "0.88")
+MERGE_THRESHOLD_FALLBACK = float(os.environ.get("MERGE_THRESHOLD_FALLBACK") or "0.72")
+MERGE_PAIR_DAYS = int(os.environ.get("MERGE_PAIR_DAYS") or "7")
+MERGE_LOOKBACK_DAYS = int(os.environ.get("MERGE_LOOKBACK_DAYS") or "14")
+MERGE_MAX_PER_RUN = int(os.environ.get("MERGE_MAX_PER_RUN") or "10")
 # Enrichment: time assumed for one article before any has finished in this run.
 ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS = float(os.environ.get("ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS") or "90")
 
