@@ -81,8 +81,10 @@ const depth7 = eng.depth7 || { reads: 0, stages: {}, avgPercent: null };
 const depthRows = [["top", "Left at the top"], ["summary", "Read the summary"], ["full_text", "Read into the full text"], ["end", "Reached the end"]]
   .map(([k, label]) => { const n = Number(depth7.stages?.[k]) || 0; return { label, value: n, title: `${label}: ${n} of ${depth7.reads} reads (${depth7.reads ? Math.round((n / depth7.reads) * 100) : 0}%)` }; });
 
-const usageToday = (admin?.llm?.usage || []).filter((u: any) => u.day === today);
 const budgets = admin?.llm?.budgets || {};
+// Only the model providers: the table also counts things the pipeline does with its allowance
+// (the "upgrade" row counts stories re-summarised), which are not extra model calls.
+const usageToday = (admin?.llm?.usage || []).filter((u: any) => u.day === today && u.provider in budgets);
 const llmDays = days.map((d) => { const row: any = { day: d, gemini: 0, groq: 0 }; for (const u of (admin?.llm?.usage || []).filter((u: any) => u.day === d)) row[u.provider] = u.requests; return row; });
 
 const sources = (admin?.sources || []).slice().sort((a: any, b: any) => b.published - a.published || b.articles - a.articles);
