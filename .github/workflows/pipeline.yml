@@ -52,7 +52,12 @@ jobs:
       BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
       BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
       PUBLIC_VAPID_KEY: ${{ vars.PUBLIC_VAPID_KEY }}
-      AUDIO_VOICE: ${{ vars.AUDIO_VOICE || 'en_US-lessac-medium' }}
+      AUDIO_ENGINE: ${{ vars.AUDIO_ENGINE || 'kokoro' }}
+      AUDIO_VOICE: ${{ vars.AUDIO_VOICE || 'af_heart' }}
+      AUDIO_PIPER_VOICE: ${{ vars.AUDIO_PIPER_VOICE || 'en_US-lessac-medium' }}
+      # Seconds the audio step may spend reading before it leaves the rest for the next run. Empty
+      # keeps the default in pipeline/digest/config.py; raise it on a faster runner.
+      AUDIO_TIME_BUDGET_SECONDS: ${{ vars.AUDIO_TIME_BUDGET_SECONDS }}
       OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'qwen2.5:3b' }}
       GEMINI_DAILY_BUDGET: ${{ vars.GEMINI_DAILY_BUDGET || '54' }}
       MAX_ENRICH_PER_RUN: ${{ vars.MAX_ENRICH_PER_RUN || '20' }}
@@ -96,16 +101,41 @@ jobs:
       - name: Install pipeline
         run: pip install -q -r pipeline/requirements.txt
 
-      - name: Cache voice model
+      # The spoken briefing's voice (pipeline/digest/audio.py). Kokoro's two model files come from
+      # the kokoro-onnx release once and are cached after that; the Piper voice stays as the
+      # fallback the audio step uses when they are missing.
+      - name: Cache Kokoro model
+        id: kokoro
+        uses: actions/cache@v4
+        with:
+          path: pipeline/data/kokoro
+          key: kokoro-model-files-v1.0
+
+      - name: Download Kokoro model
+        if: steps.kokoro.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: |
+          set -e
+          base=https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0
+          tmp=$(mktemp -d)
+          # Both files, or neither: a half-downloaded voice must not end up in the cache.
+          curl -fsSL --retry 3 -o "$tmp/kokoro-v1.0.int8.onnx" "$base/kokoro-v1.0.int8.onnx"
+          curl -fsSL --retry 3 -o "$tmp/voices-v1.0.bin" "$base/voices-v1.0.bin"
+          mkdir -p pipeline/data/kokoro
+          mv "$tmp"/* pipeline/data/kokoro/
+          ls -l pipeline/data/kokoro
+
+      - name: Cache Piper voice
         id: voice
         uses: actions/cache@v4
         with:
           path: pipeline/data/voices
-          key: piper-voice-${{ vars.AUDIO_VOICE || 'en_US-lessac-medium' }}
+          key: piper-voice-${{ vars.AUDIO_PIPER_VOICE || 'en_US-lessac-medium' }}
 
-      - name: Download voice model
+      - name: Download Piper voice
         if: steps.voice.outputs.cache-hit != 'true'
-        run: python -m piper.download_voices "${AUDIO_VOICE:-en_US-lessac-medium}" --download-dir pipeline/data/voices
+        continue-on-error: true
+        run: python -m piper.download_voices "${AUDIO_PIPER_VOICE:-en_US-lessac-medium}" --download-dir pipeline/data/voices
 
       # Without a Supabase DATABASE_URL the SQLite database persists between runs through the
       # Actions cache, with a daily artifact as backup. The cache is restored from the most
@@ -131,6 +161,8 @@ jobs:
       # What earlier runs already read from the database (pipeline/digest/cache.py): each run then asks
       # only for rows written since. One small entry per run under a shared prefix; the newest is
       # restored. Without it a run reads everything once, which costs reads but changes no result.
+      # It also carries the parts of a spoken briefing that is still being read (audio.py): losing
+      # them costs one episode's synthesis, never a wrong result.
       - name: Restore read cache
         uses: actions/cache/restore@v4
         with:
