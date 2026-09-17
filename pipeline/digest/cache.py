@@ -374,6 +374,19 @@ def described_topics(conn) -> list[tuple]:
     return [got[i] for i, _n, _sig_value in marks if i in got]
 
 
+def forget_details(conn, store: Details, ids) -> None:
+    """Drop the copies kept for these rows, so the next read comes from the database.
+
+    Details are kept while their fingerprint (the lengths of the text columns) is unchanged. When
+    the pipeline rewrites a summary in place (upgrade.py), a rewrite of the same length would keep
+    the old copy on the runner until the periodic re-read, so the writer says so here.
+    """
+    st = store.state(conn)
+    for i in ids:
+        st["items"].pop(int(i), None)
+    st["_dirty"] = True
+
+
 def merged(*rows) -> SimpleNamespace:
     out: dict = {}
     for r in rows:

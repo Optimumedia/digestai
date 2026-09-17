@@ -451,6 +451,8 @@ def run() -> dict:
             select(func.count(), func.min(db.articles.c.created_at)).where(db.articles.c.status == "gated")).one()
         exhausted_today = {u.provider for u in usage if u.day == now.date().isoformat() and u.exhausted}
         actions += summary_cards(step_rows, exhausted_today, int(waiting or 0), db.as_utc(oldest_waiting), now)
+        actions += check_cards(step_rows, now)
+        actions += upgrade_cards(step_rows, now)
         recent_pub = conn.execute(select(func.count()).select_from(db.stories).where(db.stories.c.first_published_at >= now - timedelta(hours=3), db.stories.c.status == "published")).scalar() or 0
         if recent_pub == 0 and now.hour not in (2, 3, 4, 5):
             actions.append(_card("pipeline:quiet", "warning", "No new story has been published in the last 3 hours.",
@@ -522,6 +524,7 @@ STEP_WORDS = {
     "fetch": "collecting new articles", "extract": "reading the articles", "gate": "filtering out off-topic articles",
     "enrich": "writing summaries", "cluster": "grouping articles into stories", "threads": "linking related stories",
     "discuss": "checking online discussions", "pulse": "summing up community reactions", "rank": "ranking stories",
+    "upgrade": "improving the summaries of stories that matter",
     "export": "preparing the stories for the site", "push": "sending browser alerts", "topics": "updating topic pages",
     "intros": "writing topic introductions", "images": "making share pictures", "audio": "recording the audio briefing",
     "social": "posting to social media", "newsletter": "sending the newsletter", "gsc": "reading Google Search data",
@@ -818,6 +821,63 @@ def summary_cards(rows: list[dict], exhausted_today: set[str], waiting: int, old
                       "Open the Actions log and look at the \"enrich\" step: it says whether a model key stopped working or the models keep failing.",
                       action={"kind": "link", "url": ACTIONS_URL, "label": "Open the Actions log"})]
     return []
+
+
+CHECK_ITEMS = 8
+
+
+def check_cards(rows: list[dict], now) -> list[dict]:
+    """What the check before storing caught in the last day (enrich.py and upgrade.py write it into
+    their run stats): summaries that used a figure or a name their article does not contain. The
+    pipeline has already asked the model again or taken the claim out, so this is a card to read,
+    not one to act on - unless it starts happening on most summaries."""
+    day = [r for r in rows if r["step"] in ("enrich", "upgrade") and r["startedAt"] >= now - timedelta(hours=24)]
+    checked = flagged = retried = edited = 0
+    caught: list[dict] = []
+    for r in day:
+        c = (r["stats"] or {}).get("checks") or {}
+        checked += int(c.get("checked") or 0)
+        flagged += int(c.get("flagged") or 0)
+        retried += int(c.get("retried") or 0)
+        edited += int(c.get("edited") or 0)
+        for item in (c.get("caught") or []) + ((r["stats"] or {}).get("caught") or []):
+            what = ", ".join(f'"{i}"' for i in (item.get("items") or [])[:3]) or "a figure"
+            done = {"retry": "The model wrote it again and the second answer checked out.",
+                    "edited": "Taken out of the summary before it was stored.",
+                    "kept": "Left as written: there was nothing safe to remove."}.get(item.get("fixed"), "")
+            caught.append({"headline": (item.get("headline") or "an article")[:120],
+                           "detail": f"The {item.get('where') or 'summary'} said {what}, which the article does not. {done}".strip()})
+    if not flagged:
+        return []
+    share = flagged / checked if checked else 0
+    level = "warning" if checked >= 20 and share >= 0.25 else "info"
+    what = (f"The fact check caught {flagged} summary that used a figure or a name its article does not contain."
+            if flagged == 1 else
+            f"The fact check caught {flagged} summaries that used figures or names their articles do not contain.")
+    why = (f"Every summary is compared with its article before it is stored: {checked} were checked in the last day. "
+           f"{retried} were written again by the same model and {edited} had the unsupported part removed, so none of "
+           "this reached a page. A rising share means a model is inventing detail.")
+    todo = ("Nothing to do while this stays occasional. If it passes a quarter of all summaries, the model writing "
+            "them is the problem: check which one the enrich step is using in the Actions log.")
+    return [_card("summaries:checked", level, what, why, todo, items=caught[:CHECK_ITEMS])]
+
+
+def upgrade_cards(rows: list[dict], now) -> list[dict]:
+    """A card only when the second pass has been unable to run for a day while stories were
+    waiting for it: the free allowance never got ahead of pace."""
+    day = [r for r in rows if r["step"] == "upgrade" and r["startedAt"] >= now - timedelta(hours=24)]
+    if not day or any((r["stats"] or {}).get("upgraded") for r in day):
+        return []
+    latest = (day[-1]["stats"] or {})
+    if latest.get("off") or not latest.get("candidates"):
+        return []
+    return [_card("summaries:upgrades", "info",
+                  f"{latest['candidates']} stories are waiting for a better summary and none was written in the last day.",
+                  "Stories that turn out to matter are summarised again with the strongest free model, and from all "
+                  "their sources when they have several. That has not happened today, because the free allowance was "
+                  "never ahead of what the rest of the day needs.",
+                  "No action needed. If it lasts several days, either fewer articles need summarising each run, or "
+                  "another free model key would pay for itself here.")]
 
 
 # ---------------------------------------------------------------------------- site searches and read depth

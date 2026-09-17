@@ -113,8 +113,49 @@ DAILY_BUDGET = {
     "cloud": int(os.environ.get("OLLAMA_CLOUD_DAILY_BUDGET") or "400"),  # 3 models x 1,000/day, 80%
 }
 # Groq's free tier allows ~8,000 tokens per minute per model, so the article text sent to it is
-# shorter than Gemini's and calls are paced from the rate-limit headers.
-GROQ_INPUT_WORDS = int(os.environ.get("GROQ_INPUT_WORDS") or "2200")
+# shorter than Gemini's and calls are paced from the rate-limit headers. The prompt carries worked
+# examples now, so the text sent with it is a little shorter to keep the window where it was.
+GROQ_INPUT_WORDS = int(os.environ.get("GROQ_INPUT_WORDS") or "2000")
+# The prompt plus the article, per provider, must stay under this many tokens (estimated, never
+# measured by a tokeniser): Groq's window is 8,000 tokens a minute and the answer takes up to 3,000
+# of them, and the local 3B model runs with a 4,096-token context. Tested in test_summaries.py.
+PROMPT_TOKEN_BUDGET = {"groq": 4800, "ollama": 3000}
+
+# --- where the best model goes, and what is checked before a summary is stored (enrich.py) ---
+# Waiting articles ranked per run on narrow columns (~150 bytes each): 300 covers two days of
+# arrivals, and the oldest few are kept in view so a backlog cannot starve.
+ENRICH_QUEUE_POOL = int(os.environ.get("ENRICH_QUEUE_POOL") or "300")
+ENRICH_QUEUE_OLDEST = int(os.environ.get("ENRICH_QUEUE_OLDEST") or "25")
+# Hours of waiting after which an article's age alone carries it to the front of the queue.
+ENRICH_QUEUE_AGE_HOURS = float(os.environ.get("ENRICH_QUEUE_AGE_HOURS") or "24")
+ENRICH_FRONT_PAGE_STORIES = int(os.environ.get("ENRICH_FRONT_PAGE_STORIES") or "12")
+# Characters of article text read per article: more than the longest prompt can carry (5,000 words).
+ENRICH_TEXT_CHARS = int(os.environ.get("ENRICH_TEXT_CHARS") or "40000")
+# The rules-only check of a summary against its article (checks.py) and the one paid retry it may
+# ask for when something does not check out.
+CHECK_SUMMARIES = os.environ.get("CHECK_SUMMARIES", "1") == "1"
+CHECK_RETRY_MAX_PER_RUN = int(os.environ.get("CHECK_RETRY_MAX_PER_RUN") or "4")
+
+# --- second pass: stories that turned out to matter get a better summary (upgrade.py) ---
+UPGRADE_SUMMARIES = os.environ.get("UPGRADE_SUMMARIES", "1") == "1"
+# Providers worth upgrading to, best first; a summary already written by one of them is not redone.
+STRONG_PROVIDERS = [p.strip() for p in (os.environ.get("STRONG_PROVIDERS") or "gemini,cloud").split(",") if p.strip()]
+UPGRADE_MAX_PER_RUN = int(os.environ.get("UPGRADE_MAX_PER_RUN") or "2")
+UPGRADE_DAILY_MAX = int(os.environ.get("UPGRADE_DAILY_MAX") or "12")
+# A story has to have proved itself: this many independent sources, or this score (the top fifth
+# of the front page), or readers engaging with it.
+UPGRADE_MIN_SOURCES = int(os.environ.get("UPGRADE_MIN_SOURCES") or "3")
+UPGRADE_MIN_SCORE = float(os.environ.get("UPGRADE_MIN_SCORE") or "0.60")
+UPGRADE_LOOKBACK_HOURS = float(os.environ.get("UPGRADE_LOOKBACK_HOURS") or "72")
+# A story is never re-done for the same material: only this many new independent sources since the
+# last upgrade make it worth writing again.
+UPGRADE_NEW_SOURCES = int(os.environ.get("UPGRADE_NEW_SOURCES") or "3")
+# The multi-source digest reads this many articles (lead first), this many words of each.
+UPGRADE_MULTI_ARTICLES = int(os.environ.get("UPGRADE_MULTI_ARTICLES") or "4")
+UPGRADE_ARTICLE_WORDS = int(os.environ.get("UPGRADE_ARTICLE_WORDS") or "1100")
+# Upgrades stand aside while the queue is this far behind: new stories come first.
+UPGRADE_MAX_WAITING = int(os.environ.get("UPGRADE_MAX_WAITING") or "40")
+UPGRADE_TIME_BUDGET_SECONDS = int(os.environ.get("UPGRADE_TIME_BUDGET_SECONDS") or "180")
 
 # Local model through Ollama (used when no API key is configured, e.g. on the GitHub runner).
 # A 3B model on a 4-core runner takes ~40 s per article, so the per-run cap is lower.
@@ -127,7 +168,10 @@ OLLAMA_CLOUD_MODEL = os.environ.get("OLLAMA_CLOUD_MODEL") or "gpt-oss:120b"
 OLLAMA_CLOUD_FALLBACK_MODELS = [m.strip() for m in (os.environ.get("OLLAMA_CLOUD_FALLBACK_MODELS") or "nemotron-3-ultra,gemma4:31b").split(",") if m.strip()]
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL") or "qwen2.5:3b"
 MAX_ENRICH_LOCAL_PER_RUN = int(os.environ.get("MAX_ENRICH_LOCAL_PER_RUN") or "10")
-LOCAL_INPUT_WORDS = int(os.environ.get("LOCAL_INPUT_WORDS") or "1200")
+# The local model answers inside a 4,096-token context (num_ctx in call_ollama) and writes up to
+# 900 of them, so prompt and article together have to stay near 3,000: the guidance it gets is the
+# short one and the article is cut here.
+LOCAL_INPUT_WORDS = int(os.environ.get("LOCAL_INPUT_WORDS") or "1000")
 MAX_FETCH_PER_SOURCE = int(os.environ.get("MAX_FETCH_PER_SOURCE", "40"))
 MAX_EXTRACT_PER_RUN = int(os.environ.get("MAX_EXTRACT_PER_RUN", "120"))
 FETCH_TIMEOUT = float(os.environ.get("FETCH_TIMEOUT", "10"))

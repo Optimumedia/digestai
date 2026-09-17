@@ -188,9 +188,13 @@ def numbers_in(text: str | None) -> list[tuple[str, float]]:
     return out
 
 
-def _same_figure(a: float, b: float) -> bool:
-    # Money is rounded and converted ("€3B" against "$3.5 billion"): a fifth either way.
+def same_figure(a: float, b: float) -> bool:
+    """Two figures a reader would call the same. Money is rounded and converted ("€3B" against
+    "$3.5 billion"), so large values match within a fifth; small ones must match exactly."""
     return abs(a - b) <= (0.2 * max(abs(a), abs(b)) if max(abs(a), abs(b)) >= 1e6 else 0.0)
+
+
+_same_figure = same_figure  # the older private name, used below and by tests
 
 
 def _flat(text: str | None) -> str:
