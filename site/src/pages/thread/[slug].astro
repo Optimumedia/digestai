@@ -2,7 +2,7 @@
 import Base from "../../layouts/Base.astro";
 import Rail from "../../components/Rail.astro";
 import Coverage from "../../components/Coverage.astro";
-import { threads, threadStories, categories, plain, formatDate, entitySlug, meta, topicSlugs } from "../../lib/data";
+import { threads, threadStories, categories, plain, formatDate, entitySlug, meta, topicSlugs, shareImage } from "../../lib/data";
 
 export function getStaticPaths() {
   return threads.map((thread) => ({ params: { slug: thread.slug }, props: { thread } }));
@@ -16,7 +16,7 @@ const entityList = Object.values(thread.entities || {}).flat().slice(0, 12);
 const follow = JSON.stringify({ kind: "thread", slug: thread.slug, name: thread.title.slice(0, 60) });
 ---
 
-<Base title={thread.named ? thread.title : `${thread.title}: the story so far`} description={description} currentCategory={thread.category} image={`${meta.siteUrl}${thread.ogImage || (latest ? latest.ogImage : "/og-default.png")}`}>
+<Base title={thread.named ? thread.title : `${thread.title}: the story so far`} description={description} currentCategory={thread.category} image={thread.ogImage ? `${meta.siteUrl}${thread.ogImage}` : latest ? shareImage(latest) : `${meta.siteUrl}/og-default.png`}>
   <div class="grid">
     <div>
       <header class="page-head">

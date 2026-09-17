@@ -4,7 +4,7 @@ import StoryRow from "../components/StoryRow.astro";
 import Coverage from "../components/Coverage.astro";
 import Rail from "../components/Rail.astro";
 import ListenPlayer from "../components/ListenPlayer.astro";
-import { briefing, briefingStories, storiesByDay, storiesInCategory, plain, firstSentence, categories, meta, formatDate, dateTime, shortDate, episodes } from "../lib/data";
+import { briefing, briefingStories, storiesByDay, storiesInCategory, plain, firstSentence, categories, meta, formatDate, dateTime, shortDate, episodes, thumbImage } from "../lib/data";
 
 const lead = briefingStories[0];
 const rest = briefingStories.slice(1);
@@ -17,6 +17,7 @@ const focusStories = storiesInCategory("marketing")
   .slice(0, 5);
 const shownIds = new Set([...briefingIds, ...focusStories.map((s) => s.id)]);
 const episode = episodes[0];
+const leadThumb = lead?.imageUrl ? thumbImage(lead) : null;
 const episodeIsToday = episode?.date === briefing.date;
 const days = [...storiesByDay().entries()].slice(0, 4);
 const today = new Date().toISOString().slice(0, 10);
@@ -64,7 +65,7 @@ const jsonLd = {
             </div>
             {lead.imageUrl && (
               <a class="thumb" href={`/story/${lead.slug}`} tabindex="-1" aria-hidden="true">
-                <img src={lead.imageUrl} alt="" loading="eager" fetchpriority="high" referrerpolicy="no-referrer" onerror="this.parentElement.style.display='none'" />
+                <img src={leadThumb || lead.imageUrl} data-fallback={leadThumb ? lead.imageUrl : undefined} alt="" loading="eager" fetchpriority="high" referrerpolicy="no-referrer" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.removeAttribute('data-fallback')}else{this.parentElement.style.display='none'}" />
               </a>
             )}
           </article>

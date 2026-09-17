@@ -7,7 +7,7 @@ from datetime import timedelta
 
 from sqlalchemy import select, update
 
-from . import cache, config, db, funding as funding_rules, hold, trackers as tracker_rules
+from . import archive, cache, config, db, funding as funding_rules, hold, trackers as tracker_rules
 from .enrich import headline_hedged
 from .textutil import word_count
 
@@ -237,6 +237,8 @@ def run() -> dict:
                              key=lambda t: t.id)
         t_text = cache.thread_text(conn, thread_meta)
         thread_rows = [cache.merged(t, t_text.get(t.id)) for t in thread_meta if t.id in t_text]
+        # Stories that just aged out of the window keep a small page (archive.py).
+        archived = archive.update(conn, now, since, sources, [s.strip() for s in rules.get("unpublish") or [] if s])
 
     by_story: dict[int, list] = {}
     for a in art_rows:
@@ -415,6 +417,7 @@ def run() -> dict:
     (out_dir / "redirects.json").write_text(json.dumps(redirects, ensure_ascii=False), encoding="utf-8")
     (out_dir / "duplicates.json").write_text(json.dumps(duplicates, ensure_ascii=False), encoding="utf-8")
     (out_dir / "newsletters.json").write_text(json.dumps(sent, ensure_ascii=False), encoding="utf-8")
+    archived["pages"] = archive.export(out_dir, {s["slug"] for s in stories_out})
     (out_dir / "sources.json").write_text(
         json.dumps([v for v in sources.values() if v["enabled"] and not v["discovered"]], ensure_ascii=False), encoding="utf-8")
     (out_dir / "meta.json").write_text(json.dumps({
@@ -427,7 +430,7 @@ def run() -> dict:
     return {"stories": len(stories_out), "entities": len(entities_out), "briefing": len(briefing["storyIds"]),
             "threads": len(threads_out), "models": len(trackers["models"]), "funding": len(trackers["funding"]),
             "fundingDropped": funding_dropped, "hedged": sum(1 for s in stories_out if s["hedged"]),
-            "redirects": len(redirects), "moderation": moderation, "dir": str(out_dir)}
+            "redirects": len(redirects), "moderation": moderation, "archive": archived, "dir": str(out_dir)}
 
 
 # Domains whose posts are the primary source of a story regardless of which feed found them.

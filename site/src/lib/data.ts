@@ -211,6 +211,53 @@ export const threads: Thread[] = readJson<Thread[]>("threads.json", []);
 export const topicInfo: Record<string, { name: string; kind: string; description: string }> = readJson("topics.json", {});
 export const trackers: { models: ModelRelease[]; funding: Funding[] } = readJson("trackers.json", { models: [], funding: [] });
 
+/* ---- media store (pipeline/digest/media.py) ----
+   media.json maps a story slug to where its share image and thumbnail are: a site path ("/og/…",
+   "/media/…") or the tag of the GitHub release that holds it. Release downloads carry no image type,
+   which Facebook and LinkedIn refuse for link previews, so share images from a release are used only
+   when PUBLIC_OG_FROM_STORE is "1"; otherwise older stories get the default card. <img> tags are fine
+   with release files (browsers recognise the picture). */
+export interface MediaIndex {
+  repo: string;
+  og: Record<string, string>;
+  thumb: Record<string, string>;
+}
+export const mediaIndex: MediaIndex = readJson<MediaIndex>("media.json", { repo: "Optimumedia/digestai", og: {}, thumb: {} });
+const ogFromStore = import.meta.env.PUBLIC_OG_FROM_STORE === "1";
+
+function mediaUrl(where: string | undefined, name: string): string | null {
+  if (!where) return null;
+  if (where.startsWith("/")) return `${meta.siteUrl}${where}`;
+  return `https://github.com/${mediaIndex.repo}/releases/download/${encodeURIComponent(where)}/${encodeURIComponent(name)}`;
+}
+
+/** Absolute share image for a story's og:image. */
+export function shareImage(story: { slug: string }): string {
+  const where = mediaIndex.og[story.slug];
+  if (where && (where.startsWith("/") || ogFromStore)) return mediaUrl(where, `og-${story.slug}.png`)!;
+  return `${meta.siteUrl}/og-default.png`;
+}
+
+/** ~600 px WebP of the story's picture, or null (the page then uses the original). */
+export function thumbImage(story: { slug: string }): string | null {
+  return mediaUrl(mediaIndex.thumb[story.slug], `thumb-${story.slug}.webp`);
+}
+
+/* ---- archive (pipeline/digest/archive.py): stories older than the export window keep a small page. */
+export interface ArchivedStory {
+  slug: string;
+  headline: string;
+  summary: string;
+  keyPoints: string[];
+  category: string | null;
+  categoryName: string;
+  firstPublishedAt: string | null;
+  updatedAt: string | null;
+  archivedAt: string | null;
+  sources: { title: string; url: string; source: string }[];
+}
+export const archived: ArchivedStory[] = readJson<ArchivedStory[]>("archive.json", []);
+
 const storyById = new Map(stories.map((s) => [s.id, s]));
 export const storyFor = (id: number): Story | undefined => storyById.get(id);
 const storyBySlug = new Map(stories.map((s) => [s.slug, s]));

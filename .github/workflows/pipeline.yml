@@ -18,7 +18,9 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  # write: the media store and the database backup are release assets (pipeline/digest/media.py,
+  # backup.py). Releases and tags made with this token start no workflow, so nothing loops.
+  contents: write
   pages: write
   id-token: write
   actions: read
@@ -54,6 +56,10 @@ jobs:
       GEMINI_DAILY_BUDGET: ${{ vars.GEMINI_DAILY_BUDGET || '54' }}
       MAX_ENRICH_PER_RUN: ${{ vars.MAX_ENRICH_PER_RUN || '20' }}
       GH_TOKEN: ${{ github.token }}
+      # Passphrase that encrypts the nightly database backup (SETUP.md, "Database backup").
+      BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
+      # Optional: a healthchecks.io ping URL, pinged at the end of every run.
+      HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -68,20 +74,6 @@ jobs:
         with:
           path: .fastembed_cache
           key: fastembed-bge-small-en-v1.5
-
-      - name: Cache share images
-        uses: actions/cache@v4
-        with:
-          path: site/public/og
-          key: og-images-${{ github.run_id }}
-          restore-keys: og-images-
-
-      - name: Cache spoken briefings
-        uses: actions/cache@v4
-        with:
-          path: site/public/audio
-          key: audio-${{ github.run_id }}
-          restore-keys: audio-
 
       - name: Restore database
         id: dbcache
@@ -145,6 +137,55 @@ jobs:
           key: read-cache-v1-${{ github.run_id }}
           restore-keys: read-cache-v1-
 
+      # Every share image, thumbnail and spoken briefing is kept in the media store (release assets,
+      # pipeline/digest/media.py). Pages also serves the share cards of the last 7 days' stories, thread
+      # and topic cards (site/public/og, ~35 MB) and the newest 7 episodes (site/public/audio, ~17 MB),
+      # because the store's downloads carry no image or audio type. Those two folders are saved once a
+      # day (cards) and when a new episode appears, not every run; anything missing is rendered again or
+      # downloaded from the store. The old per-run og-images-/audio- entries expire after 7 days unused;
+      # the audio- prefix below carries the existing episodes over once.
+      - name: Today's date
+        id: day
+        run: echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore share cards
+        id: ogcache
+        uses: actions/cache/restore@v4
+        with:
+          path: site/public/og
+          key: og-cards-${{ steps.day.outputs.day }}
+          restore-keys: og-cards-
+
+      - name: Restore recent spoken briefings
+        id: audiocache
+        uses: actions/cache/restore@v4
+        with:
+          path: site/public/audio
+          key: audio-recent-none
+          restore-keys: |
+            audio-recent-
+            audio-
+
+      # The backup's remembered table rows (a few MB) are needed only by the run that makes the daily
+      # backup (pipeline/digest/backup.py), so they are restored and saved on that run only.
+      - name: Decide on database backup
+        id: dbbackup
+        run: |
+          due=$(python -c "import json,datetime as d
+          try: last=json.load(open('pipeline/data/cache/backup/state.json')).get('lastAt')
+          except Exception: last=None
+          print('yes' if not last or (d.datetime.now(d.timezone.utc)-d.datetime.fromisoformat(last)).total_seconds()>=20*3600 else 'no')")
+          if [ -z "$BACKUP_KEY" ]; then due=no; fi
+          echo "due=$due" >> "$GITHUB_OUTPUT"
+
+      - name: Restore backup store
+        if: steps.dbbackup.outputs.due == 'yes'
+        uses: actions/cache/restore@v4
+        with:
+          path: pipeline/data/backup-store
+          key: backup-store-${{ github.run_id }}
+          restore-keys: backup-store-
+
       # The pipeline has its own limit inside the job's 28 minutes and may fail or time out
       # without stopping the job: the build and deploy steps below still publish what was exported.
       - name: Run pipeline
@@ -171,6 +212,35 @@ jobs:
         with:
           path: pipeline/data/cache
           key: read-cache-v1-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Save share cards
+        if: always() && steps.ogcache.outputs.cache-matched-key != format('og-cards-{0}', steps.day.outputs.day) && hashFiles('site/public/og/**') != ''
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: site/public/og
+          key: og-cards-${{ steps.day.outputs.day }}
+
+      - name: Newest episode
+        id: episode
+        if: always()
+        run: echo "name=$(ls site/public/audio/*.mp3 2>/dev/null | sort | tail -1 | xargs -r basename)" >> "$GITHUB_OUTPUT"
+
+      - name: Save recent spoken briefings
+        if: always() && steps.episode.outputs.name != '' && steps.audiocache.outputs.cache-matched-key != format('audio-recent-{0}', steps.episode.outputs.name)
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: site/public/audio
+          key: audio-recent-${{ steps.episode.outputs.name }}
+
+      - name: Save backup store
+        if: always() && hashFiles('pipeline/data/backup-store.new') != ''
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: pipeline/data/backup-store
+          key: backup-store-${{ github.run_id }}-${{ github.run_attempt }}
 
       # The site builds (empty) without stories.json, so never build or deploy without real data.
       - name: Check exported data
@@ -246,3 +316,12 @@ jobs:
         if: steps.data.outputs.ok == 'true' && env.CF_TOKEN == ''
         id: pages
         uses: actions/deploy-pages@v4
+
+      # Optional dead man's switch: healthchecks.io emails when this ping stops arriving. Create a check
+      # (period 1 hour, grace 2 hours) and save its ping URL as the HEALTHCHECK_URL secret.
+      - name: Ping healthchecks.io
+        if: always() && env.HEALTHCHECK_URL != ''
+        continue-on-error: true
+        run: |
+          if [ "${{ steps.pipeline.outcome }}" = "success" ]; then url="$HEALTHCHECK_URL"; else url="$HEALTHCHECK_URL/fail"; fi
+          curl -fsS -m 10 --retry 3 -o /dev/null "$url" || echo "healthcheck ping failed"

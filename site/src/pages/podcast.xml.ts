@@ -28,7 +28,7 @@ export const GET: APIRoute = () => {
   <description>The five AI stories that matter today, read in about five minutes every morning. Every story is sourced and linked on digestai.news, which is updated every 30 minutes.</description>
   <itunes:author>Digest AI</itunes:author>
   <itunes:summary>The five AI stories that matter today, read in about five minutes every morning.</itunes:summary>
-  <itunes:owner><itunes:name>Digest AI</itunes:name></itunes:owner>
+  <itunes:owner><itunes:name>Digest AI</itunes:name><itunes:email>hello@digestai.news</itunes:email></itunes:owner>
   <itunes:image href="${site}/podcast-cover.png" />
   <image><url>${site}/podcast-cover.png</url><title>Digest AI briefing</title><link>${site}/listen</link></image>
   <itunes:category text="News"><itunes:category text="Tech News" /></itunes:category>

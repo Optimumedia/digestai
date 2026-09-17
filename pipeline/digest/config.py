@@ -119,7 +119,9 @@ LLM_INPUT_WORDS = int(os.environ.get("LLM_INPUT_WORDS", "5000"))
 CLUSTER_THRESHOLD_MODEL = float(os.environ.get("CLUSTER_THRESHOLD_MODEL", "0.82"))
 CLUSTER_THRESHOLD_FALLBACK = float(os.environ.get("CLUSTER_THRESHOLD_FALLBACK", "0.60"))
 CLUSTER_WINDOW_HOURS = int(os.environ.get("CLUSTER_WINDOW_HOURS", "72"))
-EXPORT_DAYS = int(os.environ.get("EXPORT_DAYS", "120"))
+# Full story pages for 45 days, then a small archive page at the same address (archive.py): at ~60 KB a
+# page, 120 days of full pages would pass GitHub Pages' 1 GB limit.
+EXPORT_DAYS = int(os.environ.get("EXPORT_DAYS", "45"))
 
 # --- Phase 0 data fixes (appended) ---
 # Discovery: Bing News search feeds for hot companies and models. Bounded in total, not only per

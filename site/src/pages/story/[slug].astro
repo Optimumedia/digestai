@@ -4,7 +4,7 @@ import Rail from "../../components/Rail.astro";
 import Coverage from "../../components/Coverage.astro";
 import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import StoryRedirect from "../../components/StoryRedirect.astro";
-import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, dateTime, shortDate, readingMinutes, related, entitySlug, meta, threadFor, threadStories, topicSlugs, storiesInCategory, storyIndexable, storyForSlug, storyRedirects } from "../../lib/data";
+import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, dateTime, shortDate, readingMinutes, related, entitySlug, meta, threadFor, threadStories, topicSlugs, storiesInCategory, storyIndexable, storyForSlug, storyRedirects, shareImage } from "../../lib/data";
 
 export function getStaticPaths() {
   return [
@@ -42,7 +42,7 @@ const jsonLd = {
   "@type": "NewsArticle",
   headline: story.headline,
   description,
-  image: [`${site}${story.ogImage}`, ...(story.imageUrl ? [story.imageUrl] : [])],
+  image: [shareImage(story), ...(story.imageUrl ? [story.imageUrl] : [])],
   datePublished: story.firstPublishedAt,
   dateModified: story.updatedAt,
   author: { "@type": "Organization", name: "Digest AI", url: site },
@@ -59,7 +59,7 @@ const jsonLd = {
 <Base
   title={story.headline}
   description={description}
-  image={`${site}${story.ogImage}`}
+  image={shareImage(story)}
   type="article"
   publishedAt={story.firstPublishedAt}
   modifiedAt={story.updatedAt}

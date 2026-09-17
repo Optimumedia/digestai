@@ -1,12 +1,14 @@
 ---
 import type { Story } from "../lib/data";
 import Coverage from "./Coverage.astro";
-import { plain, categories, sourceNames, shortDate } from "../lib/data";
+import { plain, categories, sourceNames, shortDate, thumbImage } from "../lib/data";
 
 interface Props { story: Story; showImage?: boolean }
 const { story, showImage = true } = Astro.props;
 const { names, more } = sourceNames(story, 4);
 const img = showImage ? story.imageUrl : null;
+// Our small copy of the picture when there is one; the publisher's original only as a fallback.
+const thumb = img ? thumbImage(story) : null;
 ---
 
 <li class:list={[{ "no-img": !img }]} data-published={story.updatedAt}>
@@ -28,7 +30,7 @@ const img = showImage ? story.imageUrl : null;
   </div>
   {img && (
     <a class="thumb" href={`/story/${story.slug}`} tabindex="-1" aria-hidden="true">
-      <img src={img} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentElement.style.display='none'" />
+      <img src={thumb || img} data-fallback={thumb ? img : undefined} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.removeAttribute('data-fallback')}else{this.parentElement.style.display='none'}" />
     </a>
   )}
 </li>

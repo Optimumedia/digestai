@@ -38,5 +38,5 @@ const minutes = Math.max(1, Math.round(episode.seconds / 60));
       <button class="listen-speed" type="button" aria-label="Playback speed">1×</button>
     </div>
   </div>
-  <audio preload="none" src={`/audio/${episode.file}`} data-episode={episode.date}></audio>
+  <audio preload="none" src={episode.url || `/audio/${episode.file}`} data-episode={episode.date}></audio>
 </div>

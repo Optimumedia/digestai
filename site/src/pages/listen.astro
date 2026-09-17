@@ -63,7 +63,7 @@ const jsonLd = {
             <li id={e.date}>
               <div class="eyebrow">{formatDate(e.date + "T00:00:00Z", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} · {mins(e.seconds)}</div>
               <h2>{e.title.replace(/^AI briefing, [^:]+: /, "")}</h2>
-              <audio controls preload="none" src={`/audio/${e.file}`} data-episode={e.date}></audio>
+              <audio controls preload="none" src={e.url || `/audio/${e.file}`} data-episode={e.date}></audio>
               <ul class="coverage">
                 {e.stories.map((s) => <li><a class="t" href={`/story/${s.slug}`}>{s.headline}</a></li>)}
               </ul>

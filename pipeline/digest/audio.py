@@ -2,28 +2,35 @@
 open-source neural voice (Piper, on the runner's CPU), encoded to MP3, and published as
 /audio/briefing-<date>.mp3 with a podcast feed (/podcast.xml) and a /listen page.
 
-Episodes live in site/public/audio, which the workflow keeps between runs through the
-Actions cache; the manifest next to them (episodes.json) is copied into site/src/data for
-the build. Nothing here costs anything: no speech API, no hosting beyond the site itself.
+Every episode goes to the media store (media.py) once, as a release asset. The store serves
+files as downloads without an audio type, which some podcast apps and Safari handle badly, so
+the newest PAGES_EPISODES episodes are also kept in site/public/audio and served by Pages; the
+feed and player link there, and to the store for older ones. site/public/audio is kept between
+runs by a cache the workflow saves when a new episode appears (once a day); a missing file is
+downloaded back from the store. The manifest (episodes.json, every episode with its transcript)
+lives with the store's other files in the read cache, and the newest KEEP go to site/src/data. Nothing here costs anything: no speech API, no hosting beyond the site itself.
 """
 from __future__ import annotations
 
 import json
 import logging
 import re
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import config
+from . import config, media
 
 log = logging.getLogger("digest.audio")
 
-AUDIO_DIR = config.ROOT / "site" / "public" / "audio"
+AUDIO_DIR = config.ROOT / "site" / "public" / "audio"   # the newest episodes, served by Pages
+PAGES_EPISODES = int(config.os.environ.get("AUDIO_PAGES_EPISODES") or 7)
 VOICES_DIR = config.PIPELINE_DIR / "data" / "voices"
-MANIFEST = AUDIO_DIR / "episodes.json"
 KEEP = int(config.os.environ.get("AUDIO_KEEP_EPISODES") or 14)
 BITRATE = 64  # kbps, mono speech
+
+
+def manifest_path() -> Path:
+    return media.store_dir() / "episodes.json"
 
 
 # ---- script ---------------------------------------------------------------------------
@@ -128,35 +135,66 @@ def synthesize(text: str, out: Path) -> tuple[float, int]:
 
 # ---- step -----------------------------------------------------------------------------
 
+def _read(path: Path) -> list[dict] | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else None
+    except (OSError, ValueError):
+        return None
+
+
 def _load_manifest() -> list[dict]:
-    if MANIFEST.exists():
-        try:
-            return json.loads(MANIFEST.read_text(encoding="utf-8"))
-        except ValueError:
-            return []
-    return []
+    """Every episode. The first run after the move to the media store takes over the manifest and
+    the files that the old cache kept in site/public/audio."""
+    episodes = _read(manifest_path())
+    if episodes is not None:
+        return episodes
+    legacy = _read(AUDIO_DIR / "episodes.json") or []
+    for e in legacy:
+        f = AUDIO_DIR / e["file"]
+        if f.exists() and not media.has(e["file"]):
+            media.queue(e["file"], f.read_bytes())
+    if legacy:
+        log.info("took over %d episodes from site/public/audio", len(legacy))
+    return legacy
 
 
 def _publish(episodes: list[dict]) -> None:
     episodes.sort(key=lambda e: e["date"], reverse=True)
-    # keep only the newest KEEP episodes whose file still exists
-    kept = []
+    # Everything the store knows or still holds; the newest KEEP go to the site.
+    episodes = [e for e in episodes if media.has(e["file"]) or (AUDIO_DIR / e["file"]).exists()]
+    AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    served = {e["file"] for e in episodes[:PAGES_EPISODES]}
+    for f in AUDIO_DIR.glob("*.mp3"):
+        if f.name not in served:
+            if not media.has(f.name):  # never drop the only copy
+                media.queue(f.name, f.read_bytes())
+            f.unlink(missing_ok=True)
     for e in episodes:
         f = AUDIO_DIR / e["file"]
-        if not f.exists():
-            continue
-        if len(kept) >= KEEP:
-            f.unlink(missing_ok=True)
-            continue
-        kept.append(e)
-    MANIFEST.write_text(json.dumps(kept, ensure_ascii=False, indent=1), encoding="utf-8")
+        if e["file"] in served and not f.exists():
+            raw = media.content(e["file"])
+            if raw:
+                f.write_bytes(raw)
+        e["url"] = f"{config.SITE_URL}/audio/{e['file']}" if f.exists() else (media.url(e["file"]) or f"{config.SITE_URL}/audio/{e['file']}")
+    manifest_path().parent.mkdir(parents=True, exist_ok=True)
+    manifest_path().write_text(json.dumps(episodes, ensure_ascii=False, indent=1), encoding="utf-8")
     config.SITE_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(MANIFEST, config.SITE_DATA_DIR / "episodes.json")
+    (config.SITE_DATA_DIR / "episodes.json").write_text(json.dumps(episodes[:KEEP], ensure_ascii=False, indent=1), encoding="utf-8")
+    (AUDIO_DIR / "episodes.json").unlink(missing_ok=True)  # the old manifest, taken over
+
+
+def refresh_urls() -> int:
+    """After the media step uploaded episodes: point the feed at the store. Returns the episode count."""
+    episodes = _read(manifest_path())
+    if episodes is None:
+        return 0
+    _publish(episodes)
+    return len(episodes)
 
 
 def run() -> dict:
     stats = {"generated": 0, "episodes": 0, "reason": ""}
-    AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     episodes = _load_manifest()
     briefing_file = config.SITE_DATA_DIR / "briefing.json"
     stories_file = config.SITE_DATA_DIR / "stories.json"
@@ -190,7 +228,9 @@ def run() -> dict:
             return stats
         fname = f"briefing-{date}.mp3"
         try:
+            AUDIO_DIR.mkdir(parents=True, exist_ok=True)
             seconds, size = synthesize(text, AUDIO_DIR / fname)
+            media.queue(fname, (AUDIO_DIR / fname).read_bytes())
         except Exception as exc:  # noqa: BLE001
             log.warning("synthesis failed: %s", str(exc)[:200])
             stats["reason"] = "synthesis failed"
@@ -213,5 +253,5 @@ def run() -> dict:
         stats["seconds"] = round(seconds)
         log.info("episode %s: %.0f s, %d KB", date, seconds, size // 1024)
     _publish(episodes)
-    stats["episodes"] = len(_load_manifest())
+    stats["episodes"] = len(_read(manifest_path()) or [])
     return stats

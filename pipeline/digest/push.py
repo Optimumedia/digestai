@@ -14,7 +14,7 @@ from datetime import timedelta
 
 from sqlalchemy import delete, func, select, update
 
-from . import config, db
+from . import config, db, media
 
 log = logging.getLogger("digest.push")
 
@@ -59,7 +59,7 @@ def _payload(story) -> str:
         "url": f"{config.SITE_URL}/story/{story.slug}?source=push",
         "tag": f"story-{story.id}",
         "icon": f"{config.SITE_URL}/logo-192.png",
-        "image": f"{config.SITE_URL}/og/story-{story.slug}.png",
+        "image": media.url(f"og-{story.slug}.png") or f"{config.SITE_URL}/og-default.png",
     })
 
 

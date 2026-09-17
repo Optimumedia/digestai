@@ -1,0 +1,45 @@
+name: Watchdog
+
+# Checks from outside the pipeline that it is still publishing (pipeline/digest/watchdog.py): if no
+# "Ingest and publish" run has succeeded for 3 hours, one issue labelled pipeline-stopped is opened
+# (updated, never duplicated) and closed after the next success. Once a week it also re-enables both
+# workflows through the API, which keeps GitHub from switching the schedule off after 60 days
+# without repository activity. No commit, so nothing rebuilds or redeploys.
+on:
+  schedule:
+    - cron: "37 * * * *"
+  workflow_dispatch:
+    inputs:
+      keepalive:
+        description: "Re-enable the workflows now"
+        type: boolean
+        default: false
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: true
+
+permissions:
+  actions: write
+  issues: write
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: pipeline/digest
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check the pipeline
+        working-directory: pipeline
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEPALIVE: ${{ github.event.inputs.keepalive == 'true' && '1' || '' }}
+        run: |
+          pip install -q requests
+          python -m digest.watchdog

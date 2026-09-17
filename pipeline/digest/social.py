@@ -18,12 +18,13 @@ import logging
 import io
 import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import requests
 from PIL import Image
 from sqlalchemy import func, insert, select
 
-from . import config, db
+from . import config, db, media
 
 log = logging.getLogger("digest.social")
 
@@ -132,7 +133,7 @@ def _story_post(story: dict) -> dict:
         "title": _clip(story["headline"], 200),
         "description": _card_description(story, text),
         "photo": story.get("imageUrl"),
-        "image": config.ROOT / "site" / "public" / "og" / f"{story['slug']}.png",
+        "image": f"og-{story['slug']}.png",  # our share image, in the media store
     }
 
 
@@ -179,7 +180,9 @@ class Bluesky:
         if blob:
             return blob
         try:
-            return self.upload(item["image"].read_bytes(), "image/png")
+            image = item["image"]
+            raw = image.read_bytes() if isinstance(image, Path) else media.content(image)
+            return self.upload(raw, "image/png")
         except OSError:
             return None
 
