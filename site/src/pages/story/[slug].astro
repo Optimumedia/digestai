@@ -3,7 +3,7 @@ import Base from "../../layouts/Base.astro";
 import Rail from "../../components/Rail.astro";
 import Coverage from "../../components/Coverage.astro";
 import Breadcrumbs from "../../components/Breadcrumbs.astro";
-import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, readingMinutes, related, entitySlug, meta, threadFor, threadStories, topicSlugs, storiesInCategory } from "../../lib/data";
+import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, dateTime, shortDate, readingMinutes, related, entitySlug, meta, threadFor, threadStories, topicSlugs, storiesInCategory, storyIndexable } from "../../lib/data";
 
 export function getStaticPaths() {
   return stories.map((story) => ({ params: { slug: story.slug }, props: { story } }));
@@ -61,6 +61,7 @@ const jsonLd = {
   currentCategory={story.category}
   storyId={story.id}
   articleId={shown.id}
+  thin={!storyIndexable(story)}
 >
   <div class="grid">
     <article>
@@ -68,8 +69,8 @@ const jsonLd = {
       <header class="story-head">
         <div class="meta-row">
           <a class:list={["chip", { hot: story.importance >= 8 }]} href={`/category/${story.category}`}>{categories[story.category || ""] || "AI"}</a>
-          <time datetime={story.firstPublishedAt || undefined} title={formatDate(story.firstPublishedAt)}></time>
-          {story.updatedAt !== story.firstPublishedAt && <span>updated <time datetime={story.updatedAt || undefined}></time></span>}
+          <time datetime={story.firstPublishedAt || undefined} title={formatDate(story.firstPublishedAt)}>{dateTime(story.firstPublishedAt)}</time>
+          {story.updatedAt !== story.firstPublishedAt && <span>updated <time datetime={story.updatedAt || undefined}>{dateTime(story.updatedAt)}</time></span>}
           {full && <span>{readingMinutes(full.wordCount)} min read</span>}
         </div>
         <h1>{story.headline}</h1>
@@ -138,7 +139,8 @@ const jsonLd = {
           {story.imageUrl && (
             <figure class="figure"><img src={story.imageUrl} alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentElement.style.display='none'" /></figure>
           )}
-          <div class="article" data-read="full_text" set:html={renderMarkdown(full.contentMd)} />
+          {/* data-nosnippet: the reproduced article is the publisher's text; search snippets should quote our digest above. */}
+          <div class="article" data-read="full_text" data-nosnippet set:html={renderMarkdown(full.contentMd)} />
           <p class="ai-note">
             This text was published by <a href={full.url} rel="noopener nofollow" target="_blank" data-source-link><b>{full.source || full.domain}</b></a>
             {full.author && ` and written by ${full.author}`}. It is reproduced here with attribution so you can read it in full; the rights remain with the publisher.
@@ -162,7 +164,7 @@ const jsonLd = {
             {others.map((a) => (
               <li>
                 <a class="t" href={a.url} target="_blank" rel="noopener nofollow" data-source-link>{a.title}</a>
-                <span class="mono muted">{typeLabel[a.sourceType] || "Press"} · {a.source || a.domain} · <time datetime={a.publishedAt || undefined}></time></span>
+                <span class="mono muted">{typeLabel[a.sourceType] || "Press"} · {a.source || a.domain} · <time datetime={a.publishedAt || undefined}>{shortDate(a.publishedAt)}</time></span>
               </li>
             ))}
           </ul>
@@ -208,7 +210,7 @@ const jsonLd = {
       {moreInCategory.length > 0 && (
         <section style="margin-top: 36px">
           <div class="dayhead"><h2>More in {categories[story.category || ""] || "AI"}</h2><a class="eyebrow" href={`/category/${story.category}`}>All →</a></div>
-          <ul class="coverage">{moreInCategory.map((s) => <li><a class="t" href={`/story/${s.slug}`}>{s.headline}</a><span class="mono muted"><time datetime={s.firstPublishedAt || undefined}></time> · {s.articleCount} src</span></li>)}</ul>
+          <ul class="coverage">{moreInCategory.map((s) => <li><a class="t" href={`/story/${s.slug}`}>{s.headline}</a><span class="mono muted"><time datetime={s.firstPublishedAt || undefined}>{shortDate(s.firstPublishedAt)}</time> · {s.articleCount} src</span></li>)}</ul>
         </section>
       )}
 
@@ -219,7 +221,7 @@ const jsonLd = {
             {rel.map((s) => (
               <li class="no-img" data-published={s.updatedAt}>
                 <div>
-                  <div class="meta-row"><a class="chip" href={`/category/${s.category}`}>{categories[s.category || ""] || "AI"}</a><time datetime={s.firstPublishedAt || s.updatedAt || undefined}></time><span class="new-badge">new</span></div>
+                  <div class="meta-row"><a class="chip" href={`/category/${s.category}`}>{categories[s.category || ""] || "AI"}</a><time datetime={s.firstPublishedAt || s.updatedAt || undefined}>{shortDate(s.firstPublishedAt || s.updatedAt)}</time><span class="new-badge">new</span></div>
                   <h3><a href={`/story/${s.slug}`}>{s.headline}</a></h3>
                 </div>
               </li>

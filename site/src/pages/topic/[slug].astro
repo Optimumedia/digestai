@@ -3,7 +3,7 @@ import Base from "../../layouts/Base.astro";
 import StoryRow from "../../components/StoryRow.astro";
 import Rail from "../../components/Rail.astro";
 import Breadcrumbs from "../../components/Breadcrumbs.astro";
-import { topicPages, storiesForEntity, meta, topicInfo, modelFacts, companyFunding, modelsByLab, entitySlug, topicSlugs, formatDate, money } from "../../lib/data";
+import { topicPages, storiesForEntity, meta, topicInfo, modelFacts, companyFunding, modelsByLab, entitySlug, topicSlugs, formatDate, money, TOPIC_MIN_STORIES } from "../../lib/data";
 
 export function getStaticPaths() {
   return topicPages().map(({ slug, entity }) => ({ params: { slug }, props: { entity } }));
@@ -16,6 +16,11 @@ const kindLabel = { companies: "Company", models: "Model", people: "Person" }[en
 const follow = JSON.stringify({ kind: "topic", slug, name: entity.name });
 const latestHeads = list.slice(0, 3).map((s) => s.headline).join("; ");
 const intro = topicInfo[slug!]?.description || "";
+// The pipeline stores a plain "N stories since <date>, most recently ..." line when the model's
+// introduction could not be checked against the stories; it is fine as an intro, not as an answer
+// to "What is X?".
+const templated = /^\d+ stor(y|ies) since /.test(intro);
+const thin = list.length < TOPIC_MIN_STORIES;
 const facts = modelFacts(entity.name);
 const fact = facts[0];
 const siblings = fact ? modelsByLab(fact.lab, fact.name) : [];
@@ -30,7 +35,7 @@ const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
 // Question-and-answer block: only questions the data can actually answer.
 const faq: { q: string; a: string }[] = [];
-if (intro) faq.push({ q: `What is ${entity.name}?`, a: intro });
+if (intro && !templated) faq.push({ q: `What is ${entity.name}?`, a: intro });
 if (fact) {
   if (fact.lab) faq.push({ q: `Who makes ${fact.name}?`, a: `${fact.name} is made by ${fact.lab}.` });
   if (fact.date) faq.push({ q: `When was ${fact.name} released?`, a: `${fact.name} was announced on ${formatDate(fact.date)}, according to ${plural(fact.sources || 1, "source")} covered by Digest AI.` });
@@ -56,7 +61,7 @@ const crumb = fact ? { name: "Models", href: "/models" } : rounds.length ? { nam
 const title = fact ? `${entity.name}: release date, access and news` : rounds.length ? `${entity.name}: funding and news` : `${entity.name} news`;
 ---
 
-<Base title={title} description={description} image={`${meta.siteUrl}${ogImage}`} jsonLd={jsonLd}>
+<Base title={title} description={description} image={`${meta.siteUrl}${ogImage}`} jsonLd={jsonLd} thin={thin}>
   <div class="grid">
     <div>
       <Breadcrumbs items={[crumb, { name: entity.name }]} />

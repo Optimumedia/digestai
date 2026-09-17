@@ -2,7 +2,7 @@
 import Base from "../../layouts/Base.astro";
 import StoryRow from "../../components/StoryRow.astro";
 import Rail from "../../components/Rail.astro";
-import { storiesByWeek, weekMonday, formatDate, trackers, money, weekKey, sourceLeaderboard, topicInfo } from "../../lib/data";
+import { storiesByWeek, weekMonday, formatDate, trackers, money, weekKey, topicInfo, WEEK_MIN_STORIES } from "../../lib/data";
 
 export function getStaticPaths() {
   return [...storiesByWeek().entries()].map(([week, list]) => ({ params: { week }, props: { list } }));
@@ -22,7 +22,7 @@ const intro = topicInfo[`week-${week!.toLowerCase()}`]?.description || "";
 const description = (intro || `What changed in AI in the week of ${range}: ${top.slice(0, 3).map((s) => s.headline).join("; ")}.`).slice(0, 300);
 ---
 
-<Base title={`AI news, week of ${formatDate(monday.toISOString(), { day: "numeric", month: "long", year: "numeric" })}`} description={description}>
+<Base title={`AI news, week of ${formatDate(monday.toISOString(), { day: "numeric", month: "long", year: "numeric" })}`} description={description} thin={list.length < WEEK_MIN_STORIES}>
   <div class="grid">
     <div>
       <header class="page-head">

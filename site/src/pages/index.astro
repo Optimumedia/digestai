@@ -4,7 +4,7 @@ import StoryRow from "../components/StoryRow.astro";
 import Coverage from "../components/Coverage.astro";
 import Rail from "../components/Rail.astro";
 import ListenPlayer from "../components/ListenPlayer.astro";
-import { briefing, briefingStories, storiesByDay, plain, firstSentence, categories, meta, formatDate, episodes } from "../lib/data";
+import { briefing, briefingStories, storiesByDay, plain, firstSentence, categories, meta, formatDate, dateTime, shortDate, episodes } from "../lib/data";
 
 const lead = briefingStories[0];
 const rest = briefingStories.slice(1);
@@ -29,7 +29,7 @@ const jsonLd = {
         <section class="briefing" aria-labelledby="briefing-h">
           <div class="briefing-head">
             <div class="briefing-title">
-              <span class="eyebrow briefing-date">{formatDate(briefing.date + "T12:00:00Z", { weekday: "long", day: "numeric", month: "long" })} · updated <time datetime={briefing.generatedAt}></time></span>
+              <span class="eyebrow briefing-date">{formatDate(briefing.date + "T12:00:00Z", { weekday: "long", day: "numeric", month: "long" })} · updated <time datetime={briefing.generatedAt}>{dateTime(briefing.generatedAt)}</time></span>
               <h2 id="briefing-h">Today's briefing</h2>
               <span class="eyebrow briefing-stats">{briefing.stats.stories} stories · {briefing.stats.articles} articles · {briefing.stats.minutes} min read <span class="new-count" id="new-count" hidden></span></span>
             </div>
@@ -48,7 +48,7 @@ const jsonLd = {
             <div>
               <div class="meta-row">
                 <a class:list={["chip", { hot: lead.importance >= 8 }]} href={`/category/${lead.category}`}>{categories[lead.category || ""] || "AI"}</a>
-                <time datetime={lead.firstPublishedAt || lead.updatedAt || undefined}></time>
+                <time datetime={lead.firstPublishedAt || lead.updatedAt || undefined}>{shortDate(lead.firstPublishedAt || lead.updatedAt)}</time>
                 <span class="new-badge">new</span>
               </div>
               <h1><a href={`/story/${lead.slug}`}>{lead.headline}</a></h1>
@@ -66,7 +66,7 @@ const jsonLd = {
               <li data-published={s.updatedAt}>
                 <div class="meta-row">
                   <a class="chip" href={`/category/${s.category}`}>{categories[s.category || ""] || "AI"}</a>
-                  <time datetime={s.firstPublishedAt || s.updatedAt || undefined}></time>
+                  <time datetime={s.firstPublishedAt || s.updatedAt || undefined}>{shortDate(s.firstPublishedAt || s.updatedAt)}</time>
                   <span class="new-badge">new</span>
                 </div>
                 <h3><a href={`/story/${s.slug}`}>{s.headline}</a></h3>

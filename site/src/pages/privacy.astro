@@ -1,0 +1,53 @@
+---
+import Base from "../layouts/Base.astro";
+import Rail from "../components/Rail.astro";
+import OperatorDetails from "../components/OperatorDetails.astro";
+import { formatDate, meta } from "../lib/data";
+---
+
+<Base title="Privacy" description="What Digest AI records when you read it, which other services see your visit, how long it is kept and how to opt out.">
+  <div class="grid">
+    <div class="article">
+      <header class="page-head">
+        <div class="eyebrow">Privacy</div>
+        <h1>What we record, and what we do not</h1>
+        <p>Digest AI has no accounts and sets no cookies of its own. This page lists everything a visit leaves behind, in plain terms.</p>
+      </header>
+
+      <h2>Our own reader counts</h2>
+      <p>To count readers and learn which stories matter, the page sends a few anonymous events to our database (hosted by Supabase in the European Union): the page you are on, the site you came from (the domain only), the type of event (a view, time on page, how far down a story you read, a click to a source, or a search), a session number that lives in the tab until you close it, and a random visitor number that is created in your browser, stays there, and is replaced every day. Neither number can be linked to you or across days. We do not record your IP address, your name, your email address or a device fingerprint in these events.</p>
+      <p>When you search the site we record the words you searched for and how many stories matched, so we can see what we do not yet cover. The words are lowercased, and email addresses and long numbers are removed before they are stored.</p>
+      <p>While a page is open it also joins a live count of current readers (the page, the referring domain and whether the device is a phone). That count is never stored.</p>
+      <p>Individual events are deleted within 90 days. Only daily totals are kept after that.</p>
+      <p>To switch these events off in your browser, open <a href="/admin?notrack=1">/admin?notrack=1</a> once; <code>?notrack=0</code> turns them back on. Browsers that block scripts send nothing.</p>
+
+      <h2>Stored in your browser only</h2>
+      <p>Saved stories, followed topics, your light or dark theme choice, the time of your last visit and your answer to the analytics notice are kept in your browser's local storage. They never leave your device unless you clear them yourself.</p>
+
+      <h2>Services that see your visit</h2>
+      <p>Any server that sends you a file sees the address your browser connects from. When you read Digest AI, these do:</p>
+      <ul>
+        <li><strong>GitHub Pages</strong> hosts the site and serves every page, script, font and audio file. GitHub keeps ordinary server logs under its own privacy statement.</li>
+        <li><strong>Supabase</strong> receives the anonymous events above and the live count, and stores browser-alert subscriptions if you turn alerts on. Its servers see the connecting address as any server does; we store none of it.</li>
+        <li><strong>Publishers' image servers.</strong> A story's picture may be loaded from the publisher that ran the article, in which case that publisher sees a request from your address. We are moving to thumbnails served from this site, after which no request goes to the publisher until you click through to it. The browser is told not to pass on which page you were reading either way.</li>
+        <li><strong>giscus and GitHub.</strong> The comments box on a story page is a frame from giscus.app backed by GitHub Discussions. Loading it sends a request to giscus; writing a comment requires signing in to GitHub, under GitHub's terms. The box loads only when you scroll to it.</li>
+        <li><strong>Google Analytics, only if you accept.</strong> The notice at the bottom of the page asks first. If you choose Accept, Google Analytics 4 sets cookies and receives your visit, including your address, which Google states it does not store; advertising features are switched off. If you choose Decline, nothing from Google loads. You can change your answer any time with <em>Cookie settings</em> in the footer; declining after accepting deletes Google's cookies.</li>
+      </ul>
+      <p>Fonts are served from this site, not from Google Fonts, so reading a page sends nothing to Google unless you accept analytics.</p>
+
+      <h2>Browser alerts and email</h2>
+      <p>If you turn on browser alerts, your browser creates a push subscription (an address at your browser maker's push service plus two keys) and we store it so we can send the alert. Turning alerts off deletes it; subscriptions that fail repeatedly are removed. The daily email, when offered, is run by an email provider named on the subscribe page; your address goes there, not to our database.</p>
+
+      <h2>Podcast and feeds</h2>
+      <p>The audio briefing and the RSS feeds are plain files served from this site. Your podcast or feed reader fetches them directly; we see nothing beyond the server logs above.</p>
+
+      <h2>Your rights</h2>
+      <p>Because we hold no data that identifies you, there is nothing to look up or delete on request; the anonymous events cannot be traced back to a person. If you believe we hold something about you, or have a question about this page, write to <a href="mailto:hello@digestai.news">hello@digestai.news</a>. Depending on where you live you may also have the right to complain to your data protection authority.</p>
+
+      <OperatorDetails heading="Who is responsible" />
+
+      <p class="muted">Last reviewed {formatDate(meta.generatedAt)}. Changes to what we record are made on this page first.</p>
+    </div>
+    <Rail />
+  </div>
+</Base>
