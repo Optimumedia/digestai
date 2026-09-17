@@ -774,7 +774,9 @@ def test_repair_hides_teasers_and_unpublishes_bare_stories():
             {"id": 2, "slug": "covered", "headline": "Covered elsewhere", "lead_article_id": 2, "first_published_at": now, "updated_at": now},
             {"id": 3, "slug": "described", "headline": "Feed description only", "lead_article_id": 4, "first_published_at": now, "updated_at": now},
         ])
-        base = {"source_id": 1, "status": "published", "fetched_at": now, "created_at": now, "show_fulltext": True, "extraction_ok": True}
+        # executemany takes its columns from the first row: every row must name description.
+        base = {"source_id": 1, "status": "published", "fetched_at": now, "created_at": now, "show_fulltext": True, "extraction_ok": True,
+                "description": None}
         conn.execute(insert(db.articles), [
             {**base, "id": 1, "url": "https://ft.com/1", "story_id": 1, "content_md": FT_TEASER, "word_count": 110},
             {**base, "id": 2, "url": "https://ft.com/2", "story_id": 2, "content_md": FT_TEASER, "word_count": 110},
