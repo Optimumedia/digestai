@@ -11,8 +11,9 @@ Files wait in pipeline/data/cache/media/pending until uploaded (that directory r
 read cache the workflow keeps between runs). When the store cannot be reached, pending files
 are copied into site/public/media so the site still serves them from Pages this run, and the
 upload is tried again next run. The manifest of what is uploaded is kept next to the pending
-files and, once a day, uploaded to the small "media-index" release, so a lost cache costs one
-download rather than thousands of duplicate uploads.
+files; each weekly release also carries index.json, the part of the manifest for that week,
+replaced on every run that uploads, so a lost cache is recovered with one small download per
+week instead of re-uploading anything.
 
 Steps that make media call queue(); the `media` step (after images and audio) uploads.
 """
@@ -33,17 +34,18 @@ from . import config
 log = logging.getLogger("digest.media")
 
 FORMAT = 1
-INDEX_TAG = "media-index"        # holds manifest.json only
+INDEX = "index.json"             # in each weekly release: what that release holds
+RECOVER_RELEASES = 300           # weekly releases looked at when the manifest is recovered
 MAX_UPLOADS_PER_RUN = 200
 MAX_UPLOAD_MB_PER_RUN = 60
 UPLOAD_TIME_BUDGET_SECONDS = 240
-MANIFEST_UPLOAD_HOURS = 20       # the manifest goes to the index release at most this often
 API = "https://api.github.com"
 UPLOADS = "https://uploads.github.com"
 CONTENT_TYPES = {".png": "image/png", ".webp": "image/webp", ".jpg": "image/jpeg", ".mp3": "audio/mpeg", ".json": "application/json"}
 
-# Overridden by tests.
+# Overridden by tests: the site folder, and the download used by content().
 SITE_PUBLIC = config.ROOT / "site" / "public"
+FETCH = None
 
 
 def store_dir() -> Path:
@@ -78,7 +80,7 @@ _manifest: dict | None = None
 
 
 def _empty() -> dict:
-    return {"format": FORMAT, "repo": repo(), "assets": {}, "skipped": {}, "releases": {}, "manifestUploadedAt": None, "lastUploadAt": None}
+    return {"format": FORMAT, "repo": repo(), "assets": {}, "skipped": {}, "releases": {}, "recoveredAt": None, "lastUploadAt": None}
 
 
 def manifest() -> dict:
@@ -161,7 +163,7 @@ def content(name: str, fetch=None) -> bytes | None:
     if not u or not u.startswith("https://github.com/"):
         return None
     try:
-        r = (fetch or requests.get)(u, timeout=30)
+        r = (fetch or FETCH or requests.get)(u, timeout=30)
         return r.content if r.status_code == 200 else None
     except requests.RequestException as exc:
         log.info("could not fetch %s: %s", name, str(exc)[:80])
@@ -218,13 +220,13 @@ class Store:
         manifest()["releases"][tag] = entry
         return entry
 
-    def upload(self, release_id: int, name: str, data: bytes) -> bool:
-        """True when the asset is in the release afterwards (uploaded now, or already there)."""
+    def upload(self, release_id: int, name: str, data: bytes) -> int | bool:
+        """The new asset's id, or True when it was already there. Raises otherwise."""
         ctype = CONTENT_TYPES.get(Path(name).suffix.lower(), "application/octet-stream")
         r = self._call("post", f"{UPLOADS}/repos/{self.repo}/releases/{release_id}/assets", params={"name": name},
                        data=data, headers={"Content-Type": ctype}, timeout=120)
         if r.status_code == 201:
-            return True
+            return (r.json() or {}).get("id") or True
         if r.status_code == 422 and "already_exists" in str(r.text):
             return True
         raise RuntimeError(f"upload {name}: HTTP {r.status_code} {str(r.text)[:120]}")
@@ -257,46 +259,57 @@ def open_store(session=None) -> Store | None:
     return Store(token or "", repository or repo(), session)
 
 
-def recover_manifest(store: Store) -> bool:
-    """A missing manifest (the cache was evicted) is fetched back from the index release."""
-    try:
-        rel = store.release(INDEX_TAG, "Media index", "The manifest of the media store (pipeline/digest/media.py). Not a software release.")
-        for a in store.assets(rel["id"], pages=1):
-            if a.get("name") == "manifest.json":
-                raw = store.download(a["browser_download_url"])
-                data = json.loads(raw.decode("utf-8")) if raw else None
-                if data and data.get("format") == FORMAT and isinstance(data.get("assets"), dict):
-                    m = manifest()
-                    for k, v in data["assets"].items():
-                        m["assets"].setdefault(k, v)
-                    m["releases"].setdefault(INDEX_TAG, rel)
-                    log.info("recovered the media manifest: %d assets", len(data["assets"]))
-                    return True
-    except Exception as exc:  # noqa: BLE001 - recovery is best effort
-        log.warning("could not recover the media manifest: %s", str(exc)[:120])
-    return False
-
-
-def upload_manifest(store: Store, now: datetime) -> bool:
+def recover_manifest(store: Store) -> int:
+    """A missing manifest (the cache was evicted) is rebuilt from the index.json of each weekly release."""
     m = manifest()
-    last = m.get("manifestUploadedAt")
-    if last and (now - datetime.fromisoformat(last)).total_seconds() < MANIFEST_UPLOAD_HOURS * 3600:
-        return False
-    rel = store.release(INDEX_TAG, "Media index", "The manifest of the media store (pipeline/digest/media.py). Not a software release.")
-    for a in store.assets(rel["id"], pages=1):
-        if a.get("name") == "manifest.json":
-            store.delete_asset(a["id"])
-    body = json.dumps({k: v for k, v in m.items() if k in ("format", "repo", "assets")}, separators=(",", ":")).encode("utf-8")
-    store.upload(rel["id"], "manifest.json", body)
-    m["manifestUploadedAt"] = now.isoformat()
-    return True
+    found = 0
+    try:
+        for page in range(1, RECOVER_RELEASES // 100 + 2):
+            r = store._call("get", f"{API}/repos/{store.repo}/releases", params={"per_page": 100, "page": page})
+            if r.status_code != 200:
+                break
+            batch = r.json()
+            for rel in batch:
+                tag = rel.get("tag_name") or ""
+                if not tag.startswith("media-20"):
+                    continue
+                m["releases"].setdefault(tag, {"id": rel["id"]})
+                raw = store.download(asset_url(tag, INDEX, store.repo))
+                data = json.loads(raw.decode("utf-8")) if raw else {}
+                for name, entry in (data.get("assets") or {}).items():
+                    m["assets"].setdefault(name, entry)
+                    found += 1
+            if len(batch) < 100:
+                break
+    except Exception as exc:  # noqa: BLE001 - recovery is best effort; duplicates are refused by GitHub anyway
+        log.warning("could not recover the media manifest: %s", str(exc)[:120])
+    m["recoveredAt"] = datetime.now(timezone.utc).isoformat()
+    if found:
+        log.info("recovered the media manifest: %d assets", found)
+    return found
+
+
+def upload_index(store: Store, tag: str, now: datetime) -> None:
+    """Replace the week's index.json with what the manifest says that release holds."""
+    m = manifest()
+    rel = m["releases"][tag]
+    if rel.get("index_id"):
+        store.delete_asset(rel["index_id"])
+    else:  # first index this run knows of for the week (new week, or after a recovery): find an older one
+        for a in store.assets(rel["id"], pages=25):
+            if a.get("name") == INDEX:
+                store.delete_asset(a["id"])
+    week = {k: v for k, v in m["assets"].items() if v[0] == tag}
+    body = json.dumps({"format": FORMAT, "tag": tag, "assets": week}, separators=(",", ":")).encode("utf-8")
+    rel["index_id"] = store.upload(rel["id"], INDEX, body)
 
 
 # ---------------------------------------------------------------------------- the step
 
 def _site_index() -> dict:
-    """site/src/data/media.json: where each story's share image and thumbnail, and each episode, is.
-    Values are a release tag (the site composes the URL) or a Pages path for files still waiting."""
+    """site/src/data/media.json: where each story's share image and thumbnail is. Values are a Pages
+    path (recent share images, files still waiting for the store) or a release tag (the site composes
+    the URL)."""
     m = manifest()
     stories_file = config.SITE_DATA_DIR / "stories.json"
     slugs = []
@@ -313,7 +326,8 @@ def _site_index() -> dict:
             return entry[0]
         return f"/media/{name}" if (fallback / name).exists() else None
 
-    og = {s: where(f"og-{s}.png") for s in slugs}
+    og_dir = SITE_PUBLIC / "og"
+    og = {s: f"/og/{s}.png" if (og_dir / f"{s}.png").exists() else where(f"og-{s}.png") for s in slugs}
     thumb = {s: where(f"thumb-{s}.webp") for s in slugs}
     return {
         "repo": m.get("repo") or repo(),
@@ -364,8 +378,8 @@ def run(session=None, now: datetime | None = None) -> dict:
     store = open_store(session)
     if store is None:
         stats["store"] = "no token"
-    elif not manifest()["assets"] and not manifest().get("manifestUploadedAt"):
-        recover_manifest(store)
+    elif not manifest()["assets"] and not manifest().get("recoveredAt"):
+        stats["recovered"] = recover_manifest(store)
     # Oldest first, so a backlog clears in order; a file the store already has is simply dropped.
     files = sorted((p for p in pending_dir().iterdir() if p.is_file()), key=lambda p: (p.stat().st_mtime, p.name))
     for p in [p for p in files if uploaded(p.name)]:
@@ -394,9 +408,8 @@ def run(session=None, now: datetime | None = None) -> dict:
                     stats["uploadedMB"] = round(stats["uploadedMB"] + len(data) / 1048576, 2)
                     files.remove(p)
                     p.unlink(missing_ok=True)
-            if stats["uploaded"] or not manifest().get("manifestUploadedAt"):
-                if upload_manifest(store, now):
-                    stats["manifest"] = "uploaded"
+            if stats["uploaded"]:
+                upload_index(store, tag, now)
         except Exception as exc:  # noqa: BLE001 - the store being down must not stop the site
             log.warning("media store: %s", str(exc)[:200])
             stats["store"] = "unreachable"

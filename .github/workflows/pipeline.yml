@@ -137,18 +137,34 @@ jobs:
           key: read-cache-v1-${{ github.run_id }}
           restore-keys: read-cache-v1-
 
-      # Share images, thumbnails and spoken briefings live in the media store (release assets), not in
-      # a cache saved every run. Until the store has taken over the episodes, the old audio cache is
-      # restored once so they are uploaded rather than lost. Old og-images-/audio- entries expire by
-      # themselves after 7 days unused.
-      - name: Restore old spoken briefings for the move to the media store
-        if: hashFiles('pipeline/data/cache/media/episodes.json') == ''
-        continue-on-error: true
+      # Every share image, thumbnail and spoken briefing is kept in the media store (release assets,
+      # pipeline/digest/media.py). Pages also serves the share cards of the last 7 days' stories, thread
+      # and topic cards (site/public/og, ~35 MB) and the newest 7 episodes (site/public/audio, ~17 MB),
+      # because the store's downloads carry no image or audio type. Those two folders are saved once a
+      # day (cards) and when a new episode appears, not every run; anything missing is rendered again or
+      # downloaded from the store. The old per-run og-images-/audio- entries expire after 7 days unused;
+      # the audio- prefix below carries the existing episodes over once.
+      - name: Today's date
+        id: day
+        run: echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore share cards
+        id: ogcache
+        uses: actions/cache/restore@v4
+        with:
+          path: site/public/og
+          key: og-cards-${{ steps.day.outputs.day }}
+          restore-keys: og-cards-
+
+      - name: Restore recent spoken briefings
+        id: audiocache
         uses: actions/cache/restore@v4
         with:
           path: site/public/audio
-          key: audio-none
-          restore-keys: audio-
+          key: audio-recent-none
+          restore-keys: |
+            audio-recent-
+            audio-
 
       # The backup's remembered table rows (a few MB) are needed only by the run that makes the daily
       # backup (pipeline/digest/backup.py), so they are restored and saved on that run only.
@@ -196,6 +212,27 @@ jobs:
         with:
           path: pipeline/data/cache
           key: read-cache-v1-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Save share cards
+        if: always() && steps.ogcache.outputs.cache-matched-key != format('og-cards-{0}', steps.day.outputs.day) && hashFiles('site/public/og/**') != ''
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: site/public/og
+          key: og-cards-${{ steps.day.outputs.day }}
+
+      - name: Newest episode
+        id: episode
+        if: always()
+        run: echo "name=$(ls site/public/audio/*.mp3 2>/dev/null | sort | tail -1 | xargs -r basename)" >> "$GITHUB_OUTPUT"
+
+      - name: Save recent spoken briefings
+        if: always() && steps.episode.outputs.name != '' && steps.audiocache.outputs.cache-matched-key != format('audio-recent-{0}', steps.episode.outputs.name)
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: site/public/audio
+          key: audio-recent-${{ steps.episode.outputs.name }}
 
       - name: Save backup store
         if: always() && hashFiles('pipeline/data/backup-store.new') != ''

@@ -2,17 +2,24 @@
 and a ~600 px WebP thumbnail of each story's picture so the front page does not hot-link
 publishers' full-size images (slow, and it sent readers' addresses to the publisher).
 
-Share images and thumbnails go to the media store (media.py): rendered or fetched once, uploaded
-once, never kept in the site tree or the per-run cache. Thread and topic cards are few and
-change with their counts, so they are simply rendered into site/public/og on every run.
+Cards are 64-colour PNGs (~25 KB instead of ~67 KB; flat colours and text lose nothing).
+
+Every share image and thumbnail goes to the media store (media.py) once. The store serves files as
+downloads without an image type, which Facebook and LinkedIn refuse as a link preview, so the
+cards of stories from the last OG_PAGES_DAYS days (when links get shared) are also kept in
+site/public/og and served by Pages; older stories fall back to the default card. Thread and topic
+cards live there too, re-rendered when their counts change. site/public/og is kept between runs
+by a cache the workflow saves once a day; anything missing is rendered again.
 """
 from __future__ import annotations
 
 import io
 import json
 import logging
+import shutil
 import textwrap
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -26,6 +33,8 @@ FONTS = config.PIPELINE_DIR / "assets" / "fonts"
 OUT = config.ROOT / "site" / "public" / "og"
 W, H = 1200, 630
 MAX_PER_RUN = 150            # share images rendered per run (a backlog clears in a few runs)
+OG_PAGES_DAYS = 7            # share images of stories this recent are also served from Pages
+CARD_COLORS = 64
 MAX_CARDS_PER_RUN = 300      # thread and topic cards, re-rendered every run
 MAX_THUMBS_PER_RUN = 40      # publisher pictures fetched per run
 THUMB_TIME_BUDGET_SECONDS = 60
@@ -39,6 +48,10 @@ CATEGORY_COLORS = {
     "policy": "#e5484d", "hardware": "#0ea5c4", "enterprise": "#8892a0", "robotics": "#e04c8e",
     "society": "#7cb518",
 }
+
+
+def _save_card(img: Image.Image, path: Path) -> None:
+    img.quantize(CARD_COLORS, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE).save(path, optimize=True)
 
 
 def _font(name: str, size: int, weight: int, opsz: int | None = None):
@@ -103,7 +116,7 @@ def render(story: dict, path: Path) -> None:
     d.text((80, H - 70), "  ·  ".join(parts), font=mono, fill="#78828f")
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    img.save(path, optimize=True)
+    _save_card(img, path)
 
 
 def render_card(kind: str, title: str, subtitle: str, footer: str, color: str, path: Path) -> None:
@@ -131,7 +144,7 @@ def render_card(kind: str, title: str, subtitle: str, footer: str, color: str, p
         y += 40
     d.text((80, H - 70), footer, font=mono, fill="#78828f")
     path.parent.mkdir(parents=True, exist_ok=True)
-    img.save(path, optimize=True)
+    _save_card(img, path)
 
 
 # ---- thumbnails -----------------------------------------------------------------------
@@ -211,39 +224,87 @@ def make_thumbnails(stories: list[dict], fetch=None, budget_seconds: float = THU
 
 # ---- step -----------------------------------------------------------------------------
 
-def run(fetch=None) -> dict:
-    stats = {"rendered": 0, "skipped": 0, "cards": 0}
+def _recent(story: dict, now: datetime) -> bool:
+    try:
+        first = datetime.fromisoformat((story.get("firstPublishedAt") or "").replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return first >= now - timedelta(days=OG_PAGES_DAYS)
+
+
+def _card_once(path: Path, stamp: Path, draw) -> bool:
+    """Draw a thread or topic card unless its stamp (the count it was drawn for) exists."""
+    if stamp.exists() and path.exists():
+        return False
+    draw(path)
+    for old in path.parent.glob(f"{path.stem}.*.stamp"):
+        old.unlink()
+    stamp.touch()
+    return True
+
+
+def run(fetch=None, now: datetime | None = None) -> dict:
+    now = now or datetime.now(timezone.utc)
+    stats = {"rendered": 0, "skipped": 0, "pages": 0, "pruned": 0, "cards": 0}
     data = config.SITE_DATA_DIR / "stories.json"
     if not data.exists():
         return stats
     stories = json.loads(data.read_text(encoding="utf-8"))
-    for story in stories:
-        name = f"og-{story['slug']}.png"
-        if media.has(name):
+    OUT.mkdir(parents=True, exist_ok=True)
+    budget = MAX_PER_RUN
+    recent = set()
+    # Newest first, so a backlog never delays the cards of today's stories.
+    for story in sorted(stories, key=lambda s: s.get("firstPublishedAt") or "", reverse=True):
+        slug = story["slug"]
+        name = f"og-{slug}.png"
+        page = OUT / f"{slug}.png"
+        in_window = _recent(story, now)
+        if in_window:
+            recent.add(page.name)
+        need_store, need_page = not media.has(name), in_window and not page.exists()
+        if not (need_store or need_page):
             stats["skipped"] += 1
             continue
-        if stats["rendered"] >= MAX_PER_RUN:
-            break
+        if budget <= 0:
+            continue
         try:
-            render(story, media.pending_path(name))
-            stats["rendered"] += 1
+            pending = media.pending_path(name)
+            if need_store:
+                render(story, pending)
+                stats["rendered"] += 1
+                budget -= 1
+            if need_page:
+                if pending.exists():
+                    shutil.copyfile(pending, page)
+                else:
+                    render(story, page)
+                    budget -= 1
+                stats["pages"] += 1
         except Exception as exc:  # noqa: BLE001
-            log.warning("share image failed for %s: %s", story["slug"], exc)
+            log.warning("share image failed for %s: %s", slug, exc)
+    # Story cards older than the window leave Pages (the store keeps them).
+    for f in OUT.glob("*.png"):
+        if not f.name.startswith(("thread-", "topic-")) and f.name not in recent:
+            f.unlink(missing_ok=True)
+            stats["pruned"] += 1
 
     stats["thumbs"] = make_thumbnails(stories, fetch)
     media.save_manifest()
 
-    # Thread and topic cards: few, cheap, and their counts change, so they are drawn fresh each run.
-    OUT.mkdir(parents=True, exist_ok=True)
     threads_file = config.SITE_DATA_DIR / "threads.json"
+    live = set()
     if threads_file.exists():
         for t in json.loads(threads_file.read_text(encoding="utf-8")):
+            path = OUT / f"thread-{t['slug']}.png"
+            live.add(path.name)
             if stats["cards"] >= MAX_CARDS_PER_RUN:
-                break
+                continue
             try:
-                render_card("Developing story", t["title"], t.get("summary") or "", f"{t['storyCount']} episodes  ·  {(t.get('firstAt') or '')[:10]} to {(t.get('updatedAt') or '')[:10]}",
-                            CATEGORY_COLORS.get(t.get("category") or "", "#4f6cf0"), OUT / f"thread-{t['slug']}.png")
-                stats["cards"] += 1
+                drawn = _card_once(path, OUT / f"thread-{t['slug']}.{t['storyCount']}.stamp", lambda p, t=t: render_card(
+                    "Developing story", t["title"], t.get("summary") or "",
+                    f"{t['storyCount']} episodes  ·  {(t.get('firstAt') or '')[:10]} to {(t.get('updatedAt') or '')[:10]}",
+                    CATEGORY_COLORS.get(t.get("category") or "", "#4f6cf0"), p))
+                stats["cards"] += int(drawn)
             except Exception as exc:  # noqa: BLE001
                 log.warning("thread card failed for %s: %s", t["slug"], exc)
     entities_file = config.SITE_DATA_DIR / "entities.json"
@@ -253,14 +314,23 @@ def run(fetch=None) -> dict:
         for e in json.loads(entities_file.read_text(encoding="utf-8")):
             if len(e.get("storyIds") or []) < 3:
                 continue
-            if stats["cards"] >= MAX_CARDS_PER_RUN:
-                break
             slug = slugify(e["name"])
             n = len(e["storyIds"])
+            path = OUT / f"topic-{slug}.png"
+            live.add(path.name)
+            if stats["cards"] >= MAX_CARDS_PER_RUN:
+                continue
             try:
                 kind = {"companies": "Company", "models": "Model", "people": "Person"}.get(e.get("kind"), "Topic")
-                render_card(kind, e["name"], f"Every story about {e['name']} on Digest AI, with sources and discussion.", f"{n} stories  ·  digestai.news/topic/{slug}", "#4f6cf0", OUT / f"topic-{slug}.png")
-                stats["cards"] += 1
+                drawn = _card_once(path, OUT / f"topic-{slug}.{n}.stamp", lambda p, e=e, kind=kind, slug=slug, n=n: render_card(
+                    kind, e["name"], f"Every story about {e['name']} on Digest AI, with sources and discussion.",
+                    f"{n} stories  ·  digestai.news/topic/{slug}", "#4f6cf0", p))
+                stats["cards"] += int(drawn)
             except Exception as exc:  # noqa: BLE001
                 log.warning("topic card failed for %s: %s", e["name"], exc)
+    # Cards of threads and topics that no longer have a page.
+    for f in list(OUT.glob("thread-*")) + list(OUT.glob("topic-*")):
+        base = f.name.split(".")[0] + ".png"
+        if base not in live:
+            f.unlink(missing_ok=True)
     return stats

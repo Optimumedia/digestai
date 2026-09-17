@@ -41,3 +41,4 @@ jobs:
           python tests/test_quality.py
           python tests/test_hold.py
           python tests/test_trackers.py
+          python tests/test_storage.py

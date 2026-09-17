@@ -2,11 +2,13 @@
 open-source neural voice (Piper, on the runner's CPU), encoded to MP3, and published as
 /audio/briefing-<date>.mp3 with a podcast feed (/podcast.xml) and a /listen page.
 
-Episodes go to the media store (media.py): uploaded once as release assets and linked from
-the feed and the player; until the upload succeeds an episode is served from site/public/media.
-The manifest (episodes.json, every episode with its transcript) lives with the store's other
-files in the read cache, and the newest KEEP episodes are copied into site/src/data for the
-build. Nothing here costs anything: no speech API, no hosting beyond the site itself.
+Every episode goes to the media store (media.py) once, as a release asset. The store serves
+files as downloads without an audio type, which some podcast apps and Safari handle badly, so
+the newest PAGES_EPISODES episodes are also kept in site/public/audio and served by Pages; the
+feed and player link there, and to the store for older ones. site/public/audio is kept between
+runs by a cache the workflow saves when a new episode appears (once a day); a missing file is
+downloaded back from the store. The manifest (episodes.json, every episode with its transcript)
+lives with the store's other files in the read cache, and the newest KEEP go to site/src/data. Nothing here costs anything: no speech API, no hosting beyond the site itself.
 """
 from __future__ import annotations
 
@@ -20,7 +22,8 @@ from . import config, media
 
 log = logging.getLogger("digest.audio")
 
-AUDIO_DIR = config.ROOT / "site" / "public" / "audio"   # where episodes were kept before the media store
+AUDIO_DIR = config.ROOT / "site" / "public" / "audio"   # the newest episodes, served by Pages
+PAGES_EPISODES = int(config.os.environ.get("AUDIO_PAGES_EPISODES") or 7)
 VOICES_DIR = config.PIPELINE_DIR / "data" / "voices"
 KEEP = int(config.os.environ.get("AUDIO_KEEP_EPISODES") or 14)
 BITRATE = 64  # kbps, mono speech
@@ -160,17 +163,25 @@ def _publish(episodes: list[dict]) -> None:
     episodes.sort(key=lambda e: e["date"], reverse=True)
     # Everything the store knows or still holds; the newest KEEP go to the site.
     episodes = [e for e in episodes if media.has(e["file"]) or (AUDIO_DIR / e["file"]).exists()]
+    AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    served = {e["file"] for e in episodes[:PAGES_EPISODES]}
+    for f in AUDIO_DIR.glob("*.mp3"):
+        if f.name not in served:
+            if not media.has(f.name):  # never drop the only copy
+                media.queue(f.name, f.read_bytes())
+            f.unlink(missing_ok=True)
     for e in episodes:
-        e["url"] = media.url(e["file"]) or f"{config.SITE_URL}/audio/{e['file']}"
+        f = AUDIO_DIR / e["file"]
+        if e["file"] in served and not f.exists():
+            raw = media.content(e["file"])
+            if raw:
+                f.write_bytes(raw)
+        e["url"] = f"{config.SITE_URL}/audio/{e['file']}" if f.exists() else (media.url(e["file"]) or f"{config.SITE_URL}/audio/{e['file']}")
     manifest_path().parent.mkdir(parents=True, exist_ok=True)
     manifest_path().write_text(json.dumps(episodes, ensure_ascii=False, indent=1), encoding="utf-8")
     config.SITE_DATA_DIR.mkdir(parents=True, exist_ok=True)
     (config.SITE_DATA_DIR / "episodes.json").write_text(json.dumps(episodes[:KEEP], ensure_ascii=False, indent=1), encoding="utf-8")
-    # Files the store has are not served from Pages any more.
-    if AUDIO_DIR.exists():
-        for f in AUDIO_DIR.glob("*.mp3"):
-            if media.uploaded(f.name):
-                f.unlink(missing_ok=True)
+    (AUDIO_DIR / "episodes.json").unlink(missing_ok=True)  # the old manifest, taken over
 
 
 def refresh_urls() -> int:
@@ -217,7 +228,9 @@ def run() -> dict:
             return stats
         fname = f"briefing-{date}.mp3"
         try:
-            seconds, size = synthesize(text, media.queue(fname, b""))
+            AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+            seconds, size = synthesize(text, AUDIO_DIR / fname)
+            media.queue(fname, (AUDIO_DIR / fname).read_bytes())
         except Exception as exc:  # noqa: BLE001
             log.warning("synthesis failed: %s", str(exc)[:200])
             stats["reason"] = "synthesis failed"
@@ -228,7 +241,7 @@ def run() -> dict:
             "date": date,
             "title": f"AI briefing, {pretty}: {picks[0]['headline']}",
             "file": fname,
-            "url": media.url(fname),
+            "url": f"{config.SITE_URL}/audio/{fname}",
             "bytes": size,
             "seconds": round(seconds),
             "publishedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
