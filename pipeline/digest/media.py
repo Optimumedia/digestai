@@ -162,11 +162,16 @@ def content(name: str, fetch=None) -> bytes | None:
     u = url(name)
     if not u or not u.startswith("https://github.com/"):
         return None
+    return content_at(u, fetch, name)
+
+
+def content_at(u: str, fetch=None, name: str = "") -> bytes | None:
+    """Download a public release asset; None when it is missing or unreachable."""
     try:
         r = (fetch or FETCH or requests.get)(u, timeout=30)
         return r.content if r.status_code == 200 else None
     except requests.RequestException as exc:
-        log.info("could not fetch %s: %s", name, str(exc)[:80])
+        log.info("could not fetch %s: %s", name or u, str(exc)[:80])
         return None
 
 
@@ -304,6 +309,29 @@ def upload_index(store: Store, tag: str, now: datetime) -> None:
     rel["index_id"] = store.upload(rel["id"], INDEX, body)
 
 
+def publish_archive(store: Store, now: datetime, every_hours: float = 20) -> bool:
+    """Once a day, the archive of old stories (archive.py) as the asset archive.json.gz of the
+    "archive" release, so a lost cache does not mean reading every old story again."""
+    from . import archive
+
+    m = manifest()
+    last = m.get("archivePublishedAt")
+    src = archive.path()
+    if not src.exists() or (last and (now - datetime.fromisoformat(last)).total_seconds() < every_hours * 3600):
+        return False
+    rel = store.release(archive.RELEASE_TAG, "Story archive", "Stories older than the export window, as the site's archive pages "
+                        "show them (pipeline/digest/archive.py). Not a software release.")
+    if rel.get("asset_id"):
+        store.delete_asset(rel["asset_id"])
+    else:
+        for a in store.assets(rel["id"], pages=1):
+            if a.get("name") == archive.ASSET:
+                store.delete_asset(a["id"])
+    rel["asset_id"] = store.upload(rel["id"], archive.ASSET, src.read_bytes())
+    m["archivePublishedAt"] = now.isoformat()
+    return True
+
+
 # ---------------------------------------------------------------------------- the step
 
 def _site_index() -> dict:
@@ -410,6 +438,8 @@ def run(session=None, now: datetime | None = None) -> dict:
                     p.unlink(missing_ok=True)
             if stats["uploaded"]:
                 upload_index(store, tag, now)
+            if publish_archive(store, now):
+                stats["archive"] = "published"
         except Exception as exc:  # noqa: BLE001 - the store being down must not stop the site
             log.warning("media store: %s", str(exc)[:200])
             stats["store"] = "unreachable"

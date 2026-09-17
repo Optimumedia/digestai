@@ -8,22 +8,25 @@ site builds a small archive page at the same address: headline, summary, key poi
 no full text, no share image.
 
 The file lives with the runner's other copies in pipeline/data/cache (kept between runs by the
-Actions cache) and is rebuilt from the database if it is missing: one read of the slug, headline,
-summary and key points of every published story older than the window, plus the title and link
-of their articles. Stories unpublished through moderation.yaml are removed from it.
+Actions cache). The media step also publishes a copy once a day as a release asset (tag
+"archive"); a missing file is taken from there, and only when that fails too is it rebuilt from
+the database (slug, headline, summary and key points of every published story older than the
+window, plus the title and link of their articles: a large read once the archive is big).
+Stories unpublished through moderation.yaml are removed from it.
 """
 from __future__ import annotations
 
 import gzip
 import json
 import logging
+import os
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import select
 
-from . import cache, config, db
+from . import cache, config, db, media
 
 log = logging.getLogger("digest.archive")
 
@@ -31,6 +34,9 @@ FORMAT = 1
 SUMMARY_CHARS = 700
 KEY_POINTS = 4
 SOURCES = 6
+RELEASE_TAG = "archive"
+ASSET = "archive.json.gz"
+MAX_GAP_DAYS = 9            # the runner's copy covers ten days past the window
 
 
 def path() -> Path:
@@ -54,6 +60,21 @@ def _save(data: dict) -> None:
     with gzip.open(tmp, "wt", encoding="utf-8", compresslevel=6) as f:
         json.dump(data, f, ensure_ascii=False, separators=(",", ":"), default=str)
     tmp.replace(path())
+
+
+def _download() -> dict | None:
+    """The copy the media step published, when running in GitHub Actions (or a test hook is set)."""
+    if not (media.FETCH or os.environ.get("GITHUB_ACTIONS") == "true"):
+        return None
+    raw = media.content_at(media.asset_url(RELEASE_TAG, ASSET))
+    try:
+        data = json.loads(gzip.decompress(raw).decode("utf-8")) if raw else None
+    except (OSError, ValueError, EOFError):
+        return None
+    if data and data.get("format") == FORMAT and isinstance(data.get("stories"), dict) and data.get("windowStart"):
+        log.info("archive taken from the published copy: %d stories", len(data["stories"]))
+        return data
+    return None
 
 
 def plain(md: str | None, limit: int) -> str:
@@ -130,8 +151,12 @@ def update(conn, now: datetime, since: datetime, sources: dict, unpublished: lis
     nothing to read in the normal case."""
     data = _load()
     stats = {"added": 0, "removed": 0, "total": 0, "rebuilt": False}
+    if not data.get("windowStart"):
+        downloaded = _download()
+        if downloaded:
+            data, stats["downloaded"] = downloaded, True
     prev = datetime.fromisoformat(data["windowStart"]) if data.get("windowStart") else None
-    stale = prev is None or prev > since or since - prev > timedelta(days=7)
+    stale = prev is None or prev > since or since - prev > timedelta(days=MAX_GAP_DAYS)
     if stale:
         data["stories"] = _rebuild(conn, since, sources, now)
         stats["rebuilt"] = True

@@ -314,7 +314,31 @@ def test_archive_appends_stories_leaving_the_window_and_rebuilds_when_lost():
         assert e["headline"] == "Story 7" and e["keyPoints"] == ["Point 7.1", "Point 7.2"] and len(e["sources"]) == 3
         assert e["summary"].startswith("Summary of story 7.") and all(s["url"].startswith("https://") for s in e["sources"])
         assert "contentMd" not in json.dumps(e)
-        # Lost cache: rebuilt from the database with the same content.
+        # Published once a day by the media step; a lost cache takes that copy instead of reading the database.
+        import os
+
+        os.environ["GITHUB_REPOSITORY"] = "o/r"
+        gh = FakeGitHub()
+        media.reset()
+        saved_public = media.SITE_PUBLIC
+        media.SITE_PUBLIC = tmp / "public"
+        try:
+            assert media.publish_archive(media.Store("t", "o/r", gh), NOW) and not media.publish_archive(media.Store("t", "o/r", gh), NOW)
+            assert media.publish_archive(media.Store("t", "o/r", gh), NOW + timedelta(days=1))
+            assert [a["name"] for a in gh.assets.values()] == ["archive.json.gz"]
+            tr.new_process()
+            archive.path().unlink()
+            media.FETCH = gh.get
+            b0 = db.bytes_read()
+            with eng.connect() as conn:
+                st = archive.update(conn, tr.NOW + timedelta(hours=1, minutes=30), tr.NOW + timedelta(hours=1, minutes=30) - window, sources)
+            assert st.get("downloaded") and not st["rebuilt"] and st["total"] == 2, st
+        finally:
+            media.FETCH = None
+            media.SITE_PUBLIC = saved_public
+            media.reset()
+            os.environ.pop("GITHUB_REPOSITORY", None)
+        # Lost cache and no published copy: rebuilt from the database with the same content.
         tr.new_process()
         archive.path().unlink()
         with eng.connect() as conn:
