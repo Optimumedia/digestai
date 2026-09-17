@@ -347,8 +347,12 @@ def test_archive_appends_stories_leaving_the_window_and_rebuilds_when_lost():
         # Lost cache and no published copy: rebuilt from the database with the same content.
         tr.new_process()
         archive.path().unlink()
-        with eng.connect() as conn:
-            st = archive.update(conn, tr.NOW + timedelta(hours=2), tr.NOW + timedelta(hours=2) - window, sources, unpublished=["story-8"])
+        archive._download = lambda *a, **k: None  # "no published copy": not the real site's either
+        try:
+            with eng.connect() as conn:
+                st = archive.update(conn, tr.NOW + timedelta(hours=2), tr.NOW + timedelta(hours=2) - window, sources, unpublished=["story-8"])
+        finally:
+            archive._download = saved_download
         assert st["rebuilt"] and st["total"] == 1 and st["removed"] == 1, st
         assert archive._load()["stories"]["story-7"]["sources"] == e["sources"]
         # The site file leaves out stories that are live again.
