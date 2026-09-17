@@ -227,7 +227,7 @@ _a, _s, _t = db.articles.c, db.stories.c, db.threads.c
 
 ARTICLE_TEXT_COLUMNS = [_a.slug, _a.url, _a.title, _a.raw_title, _a.headline, _a.author, _a.fetched_at, _a.description,
                         _a.image_url, _a.summary_md, _a.key_points, _a.why_it_matters, _a.entities, _a.model_release,
-                        _a.funding, _a.discussion_url]
+                        _a.funding, _a.work_card, _a.discussion_url]
 STORY_TEXT_COLUMNS = [_s.slug, _s.headline, _s.summary_md, _s.key_points, _s.why_it_matters, _s.entities, _s.pulse]
 
 ARTICLES = Mirror(

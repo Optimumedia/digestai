@@ -7,7 +7,7 @@ from datetime import timedelta
 
 from sqlalchemy import select, update
 
-from . import archive, cache, config, db, funding as funding_rules, hold, trackers as tracker_rules
+from . import archive, cache, config, db, funding as funding_rules, hold, trackers as tracker_rules, work as work_rules
 from .enrich import headline_hedged
 from .textutil import word_count
 
@@ -249,6 +249,7 @@ def run() -> dict:
 
     stories_out: list[dict] = []
     entity_index: dict[str, dict] = {}
+    work_cards: dict[int, dict] = {}  # article id -> the stored card (work.py), for the story's card
     for s in story_rows:
         members = by_story.get(s.id, [])
         if not members:
@@ -258,6 +259,12 @@ def run() -> dict:
         for m in members:
             src = sources.get(m.source_id, {})
             community = (src.get("type") or "press") == "community" or src.get("discovered")
+            # Cleaned again on the way out: a row written by an older version of the rules, or by
+            # hand, can never put a half-card on a page.
+            card = work_rules.clean_card(m.work_card)
+            if card:
+                work_cards[m.id] = card
+            work_card = work_rules.card_out(card) if card else None
             # Community feeds point at other publishers: credit the publisher, keep the community as "via".
             articles.append({
                 "id": m.id,
@@ -287,6 +294,8 @@ def run() -> dict:
                 "isLead": m.id == lead.id,
                 "modelRelease": m.model_release,
                 "funding": m.funding,
+                # AI at Work (/work): the practical card, or None when there is nothing to act on.
+                "workCard": work_card,
                 # The source hedged (may, could, reportedly, a question) and our headline does not.
                 "hedged": headline_hedged(m.title, m.headline),
                 "discussion": (
@@ -334,6 +343,10 @@ def run() -> dict:
             "hedged": headline_hedged(lead.title, s.headline),
             "articles": articles,
         }
+        # AI at Work (/work): one card per story, scored with the story's own context. The section
+        # is broader than the "marketing" category: any story with a card belongs to it.
+        chosen = work_rules.story_card(story, work_cards)
+        story["workCard"] = work_rules.card_out(chosen, story) if chosen else None
         stories_out.append(story)
         for kind in ("companies", "models", "people"):
             for name in (s.entities or {}).get(kind, []) or []:
@@ -344,6 +357,18 @@ def run() -> dict:
                 ent["storyIds"].append(s.id)
 
     briefing = build_briefing(stories_out, now)
+    # AI at Work: its own briefing, its own tool directory and its own weekly playbooks, all built
+    # from the cards. The main briefing above is untouched; an item can appear in both, because the
+    # front page says what happened and the section says what to do about it.
+    section = work_rules.section_stories(stories_out)
+    work_briefing = work_rules.build_briefing(stories_out, now)
+    work_out = {
+        "generatedAt": _iso(now),
+        "storyIds": [s["id"] for s in sorted(section, key=lambda s: s.get("firstPublishedAt") or "", reverse=True)],
+        "tools": work_rules.build_tools(section),
+        "weeks": work_rules.weeks(section),
+        "jobs": {job: [s["id"] for s in section if job in (s["workCard"]["jobs"] or [])] for job in work_rules.JOBS},
+    }
     exported = {st["id"]: st["slug"] for st in stories_out}
     redirects = story_redirects(story_index, merged_titles, exported)
     duplicates = [p for p in suspects if p.get("a") in exported and p.get("b") in exported]
@@ -414,6 +439,8 @@ def run() -> dict:
     (out_dir / "stories.json").write_text(json.dumps(stories_out, ensure_ascii=False), encoding="utf-8")
     (out_dir / "entities.json").write_text(json.dumps(entities_out, ensure_ascii=False), encoding="utf-8")
     (out_dir / "briefing.json").write_text(json.dumps(briefing, ensure_ascii=False), encoding="utf-8")
+    (out_dir / "work.json").write_text(json.dumps(work_out, ensure_ascii=False), encoding="utf-8")
+    (out_dir / "work-briefing.json").write_text(json.dumps(work_briefing, ensure_ascii=False), encoding="utf-8")
     (out_dir / "redirects.json").write_text(json.dumps(redirects, ensure_ascii=False), encoding="utf-8")
     (out_dir / "duplicates.json").write_text(json.dumps(duplicates, ensure_ascii=False), encoding="utf-8")
     (out_dir / "newsletters.json").write_text(json.dumps(sent, ensure_ascii=False), encoding="utf-8")
@@ -428,6 +455,7 @@ def run() -> dict:
         "articleCount": sum(s["articleCount"] for s in stories_out),
     }), encoding="utf-8")
     return {"stories": len(stories_out), "entities": len(entities_out), "briefing": len(briefing["storyIds"]),
+            "work": len(section), "workTools": len(work_out["tools"]), "workBriefing": len(work_briefing["storyIds"]),
             "threads": len(threads_out), "models": len(trackers["models"]), "funding": len(trackers["funding"]),
             "fundingDropped": funding_dropped, "hedged": sum(1 for s in stories_out if s["hedged"]),
             "redirects": len(redirects), "moderation": moderation, "archive": archived, "dir": str(out_dir)}

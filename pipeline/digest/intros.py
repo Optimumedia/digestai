@@ -1,6 +1,7 @@
 """Step: model-written introductions for the recap and tracker pages.
 
-Each weekly recap (/week/<key>) and the two trackers (/models, /funding) get a short
+Each weekly recap (/week/<key>), the two trackers (/models, /funding) and the AI at Work tool
+directory (/work/tools) get a short
 paragraph that summarises what the page holds, so the page carries unique prose for
 readers and search engines. Stored in the topics table (kind "page") and exported in
 topics.json alongside topic descriptions. Budgeted like topic intros.
@@ -48,7 +49,7 @@ def week_range(key: str) -> str:
     return f"{monday.day} {monday:%b} to {sunday.day} {sunday:%B %Y}"
 
 
-def _jobs(stories: list[dict], trackers: dict) -> list[dict]:
+def _jobs(stories: list[dict], trackers: dict, work: dict | None = None) -> list[dict]:
     """Every page that can take an intro, with the count that decides refreshes."""
     weeks: dict[str, list[dict]] = {}
     for s in stories:
@@ -72,6 +73,16 @@ def _jobs(stories: list[dict], trackers: dict) -> list[dict]:
             for m in models[:15])
         jobs.append({"slug": "page-models", "name": "AI model release tracker", "count": len(models),
                      "prompt": TRACKER_PROMPT.format(page="AI model release tracker: every model launch covered, with lab, availability and license", rows=rows)})
+    tools = (work or {}).get("tools", [])
+    if len(tools) >= 5:
+        rows = "\n".join(
+            f"- {t['tool']} by {t.get('maker') or 'unknown maker'}: {t.get('whatItDoes') or ''} ({t.get('cost') or 'cost unknown'}, {t.get('effort') or 'effort unknown'})"
+            for t in tools[:15])
+        jobs.append({"slug": "page-work-tools", "name": "AI tools for marketing and small business", "count": len(tools),
+                     "prompt": TRACKER_PROMPT.format(
+                         page="AI tools for marketing and small business: every tool the desk covered that a marketer, "
+                              "a small-business owner or a small team can use, with what it does, who it is for and what it costs",
+                         rows=rows)})
     funding = trackers.get("funding", [])
     if len(funding) >= 5:
         rows = "\n".join(f"- {f['company']}: ${(f.get('amount_usd') or 0) / 1e6:.0f}M {f.get('round') or ''}, {f.get('date') or ''}" for f in funding[:15])
@@ -88,7 +99,9 @@ def run() -> dict:
         return stats
     stories = json.loads(stories_file.read_text(encoding="utf-8"))
     trackers = json.loads(trackers_file.read_text(encoding="utf-8")) if trackers_file.exists() else {}
-    jobs = _jobs(stories, trackers)
+    work_file = config.SITE_DATA_DIR / "work.json"
+    work = json.loads(work_file.read_text(encoding="utf-8")) if work_file.exists() else {}
+    jobs = _jobs(stories, trackers, work)
     stats["pages"] = len(jobs)
     if not jobs:
         return stats

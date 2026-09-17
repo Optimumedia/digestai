@@ -15,7 +15,7 @@ types:
             arxiv-cs-ai, arxiv-cs-cl, nature-ml]
   newsletter: [import-ai, interconnects, latent-space, simon-willison, one-useful-thing, ai-snake-oil,
                raschka, last-week-in-ai, rundown, bens-bites, towards-ds, eu-ai-act, semianalysis]
-  community: [hn, reddit-ai, producthunt-ai, mastodon-trends]
+  community: [hn, reddit-ai, producthunt-ai, producthunt-marketing, mastodon-trends]
 
 sources:
   # ---- Labs and companies -------------------------------------------------
@@ -387,3 +387,51 @@ sources:
     weight: 0.8
     ai_only: true
     max_items: 6
+
+  # ---- Tool changelogs: what actually changed in the tools small teams already use. Every URL here
+  # was fetched before it was added and returned items (17 Sep 2026). Meta's Facebook Business news
+  # feed (facebook.com/business/news/rss), HubSpot's product blog under blog.hubspot.com, Canva's
+  # newsroom and Shopify's blog feed all answered 404, so they are not listed.
+  - key: meta-newsroom
+    name: Meta Newsroom
+    url: https://about.fb.com/news/feed/
+    category: marketing
+    weight: 1.0
+    ai_only: true
+    max_items: 6
+  - key: hubspot-product
+    name: HubSpot Product Updates
+    url: https://product.hubspot.com/blog/rss.xml
+    category: marketing
+    weight: 0.9
+    ai_only: true
+    max_items: 6
+  - key: notion-releases
+    name: Notion Releases
+    url: https://www.notion.com/releases/rss.xml
+    category: marketing
+    weight: 0.8
+    ai_only: true
+    max_items: 5
+  - key: shopify-changelog
+    name: Shopify Changelog
+    url: https://changelog.shopify.com/feed
+    category: marketing
+    weight: 0.9
+    ai_only: true
+    max_items: 6
+  - key: google-workspace-updates
+    name: Google Workspace Updates
+    url: https://workspaceupdates.googleblog.com/feeds/posts/default
+    category: marketing
+    weight: 1.0
+    ai_only: true
+    max_items: 6
+  - key: producthunt-marketing
+    name: Product Hunt Marketing
+    url: https://www.producthunt.com/feed?category=marketing
+    category: marketing
+    weight: 0.5
+    fulltext: false
+    ai_only: true
+    max_items: 8

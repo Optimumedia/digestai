@@ -141,6 +141,9 @@ articles = Table(
     Column("engagement", Float, nullable=False, default=0.0),
     Column("model_release", JSON),  # {name, lab, kind, availability, license, context, link}
     Column("funding", JSON),  # {company, amount_usd, round, investors, valuation_usd}
+    # AI at Work (/work): what a marketer or a small business can do with this, or NULL when there is
+    # nothing to do. {fits, tool, maker, what_it_does, who_for, use_for, cost, effort, watch_out, link}
+    Column("work_card", JSON),
     Column("discussion_site", String(20)),  # hn | reddit
     Column("discussion_url", Text),
     Column("discussion_points", Integer),

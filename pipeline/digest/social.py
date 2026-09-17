@@ -123,7 +123,10 @@ def _card_description(story: dict, text: str) -> str:
 
 
 def _story_post(story: dict) -> dict:
-    text = _lede(story, TEXT_LIMIT)
+    # AI at Work stories say who the post is for before they say what happened: the same launch
+    # reads differently to a marketer than to the industry. Posting limits are unchanged.
+    prefix = "For marketers: " if story.get("workCard") else ""
+    text = prefix + _lede(story, TEXT_LIMIT - len(prefix))
     return {
         "kind": "story",
         "key": story["slug"],

@@ -10,7 +10,7 @@ import time
 import requests
 from sqlalchemy import select, update
 
-from . import config, db
+from . import config, db, work
 from .textutil import first_sentences, word_count
 
 log = logging.getLogger("digest.enrich")
@@ -29,6 +29,7 @@ Read the article below and return ONLY a JSON object with these fields:
 - "is_ai_news": true if the article is substantially about artificial intelligence, machine learning, robotics, or AI hardware; false otherwise.
 - "model_release": null unless the article announces a new AI model or a new model version. Then: {{"name": the model's full official name including version number as the lab writes it (e.g. "GPT-6 Astra", "WeatherNext 3", not "GPT-6" or "WeatherNext"), "lab": organisation, "kind": one of "llm", "multimodal", "image", "video", "audio", "code", "embedding", "robotics", "other", "availability": one of "api", "open_weights", "consumer", "research", "unknown", "license": license name or null, "context": context window such as "1M tokens" or null, "link": official URL mentioned or null}}.
 - "funding": null unless the article reports a funding round, acquisition, or valuation for an AI company. Then: {{"company": name, "amount_usd": approximate number in US dollars (convert euros, pounds or other currencies at current rates; e.g. €3B is about 3300000000) or null, "round": one of "seed", "series_a", "series_b", "series_c", "series_d_plus", "acquisition", "ipo", "debt", "other", "investors": [names], "valuation_usd": number or null}}.
+- "work_card": null unless a marketer, a small-business owner or a small team can act on this today: a tool they can use, a feature or price change in a tool they already use, a how-to, or a policy change that affects their work. Industry news, funding rounds, research papers, model benchmarks and opinion pieces get null, however interesting. Then: {{"fits": true, "tool": the product's name, "maker": the company behind it, "what_it_does": one plain sentence, max 25 words, no marketing words, "who_for": one or more of "marketer", "sales", "founder", "support", "ops", "ecommerce", "use_for": exactly 3 concrete things to use it for, max 12 words each, "cost": one of "free", "free tier", "paid from $X" with the real figure, or "included in a tool you already have", "effort": one of "minutes", "an afternoon", "needs a developer", "watch_out": one honest sentence on the catch - a limit, a risk, a cost, a country restriction, or who it is not for; never "none", "link": the official URL if the article names one, else null}}.
 
 Article title: {title}
 Source: {source}
@@ -356,6 +357,7 @@ def heuristic(row, category_hint: str | None) -> dict:
         "is_ai_news": True,
         "model_release": None,
         "funding": None,
+        "work_card": None,
     }
 
 
@@ -451,6 +453,9 @@ def _clean(result: dict, row, category_hint: str | None) -> dict:
     return {
         "model_release": release,
         "funding": funding,
+        # AI at Work (/work): validated and clamped in work.py, which drops a card that names no
+        # tool or carries no honest caveat, so no half-card can reach a page.
+        "work_card": work.clean_card(result.get("work_card")),
         "headline": headline,
         "summary_md": str(result.get("summary_md") or "").strip(),
         "key_points": key_points,
@@ -598,6 +603,8 @@ def run() -> dict:
                              .values(status="rejected", reject_reason="llm: not ai news", enrich_model=model_used))
                 continue
             stats["enriched"] += 1
+            if clean["work_card"]:
+                stats["work_cards"] = stats.get("work_cards", 0) + 1
             if clean["hedged"]:
                 stats["hedged"] = stats.get("hedged", 0) + 1
                 log.info("headline drops the source's hedge on #%s: %r -> %r", row.id, (row.title or "")[:80], clean["headline"][:80])
@@ -612,6 +619,7 @@ def run() -> dict:
                 importance=clean["importance"],
                 model_release=clean["model_release"],
                 funding=clean["funding"],
+                work_card=clean["work_card"],
                 enrich_model=model_used,
                 status="enriched",
             ))
