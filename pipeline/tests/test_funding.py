@@ -78,6 +78,16 @@ def test_mistakes_from_the_live_page_are_dropped():
     # The valuation stored as the amount.
     why = funding.is_deal(deal("Mistral", 24e9, "series_c", 24e9), "Mistral raises €3B at $24B valuation", "", NOW)
     assert why and "valuation" in why, why
+    # 17 Sep live page: a company the story is not about, and deals not done yet.
+    assert funding.is_deal(deal("Anthropic", 100e9, "ipo"), "OpenAI delays IPO citing security risks after model escapes",
+                           "Anthropic could raise $100B in an IPO.", NOW) == "company not named in the headline"
+    assert funding.is_deal(deal("Anthropic", 10e9), "Nvidia considers $10B investment in Anthropic to secure AI chips",
+                           "$10B investment.", NOW) == "not a done deal"
+    assert funding.is_deal(deal("Nscale", 3.5e9), "Nscale appoints Fidji Simo to board ahead of potential $3.5B round",
+                           "$3.5B round.", NOW) == "not a done deal"
+    assert "IPO" in funding.is_deal(deal("Acme", 1e9, "ipo"), "Acme raises $1B from investors", "$1B.", NOW)
+    assert funding.is_deal(deal("OpenAI", 110e9, "series_d_plus"), "SoftBank secures $12B loan to fund massive OpenAI investment",
+                           "OpenAI's $110B round.", NOW) is None
     assert funding.is_deal(deal("unknown", 1e9), "Someone raises $1B", "", NOW) == "no company"
     assert "implausible" in funding.is_deal(deal("Acme", 5e12), "Acme raises $5 trillion", "", NOW)
 

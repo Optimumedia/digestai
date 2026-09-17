@@ -48,6 +48,12 @@ PAST_YEAR_DEAL = re.compile(
     r"\b(?:rais(?:ed|ing)|acquired|bought|closed|secured|valued|funding|round|investment|deal)\b[^.\n]{0,80}?"
     r"\b(?:in|back in|during|since|from)\s+((?:19|20)\d{2})\b", re.I)
 LAST_YEAR = re.compile(r"\b(?:last|previous) year\b", re.I)
+# Not a done deal: "Nvidia considers $10B investment", "ahead of potential $3.5B round".
+SPECULATIVE = re.compile(
+    r"\b(?:consider(?:s|ing)?|weigh(?:s|ing)?|mull(?:s|ing)?|eye(?:s|ing)|plan(?:s|ning)? to|potential|possible|"
+    r"in talks|talks to|seek(?:s|ing)|could|may|might|reportedly|rumou?r(?:s|ed)?|expected to|aims? to|looking to|"
+    r"ahead of|would|delay(?:s|ed)?|postpone(?:s|d)?|shelve(?:s|d)?)\b", re.I)
+IPO_WORDS = re.compile(r"\b(?:ipo|goes public|go public|went public|listing|lists? on|files to list|debut(?:s|ed)? on)\b", re.I)
 MONEY = re.compile(
     r"(?:(?P<cur>[$€£]|us\$|usd|eur|gbp)\s*)?(?P<num>\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*"
     r"(?P<unit>trillion|billion|million|thousand|tn|bn|mn|[tbmk])?\b(?:\s*(?P<cur2>dollars|euros|pounds|usd|eur|gbp))?", re.I)
@@ -115,6 +121,14 @@ def is_deal(f: dict, headline: str, text: str, now: datetime,
         return "no company"
     rnd = str(f.get("round") or "other").strip().lower()
     head = headline or ""
+    # The deal must be the story's news: its company named in the headline, and done, not planned.
+    words = [w for w in re.findall(r"[a-z0-9]+", company.lower()) if len(w) >= 3 and w not in {"inc", "ltd", "the", "labs"}]
+    if words and not any(re.search(rf"\b{re.escape(w)}", head, re.I) for w in words):
+        return "company not named in the headline"
+    if SPECULATIVE.search(head):
+        return "not a done deal"
+    if rnd == "ipo" and not IPO_WORDS.search(head):
+        return "called an IPO, but the headline does not say so"
     if not FUNDING_WORDS.search(head):
         if LAUNCH_WORDS.search(head):
             return "headline is about a product, not a deal"
