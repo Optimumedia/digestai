@@ -2,6 +2,10 @@ import { defineConfig } from "astro/config";
 import sitemap from "@astrojs/sitemap";
 import fs from "node:fs";
 import path from "node:path";
+import { isRedirectPage, loadRedirects } from "./src/lib/redirects.mjs";
+
+// Old addresses of merged stories are redirect pages: never listed for search engines.
+const redirects = loadRedirects(path.resolve("src/data"));
 
 // lastmod per URL from the pipeline export, so search engines re-crawl what actually changed.
 const lastmod = new Map();
@@ -18,7 +22,7 @@ export default defineConfig({
   build: { format: "file" },
   integrations: [
     sitemap({
-      filter: (page) => !/\/(search|admin|saved|river|subscribe|offline)$/.test(page.replace(/\/$/, "")),
+      filter: (page) => !/\/(search|admin|saved|river|subscribe|offline)$/.test(page.replace(/\/$/, "")) && !isRedirectPage(page, redirects),
       serialize(item) {
         const p = new URL(item.url).pathname.replace(/\/$/, "");
         const mod = lastmod.get(p);
