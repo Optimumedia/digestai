@@ -28,7 +28,7 @@ supabase/   SQL to run once in the Supabase project (indexes, row security, edit
 | topics  | writes model-authored introductions for topic hubs (companies, models, people) |
 | intros  | writes introductions for weekly recaps, the model and funding trackers and the AI at Work tool directory |
 | images  | renders a 1200×630 share card per story into `site/public/og/` |
-| audio   | reads the briefing aloud once a day (Kokoro neural voice on the runner, Piper as fallback, MP3) and publishes /podcast.xml and /listen; synthesis is resumable, so a long episode is finished by the next run |
+| audio   | reads two shows aloud with the same voice (Kokoro on the runner, Piper as fallback, MP3): the briefing once a day (/podcast.xml, /listen) and the AI at Work week once a week, on Monday, from what the export already wrote (/work/podcast.xml, a player on /work). Synthesis is resumable and both shows share one time budget, the briefing first, so a long episode is finished by the next run and the run is never delayed |
 | newsletter | builds the daily briefing email and sends it through Kit once a day at `NEWSLETTER_HOUR_UTC` |
 
 ## Local run
@@ -69,7 +69,7 @@ the story so far, credited full text, coverage and discussion), `/thread/<slug>`
 `/topic/<entity>`, `/daily/<date>`, `/saved`, `/search` (Pagefind, static), `/rss.xml`,
 `/work` (AI at Work: practical AI for marketing, customers and small-business admin, with its own
 briefing, sub-menu and accent), `/work/tools` (tool directory), `/work/week/<iso-week>` (playbook),
-`/work/rss.xml`,
+`/work/rss.xml`, `/work/podcast.xml` (the section's own weekly podcast),
 `/news-sitemap.xml` (Google News, last 48 h), `/sitemap-index.xml`, `/about`, `/sources`.
 
 LLM usage is paced: a daily budget per provider (`GEMINI_DAILY_BUDGET`, default 1,200 of the

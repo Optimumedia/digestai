@@ -4,7 +4,7 @@
    component inside (chips, buttons, the "why it matters" box) picks it up without a second set of
    styles. */
 import Base from "./Base.astro";
-import { workWeeks } from "../lib/work";
+import { workEpisodes, workWeeks } from "../lib/work";
 
 interface Props {
   title: string;
@@ -31,6 +31,7 @@ const links: { href: string; label: string; key: string }[] = [
         {links.map((l) => (
           <a href={l.href} aria-current={current === l.key ? "page" : undefined}>{l.label}</a>
         ))}
+        {workEpisodes.length > 0 && <a href="/listen#work">Podcast</a>}
         <a href="/work/rss.xml">RSS</a>
       </nav>
       <a class="work-back" href="/">← AI news desk</a>

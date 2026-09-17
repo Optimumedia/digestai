@@ -82,6 +82,22 @@ AUDIO_SPEED = float(os.environ.get("AUDIO_SPEED") or 1.0)
 # part is one story, ~60 s, so a run spends at most ~4 minutes here and an episode takes two runs.
 AUDIO_TIME_BUDGET_SECONDS = int(os.environ.get("AUDIO_TIME_BUDGET_SECONDS") or 180)
 AUDIO_HOUR_UTC = int(os.environ.get("AUDIO_HOUR_UTC") or os.environ.get("NEWSLETTER_HOUR_UTC") or 5)
+# AI at Work (/work) gets its own episode, once a week rather than once a day: the section covers
+# about six practical items a week (measured on the live section, 11-16 Sep 2026: six cards over six
+# days, four of them on one day and three days with none), which is a thin daily show and a good
+# weekly one. It is published on WORK_AUDIO_WEEKDAY (0 = Monday) from WORK_AUDIO_HOUR_UTC, and reads
+# the ISO week that ended the day before, so the episode is never rewritten once it is out.
+WORK_AUDIO = (os.environ.get("WORK_AUDIO") or "1") == "1"   # "" is an unset Actions variable, not "off"
+WORK_AUDIO_WEEKDAY = int(os.environ.get("WORK_AUDIO_WEEKDAY") or 0)
+WORK_AUDIO_HOUR_UTC = int(os.environ.get("WORK_AUDIO_HOUR_UTC") or AUDIO_HOUR_UTC)
+# Items read out, and the fewest a week needs before it is worth an episode at all.
+WORK_AUDIO_ITEMS = int(os.environ.get("WORK_AUDIO_ITEMS") or 6)
+WORK_AUDIO_MIN_ITEMS = int(os.environ.get("WORK_AUDIO_MIN_ITEMS") or 3)
+# Both episodes share AUDIO_TIME_BUDGET_SECONDS, and the daily briefing has first call on it: the
+# section only starts a part when at least this much of the run's budget is still unspent, so a
+# briefing that is still being read is never slowed down and a run never overshoots by more than
+# the one part the briefing itself may be in the middle of.
+WORK_AUDIO_MIN_BUDGET_SECONDS = int(os.environ.get("WORK_AUDIO_MIN_BUDGET_SECONDS") or 45)
 NEWSLETTER_HOUR_UTC = int(os.environ.get("NEWSLETTER_HOUR_UTC", "5"))
 
 # Free tiers, measured 2026-09-11: Gemini 3.x Flash models allow only 20 requests per day per

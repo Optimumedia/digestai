@@ -58,6 +58,12 @@ jobs:
       # Seconds the audio step may spend reading before it leaves the rest for the next run. Empty
       # keeps the default in pipeline/digest/config.py; raise it on a faster runner.
       AUDIO_TIME_BUDGET_SECONDS: ${{ vars.AUDIO_TIME_BUDGET_SECONDS }}
+      # The AI at Work episode shares that budget, behind the briefing. Empty keeps the defaults:
+      # Monday (0) from AUDIO_HOUR_UTC, six items, and WORK_AUDIO=0 turns the second show off.
+      WORK_AUDIO: ${{ vars.WORK_AUDIO }}
+      WORK_AUDIO_WEEKDAY: ${{ vars.WORK_AUDIO_WEEKDAY }}
+      WORK_AUDIO_HOUR_UTC: ${{ vars.WORK_AUDIO_HOUR_UTC }}
+      WORK_AUDIO_ITEMS: ${{ vars.WORK_AUDIO_ITEMS }}
       OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'qwen2.5:3b' }}
       GEMINI_DAILY_BUDGET: ${{ vars.GEMINI_DAILY_BUDGET || '54' }}
       MAX_ENRICH_PER_RUN: ${{ vars.MAX_ENRICH_PER_RUN || '20' }}
@@ -254,10 +260,19 @@ jobs:
           path: site/public/og
           key: og-cards-${{ steps.day.outputs.day }}
 
-      - name: Newest episode
+      # A digest of every episode Pages serves, not the newest name: there are two shows now (the
+      # daily briefing and the weekly AI at Work), and the highest name alone would stop changing
+      # for a week at a time and with it stop the cache being saved for new briefings.
+      - name: Episodes on Pages
         id: episode
         if: always()
-        run: echo "name=$(ls site/public/audio/*.mp3 2>/dev/null | sort | tail -1 | xargs -r basename)" >> "$GITHUB_OUTPUT"
+        run: |
+          files=$(ls site/public/audio/*.mp3 2>/dev/null | xargs -r -n1 basename | sort)
+          if [ -n "$files" ]; then
+            echo "name=$(printf '%s' "$files" | md5sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Save recent spoken briefings
         if: always() && steps.episode.outputs.name != '' && steps.audiocache.outputs.cache-matched-key != format('audio-recent-{0}', steps.episode.outputs.name)

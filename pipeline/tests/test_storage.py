@@ -288,6 +288,59 @@ def test_audio_takes_over_old_episodes_and_serves_the_newest_from_pages():
         assert len(list(audio.AUDIO_DIR.glob("*.mp3"))) == audio.PAGES_EPISODES
 
 
+def _work_episode(week: str, when: datetime) -> dict:
+    return {"date": when.date().isoformat(), "week": week, "title": f"AI at Work, {week}",
+            "file": f"work-{week}.mp3", "url": "", "bytes": 300, "seconds": 180,
+            "publishedAt": when.isoformat(), "description": "d", "stories": [], "transcript": "x"}
+
+
+def test_the_section_episodes_have_their_own_manifest_and_never_evict_the_briefings():
+    with sandbox():
+        audio.AUDIO_DIR.mkdir(parents=True)
+        briefings, sections = [], []
+        def made(name: str) -> None:             # what the step does with a finished episode
+            (audio.AUDIO_DIR / name).write_bytes(b"mp3" * 100)
+            media.queue(name, b"mp3" * 100)
+
+        for d in range(3):
+            date = (NOW - timedelta(days=d)).date().isoformat()
+            made(f"briefing-{date}.mp3")
+            briefings.append({"date": date, "title": "t", "file": f"briefing-{date}.mp3", "url": "",
+                              "bytes": 300, "seconds": 60, "publishedAt": NOW.isoformat(),
+                              "description": "d", "stories": [], "transcript": "x"})
+        for w in range(6):                       # more weeks than Pages serves
+            when = NOW - timedelta(weeks=w)
+            week = "2026-W%02d" % (38 - w)
+            made(f"work-{week}.mp3")
+            sections.append(_work_episode(week, when))
+        audio._publish(briefings)
+        audio._publish(sections, "work")
+        # Each kind keeps its own newest few, and neither sweeps the other's files away.
+        assert len(list(audio.AUDIO_DIR.glob("briefing-*.mp3"))) == 3
+        assert len(list(audio.AUDIO_DIR.glob("work-*.mp3"))) == audio.KINDS["work"]["pages"] == 4
+        assert audio.manifest_path("work").name == "work-episodes.json"
+        assert audio.manifest_path() != audio.manifest_path("work")
+        site = config.SITE_DATA_DIR
+        assert len(json.loads((site / "episodes.json").read_text())) == 3
+        work_site = json.loads((site / "work-episodes.json").read_text())
+        assert len(work_site) == 6 and work_site[0]["week"] == "2026-W38"
+        assert all("week" not in e for e in json.loads((site / "episodes.json").read_text())), \
+            "the daily feed's manifest is untouched by the section"
+        # The store takes both kinds, and refresh_urls points both feeds at it.
+        gh = FakeGitHub()
+        media.run(session=gh, now=NOW)
+        media.FETCH = gh.get
+        assert audio.refresh_urls() == 9
+        work_site = json.loads((site / "work-episodes.json").read_text())
+        assert work_site[0]["url"].startswith(config.SITE_URL + "/audio/")
+        assert work_site[-1]["url"].startswith("https://github.com/o/r/releases/download/")
+        # A lost episode cache brings back both kinds' served files.
+        shutil.rmtree(audio.AUDIO_DIR)
+        audio.refresh_urls()
+        assert len(list(audio.AUDIO_DIR.glob("briefing-*.mp3"))) == 3
+        assert len(list(audio.AUDIO_DIR.glob("work-*.mp3"))) == 4
+
+
 # ---------------------------------------------------------------------------- archive
 
 def test_archive_appends_stories_leaving_the_window_and_rebuilds_when_lost():

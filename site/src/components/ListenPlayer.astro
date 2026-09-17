@@ -9,16 +9,25 @@ interface Props {
   note?: string;
   variant?: "panel" | "hero";
   link?: boolean;
+  /** Replaces "Today's edition" in the kicker (the weekly AI at Work episode says its week). */
+  edition?: string;
+  /** Where "all episodes" goes, and the show name a phone's lock screen shows. */
+  moreHref?: string;
+  moreLabel?: string;
+  album?: string;
 }
 
-const { episode, heading = "Listen to today's briefing", note, variant = "panel", link = true } = Astro.props;
+const {
+  episode, heading = "Listen to today's briefing", note, variant = "panel", link = true,
+  edition: editionProp, moreHref = "/listen", moreLabel = "Podcast & all episodes →", album,
+} = Astro.props;
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
 const today = new Date().toISOString().slice(0, 10);
-const edition = episode.date === today ? "Today's edition" : `${formatDate(episode.date + "T12:00:00Z", { weekday: "short", day: "numeric", month: "short" })} edition`;
+const edition = editionProp ?? (episode.date === today ? "Today's edition" : `${formatDate(episode.date + "T12:00:00Z", { weekday: "short", day: "numeric", month: "short" })} edition`);
 const minutes = Math.max(1, Math.round(episode.seconds / 60));
 ---
 
-<div class={`listen listen-${variant}`} data-listen data-title={episode.title} data-duration={episode.seconds}>
+<div class={`listen listen-${variant}`} data-listen data-title={episode.title} data-album={album} data-duration={episode.seconds}>
   <button class="listen-play" type="button" aria-label="Play the audio briefing" aria-pressed="false">
     <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.6v12.8a1 1 0 0 0 1.52.85l10.4-6.4a1 1 0 0 0 0-1.7L9.52 4.75A1 1 0 0 0 8 5.6z" fill="currentColor" /></svg>
     <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.2" fill="currentColor" /><rect x="13.5" y="5" width="4" height="14" rx="1.2" fill="currentColor" /></svg>
@@ -27,7 +36,7 @@ const minutes = Math.max(1, Math.round(episode.seconds / 60));
     <div class="listen-kicker">
       <span class="listen-dot" aria-hidden="true"></span>
       <span>Audio · {edition} · {minutes} min</span>
-      {link && <a class="listen-more" href="/listen">Podcast &amp; all episodes →</a>}
+      {link && <a class="listen-more" href={moreHref}>{moreLabel}</a>}
     </div>
     <div class="listen-title">{heading}</div>
     {note && <div class="listen-note">{note}</div>}

@@ -1,12 +1,19 @@
 ---
 import Work from "../../layouts/Work.astro";
 import WorkCard from "../../components/WorkCard.astro";
-import { WORK_MIN_ITEMS, formatDate, dateTime, meta } from "../../lib/data";
+import ListenPlayer from "../../components/ListenPlayer.astro";
+import { WORK_MIN_ITEMS, formatDate, dateTime, meta, weekMonday } from "../../lib/data";
 import {
-  JOBS, SECTION_TAGLINE, briefingAlso, briefingItems, sectionStories, work, workBriefing, workWeeks, weekStories,
+  JOBS, SECTION_TAGLINE, briefingAlso, briefingItems, latestWorkEpisode, sectionStories, work, workBriefing,
+  workWeeks, weekStories,
 } from "../../lib/work";
 
 const thisWeek = workWeeks[0];
+const episode = latestWorkEpisode;
+const episodeWeek = episode?.week ? weekMonday(episode.week) : null;
+const episodeRange = episodeWeek
+  ? `${formatDate(episodeWeek.toISOString(), { day: "numeric", month: "short" })}–${formatDate(new Date(episodeWeek.getTime() + 6 * 864e5).toISOString(), { day: "numeric", month: "short" })}`
+  : "";
 const week = thisWeek ? weekStories(thisWeek) : { changed: [], tryThis: [], skip: [], tools: 0 };
 const briefed = new Set([...briefingItems, ...briefingAlso].map((s) => s.id));
 const rest = sectionStories.filter((s) => !briefed.has(s.id)).slice(0, 18);
@@ -49,6 +56,18 @@ const jsonLd = [
       No funding rounds, no benchmarks, nothing you cannot act on.
     </p>
   </header>
+
+  {episode && (
+    <ListenPlayer
+      episode={episode}
+      heading={`AI at Work, the week of ${episodeRange}`}
+      edition={`Weekly · ${episodeRange}`}
+      note="A five-minute run through what changed for marketers and small teams this week: what each thing does, what it costs, how long it takes and the catch."
+      moreHref={episode.week ? `/work/week/${episode.week}` : "/listen#work"}
+      moreLabel={episode.week ? "That week's playbook →" : "All episodes →"}
+      album="AI at Work"
+    />
+  )}
 
   {sectionStories.length === 0 && (
     <p class="muted" style="padding: 32px 0">

@@ -3,7 +3,10 @@ section's pages are built from. Offline: python tests/test_work.py"""
 from __future__ import annotations
 
 import json
+import shutil
 import sys
+import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -253,6 +256,128 @@ def test_the_export_writes_the_section_files_and_rides_the_existing_reads():
     # The section rides the reads the export already does: no new mirror or detail store.
     assert "work_card" in [c.name for c in cache.ARTICLE_TEXT_COLUMNS]
     assert cache.ARTICLE_TEXT.names.count("work_card") == 1
+
+
+# ---------------------------------------------------------------------------- the weekly episode
+
+@contextmanager
+def audio_sandbox():
+    """The audio step's directories in a temporary tree, with a voice that costs nothing."""
+    from digest import audio, config, media
+
+    tmp = Path(tempfile.mkdtemp())
+    saved = (config.CACHE_DIR, config.SITE_DATA_DIR, media.SITE_PUBLIC, audio.AUDIO_DIR, audio.WORK_DIR,
+             audio._open_engine, audio._encode, audio.engine_name)
+    config.CACHE_DIR, config.SITE_DATA_DIR = tmp / "cache", tmp / "site"
+    media.SITE_PUBLIC, audio.AUDIO_DIR, audio.WORK_DIR = tmp / "public", tmp / "public" / "audio", tmp / "cache" / "audio"
+    media.reset()
+    audio._open_engine = lambda: type("E", (), {"rate": 24000})()
+    audio._encode = lambda _engine, para: (b"\x00" * 128, len(para) / 15)
+    audio.engine_name = lambda: "kokoro"
+    try:
+        yield tmp
+    finally:
+        (config.CACHE_DIR, config.SITE_DATA_DIR, media.SITE_PUBLIC, audio.AUDIO_DIR, audio.WORK_DIR,
+         audio._open_engine, audio._encode, audio.engine_name) = saved
+        media.reset()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _section_site(site: Path, items: int = 4) -> None:
+    """What the export leaves behind: the section's stories and its work.json, nothing else."""
+    site.mkdir(parents=True, exist_ok=True)
+    stories, ids = [], list(range(1, items + 1))
+    for i in ids:
+        c = work.card_out(work.clean_card(card(tool=f"Tool {i}", maker=f"Maker {i}")))
+        stories.append({"id": i, "slug": f"tool-{i}", "headline": f"Tool {i} ships",
+                        "firstPublishedAt": "2026-09-15T09:00:00Z", "workCard": c})
+    (site / "stories.json").write_text(json.dumps(stories), encoding="utf-8")
+    (site / "work.json").write_text(json.dumps(
+        {"weeks": {"2026-W38": {"changed": ids, "try": ids, "skip": [], "tools": items}}}), encoding="utf-8")
+
+
+def test_the_section_episode_is_weekly_waits_its_turn_and_reads_no_database():
+    from digest import audio, config, db
+
+    monday = datetime(2026, 9, 21, 6, 0, tzinfo=timezone.utc)   # the Monday after 2026-W38
+    with audio_sandbox() as tmp:
+        _section_site(config.SITE_DATA_DIR)
+        budget = config.AUDIO_TIME_BUDGET_SECONDS
+
+        # Not before the chosen hour of the chosen day.
+        assert audio._run_work(monday.replace(hour=0), budget)["reason"] == "before Monday 5:00 UTC"
+        # The daily briefing has first call on the run's budget; the section waits for the next run.
+        thin_budget = config.WORK_AUDIO_MIN_BUDGET_SECONDS - 1
+        late = audio._run_work(monday, thin_budget)
+        assert late["reason"] == "no time left this run" and late["generated"] == 0
+        # A Monday that could not be finished is caught up later in the week, on the same week.
+        assert audio.last_week(monday + timedelta(days=3)) == "2026-W38"
+        assert audio._run_work(monday + timedelta(days=3), thin_budget)["reason"] == "no time left this run"
+
+        before = db.bytes_read()
+        made = audio._run_work(monday, budget)
+        assert db.bytes_read() == before, "the episode is built from what the export already wrote"
+        assert made["generated"] == 1 and made["week"] == "2026-W38" and made["items"] == 4
+        episode = json.loads((config.SITE_DATA_DIR / "work-episodes.json").read_text())[0]
+        assert episode["week"] == "2026-W38" and episode["file"] == "work-2026-W38.mp3"
+        assert episode["date"] == "2026-09-21", "dated the Monday it comes out"
+        assert episode["title"].startswith("AI at Work, 14-20 September 2026: Tool ")
+        assert (audio.AUDIO_DIR / "work-2026-W38.mp3").exists()
+        assert len(episode["transcript"].split("\n\n")) == 6   # the opening, four items, the close
+        assert not (tmp / "cache" / "audio" / "work-2026-W38").exists(), "finished parts are cleared"
+
+        # It is never read twice, and the daily briefing's own manifest is not touched.
+        assert audio._run_work(monday, budget)["reason"] == "episode exists"
+        assert not (config.SITE_DATA_DIR / "episodes.json").exists()
+
+
+def test_a_thin_week_gets_no_episode():
+    from digest import audio, config
+
+    monday = datetime(2026, 9, 21, 6, 0, tzinfo=timezone.utc)
+    with audio_sandbox():
+        _section_site(config.SITE_DATA_DIR, items=config.WORK_AUDIO_MIN_ITEMS - 1)
+        thin = audio._run_work(monday, config.AUDIO_TIME_BUDGET_SECONDS)
+        assert thin["reason"] == "week too thin" and thin["generated"] == 0
+        assert json.loads((config.SITE_DATA_DIR / "work-episodes.json").read_text()) == []
+
+
+def test_the_run_gives_the_briefing_the_budget_first():
+    """Both episodes come out of one AUDIO_TIME_BUDGET_SECONDS, spent in that order."""
+    from digest import audio, config
+
+    with audio_sandbox():
+        _section_site(config.SITE_DATA_DIR)
+        seen = []
+        saved = audio._run_briefing, audio._run_work
+        audio._run_briefing = lambda now, budget: seen.append(("briefing", round(budget))) or {"generated": 0}
+        audio._run_work = lambda now, budget: seen.append(("work", round(budget))) or {"generated": 0}
+        try:
+            stats = audio.run()
+        finally:
+            audio._run_briefing, audio._run_work = saved
+    assert [k for k, _ in seen] == ["briefing", "work"]
+    assert seen[0][1] == config.AUDIO_TIME_BUDGET_SECONDS
+    assert seen[1][1] <= config.AUDIO_TIME_BUDGET_SECONDS, "the section only gets what is left"
+    assert "work" in stats
+
+
+# ---------------------------------------------------------------------------- how the site is wired
+
+def test_the_section_episode_has_its_own_feed_and_leaves_the_news_show_alone():
+    site = Path(__file__).resolve().parents[2] / "site"
+    work_feed = (site / "src" / "pages" / "work" / "podcast.xml.ts").read_text(encoding="utf-8")
+    news_feed = (site / "src" / "pages" / "podcast.xml.ts").read_text(encoding="utf-8")
+    # Two feeds, two shows: neither reads the other's episodes.
+    assert "workEpisodes" in work_feed and "/work/podcast.xml" in work_feed
+    assert "workEpisodes" not in news_feed and "episodes" in news_feed
+    assert "digestai-work-" in work_feed, "its own guids, so no app sees one show's episode twice"
+    assert 'itunes:category text="Business"' in work_feed and 'itunes:category text="News"' in news_feed
+    # The player, the listing and the playbook link.
+    assert "latestWorkEpisode" in (site / "src" / "pages" / "work" / "index.astro").read_text(encoding="utf-8")
+    assert "workEpisodes" in (site / "src" / "pages" / "listen.astro").read_text(encoding="utf-8")
+    assert "workEpisodeFor" in (site / "src" / "pages" / "work" / "week" / "[week].astro").read_text(encoding="utf-8")
+    assert 'readJson<Episode[]>("work-episodes.json"' in (site / "src" / "lib" / "work.ts").read_text(encoding="utf-8")
 
 
 if __name__ == "__main__":

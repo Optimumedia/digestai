@@ -425,7 +425,7 @@
       audio.playbackRate = speed;
       if ("mediaSession" in navigator) {
         try {
-          navigator.mediaSession.metadata = new MediaMetadata({ title: box.dataset.title || "Digest AI briefing", artist: "Digest AI", album: "Daily AI briefing", artwork: [{ src: "/logo-512.png", sizes: "512x512", type: "image/png" }] });
+          navigator.mediaSession.metadata = new MediaMetadata({ title: box.dataset.title || "Digest AI briefing", artist: "Digest AI", album: box.dataset.album || "Daily AI briefing", artwork: [{ src: "/logo-512.png", sizes: "512x512", type: "image/png" }] });
           navigator.mediaSession.setActionHandler("play", () => audio.play());
           navigator.mediaSession.setActionHandler("pause", () => audio.pause());
           navigator.mediaSession.setActionHandler("seekbackward", () => seekTo(audio.currentTime - 15));

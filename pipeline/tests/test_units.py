@@ -1,12 +1,17 @@
 """Offline unit tests: python -m pytest tests/ or python tests/test_units.py"""
 from __future__ import annotations
 
+import json
 import re
+import shutil
 import sys
+import tempfile
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from digest import config  # noqa: E402
 from digest.extract import scrub, validate  # noqa: E402
 from digest.textutil import clean_title, hamming, keywords, normalize_url, simhash, slugify  # noqa: E402
 
@@ -1126,6 +1131,153 @@ def test_audio_chunks_stay_sentence_sized():
         assert " ".join(chunks).split() == para.split()  # nothing lost, nothing added
     long_one = "A clause that runs on and on, " * 20
     assert all(len(c) <= audio.CHUNK_CHARS for c in audio._chunks(long_one))
+
+
+# ---------------------------------------------------------------------------- the AI at Work week
+
+def _work_story(i: int, slug: str, tool: str, **card) -> dict:
+    base = {"tool": tool, "maker": None, "whatItDoes": "Writes social posts from a short brief.",
+            "whoFor": ["marketer"], "useFor": ["Draft a week of posts", "Resize one ad for five places"],
+            "cost": "free tier", "costKind": "free tier", "effort": "minutes",
+            "watchOut": "The free tier watermarks video exports.", "link": None, "jobs": ["content"],
+            "skip": None, "usefulness": 3.0}
+    base.update(card)
+    return {"id": i, "slug": slug, "headline": f"{tool} does something", "workCard": base,
+            "firstPublishedAt": "2026-09-15T09:00:00Z"}
+
+
+WORK_STORIES = {
+    11: _work_story(11, "canva", "Canva Magic Studio", maker="Canva"),
+    12: _work_story(12, "meta-one", "Meta One", maker="Meta", cost="starting at $2.99/month",
+                    costKind="paid", whatItDoes="Provides paid AI features across Meta's apps.",
+                    whoFor=["marketer", "ecommerce"], useFor=["Generate images and video"],
+                    watchOut="Availability varies by region."),
+    13: _work_story(13, "gmail", "Gmail", maker="Google", costKind="included", cost="included in Workspace",
+                    whatItDoes="Summarises what a search found in your mailbox.",
+                    whoFor=["sales", "support"], effort="an afternoon"),
+    14: _work_story(14, "sheets", "Google Sheets", maker="Google", costKind="free", cost="free",
+                    whatItDoes="Fills a column from a prompt."),
+    15: _work_story(15, "notion", "Notion AI Skills", maker="Notion", skip="enterprise plans only",
+                    effort="needs a developer", whatItDoes="Shares reusable AI instructions across a team."),
+}
+WORK_DATA = {"weeks": {"2026-W38": {"changed": [11, 12, 13, 14, 15], "try": [11, 12, 13, 14],
+                                    "skip": [15], "tools": 5},
+                       "2026-W37": {"changed": [11], "try": [11], "skip": [], "tools": 1}}}
+
+
+def test_work_audio_reads_the_week_that_just_ended():
+    from datetime import datetime, timezone
+
+    from digest import audio
+
+    monday = datetime(2026, 9, 21, 5, 0, tzinfo=timezone.utc)   # a Monday
+    assert audio.last_week(monday) == "2026-W38"
+    assert audio.week_range("2026-W38") == (date(2026, 9, 14), date(2026, 9, 20))
+    # Still the same week all through the Monday, so a resumed episode never changes subject.
+    assert audio.last_week(monday.replace(hour=23)) == "2026-W38"
+    items, skips = audio.week_items("2026-W38", WORK_DATA, WORK_STORIES)
+    assert [s["id"] for s in items] == [11, 12, 13, 14] and [s["id"] for s in skips] == [15]
+    assert audio.week_items("2026-W01", WORK_DATA, WORK_STORIES) == ([], [])
+    # A story the export dropped since (a withdrawn article) simply leaves the episode.
+    assert [s["id"] for s in audio.week_items("2026-W38", WORK_DATA, {11: WORK_STORIES[11]})[0]] == [11]
+
+
+def test_work_audio_script_says_what_it_does_costs_and_takes():
+    from digest import audio
+
+    text, picks = audio.build_work_script("2026-W38", [WORK_STORIES[i] for i in (11, 12, 13, 14)],
+                                          [WORK_STORIES[15]])
+    parts = text.split("\n\n")
+    assert len(picks) == 4 and len(parts) == 7   # the opening, four items, what to skip, the close
+    assert parts[0].startswith("This is AI at Work from Digest AI: a five-minute run through what changed "
+                               "for marketers and small teams the week of the fourteenth to the twentieth "
+                               "of September."), parts[0]
+    assert "Four things to know, and three of them cost nothing to start." in parts[0]
+    assert "digestai.news/work" in parts[-1] and "next Monday" in parts[-1]
+    # Every item says what it does, who it helps, what it costs, how long it takes and the one caveat.
+    canva = parts[1]
+    assert "Canva Magic Studio writes social posts from a short brief." in canva
+    assert "It is for marketers." in canva
+    assert "There is a free tier, and you can be using it in minutes." in canva
+    assert "draft a week of posts, or to resize one ad for five places." in canva
+    assert "The free tier watermarks video exports." in canva
+    # The card's own price beats "it is paid", and an afternoon's work is said as an afternoon.
+    assert "It costs from $2.99/month," in parts[2]
+    assert "and setting it up is an afternoon's work." in parts[3]
+    # The maker is named when the tool's name does not already carry it, and never twice.
+    assert "Gmail, from Google, summarises" in parts[3]
+    assert "Google Sheets, from Google," not in text and "Google Sheets fills a column" in text
+    assert "Canva Magic Studio, from Canva," not in text
+    # What to skip is this week's verdict, not the tool's.
+    assert parts[5].startswith("One to leave for now: Notion AI Skills, enterprise plans only.")
+    assert "only on this week" in parts[5]
+    assert not re.search(r"https?://|\]\(|[*_`#>]", text)
+
+
+def test_work_audio_script_varies_and_repeats_itself_exactly():
+    from digest import audio
+
+    text, _ = audio.build_work_script("2026-W38", list(WORK_STORIES.values())[:4], [])
+    leads = [next(l for l in audio._WORK_FIRST + audio._WORK_MIDDLE + audio._WORK_LAST if p.startswith(l))
+             for p in text.split("\n\n")[1:-1]]
+    assert len(set(leads)) == 4, leads
+    assert leads[0] in audio._WORK_FIRST and leads[-1] in audio._WORK_LAST
+    assert audio.build_work_script("2026-W38", list(WORK_STORIES.values())[:4], [])[0] == text
+    other = audio.build_work_script("2026-W37", list(WORK_STORIES.values())[:4], [])[0]
+    assert other.split("\n\n")[1] != text.split("\n\n")[1]   # another week does not sound the same
+    # The episode is capped however full the week was.
+    long_week = audio.build_work_script("2026-W38", list(WORK_STORIES.values()) * 4, [])[1]
+    assert len(long_week) == config.WORK_AUDIO_ITEMS
+
+
+def test_work_audio_spoken_form_says_the_prices_and_the_address():
+    from digest import audio
+
+    said = audio.spoken(audio.build_work_script("2026-W38", [WORK_STORIES[i] for i in (11, 12, 13)], [])[0])
+    assert "2 point 99 dollars a month" in said
+    assert "Digest AI dot news, slash work" in said and "digestai.news" not in said
+    assert not re.search(r"[$€£%]|/month", said)
+    for para in audio._paragraphs(said):
+        assert all(0 < len(c) <= audio.CHUNK_CHARS for c in audio._chunks(para))
+
+
+def test_the_two_episodes_share_one_time_budget():
+    """The briefing always moves forward; the section only reads while budget is left over."""
+    from digest import audio
+
+    class Engine:
+        rate = 24000
+
+    def encode(_engine, para):
+        return b"\x00" * 64, 1.0
+
+    work = Path(tempfile.mkdtemp())
+    saved = audio._open_engine, audio._encode
+    audio._open_engine, audio._encode = (lambda: Engine()), encode
+    try:
+        script = "One.\n\nTwo.\n\nThree."
+        # The briefing: a spent budget still buys one part, so an episode is never stuck.
+        assert audio.synthesize(script, work / "b.mp3", work=work / "briefing", budget=0) is None
+        assert json.loads((work / "briefing" / "plan.json").read_text())["done"] == 1
+        # The section: nothing left this run means nothing read, and the state says so.
+        assert audio.synthesize(script, work / "w.mp3", work=work / "week", budget=0,
+                                at_least_one=False) is None
+        assert json.loads((work / "week" / "plan.json").read_text())["done"] == 0
+        assert not list((work / "week").glob("*.mp3"))
+        # With time left it finishes, and the parts of the two kinds never clear each other.
+        assert audio.synthesize(script, work / "w.mp3", work=work / "week", budget=60,
+                                at_least_one=False) is not None
+        saved_dir, audio.WORK_DIR = audio.WORK_DIR, work
+        try:
+            audio._tidy_work("work-2026-W38")
+            assert (work / "briefing").exists(), "the briefing's parts survive the section's tidy-up"
+            audio._tidy_work("2026-09-21")
+            assert not (work / "briefing").exists()
+        finally:
+            audio.WORK_DIR = saved_dir
+    finally:
+        audio._open_engine, audio._encode = saved
+        shutil.rmtree(work, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,9 @@
 ---
 import Work from "../../../layouts/Work.astro";
 import WorkCard from "../../../components/WorkCard.astro";
+import ListenPlayer from "../../../components/ListenPlayer.astro";
 import { WORK_MIN_ITEMS, formatDate, meta, weekMonday } from "../../../lib/data";
-import { weekStories, workWeeks } from "../../../lib/work";
+import { weekStories, workEpisodeFor, workWeeks } from "../../../lib/work";
 
 export function getStaticPaths() {
   return workWeeks.map((week) => ({ params: { week } }));
@@ -14,6 +15,7 @@ const monday = weekMonday(week!);
 const sunday = new Date(monday.getTime() + 6 * 864e5);
 const range = `${formatDate(monday.toISOString(), { day: "numeric", month: "short" })} to ${formatDate(sunday.toISOString(), { day: "numeric", month: "long", year: "numeric" })}`;
 const idx = workWeeks.indexOf(week!);
+const episode = workEpisodeFor(week!);
 const leadTools = [...new Set(changed.map((s) => s.workCard.tool))].slice(0, 3);
 const description = changed.length
   ? `The practical AI changes of ${range} for marketers and small businesses: ${leadTools.join(", ")}. What to try, what to leave.`
@@ -39,6 +41,18 @@ const jsonLd = {
       The things worth an hour of your time, and the things that can wait — with the reason they can wait.
     </p>
   </header>
+
+  {episode && (
+    <ListenPlayer
+      episode={episode}
+      heading={`This week, read aloud: ${range}`}
+      edition={`Weekly · ${week}`}
+      note="The same week in about five minutes, if you would rather listen than read."
+      moreHref="/listen#work"
+      moreLabel="All AI at Work episodes →"
+      album="AI at Work"
+    />
+  )}
 
   {changed.length === 0 && <p class="muted" style="padding: 32px 0">Nothing practical was covered that week.</p>}
 

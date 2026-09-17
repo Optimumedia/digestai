@@ -8,7 +8,7 @@
    Everything here falls back to empty, so the site builds before the first card exists. */
 import fs from "node:fs";
 import path from "node:path";
-import { stories, storyFor, type Story } from "./data";
+import { stories, storyFor, type Episode, type Story } from "./data";
 
 export interface WorkCard {
   tool: string;
@@ -126,6 +126,13 @@ export const workBriefing: WorkBriefing = readJson<WorkBriefing>("work-briefing.
   alsoIds: [],
   stats: { items: 0, tools: 0, free: 0, minutes: 0 },
 });
+
+/* The section's own podcast (pipeline/digest/audio.py): one episode a week, in its own manifest and
+   its own feed at /work/podcast.xml, so a listener who subscribed to the daily news show at
+   /podcast.xml never gets a marketing playbook they did not ask for, and the other way round. */
+export const workEpisodes: Episode[] = readJson<Episode[]>("work-episodes.json", []);
+export const latestWorkEpisode: Episode | undefined = workEpisodes[0];
+export const workEpisodeFor = (week: string): Episode | undefined => workEpisodes.find((e) => e.week === week);
 
 /** A story with a card, typed so pages can rely on the card being there. */
 export type WorkStory = Story & { workCard: WorkCard };

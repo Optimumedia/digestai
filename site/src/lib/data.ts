@@ -187,6 +187,8 @@ export const noindex: Set<string> = noindexPaths(stories, entities);
 export const sources: { key: string; name: string; url: string; kind: string; type: string }[] = readJson("sources.json", []);
 export interface Episode {
   date: string;
+  /** Only on an AI at Work episode: the ISO week it reads (pipeline/digest/audio.py). */
+  week?: string;
   title: string;
   file: string;
   url: string;

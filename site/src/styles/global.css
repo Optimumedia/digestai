@@ -472,7 +472,7 @@ table.sortable th:hover { color: var(--ink); }
 .feedurl { display: inline-block; font-family: var(--font-mono); font-size: 13px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 3px; user-select: all; word-break: break-all; }
 .episodes { list-style: none; padding: 0; margin: 0; }
 .episodes li { padding: 20px 0; border-top: 1px solid var(--line); }
-.episodes h2 { font-size: 20px; margin: 4px 0 10px; }
+.episodes h2, .episodes h3 { font-size: 20px; margin: 4px 0 10px; }
 .episodes audio { width: 100%; max-width: 560px; height: 36px; margin: 0 0 10px; }
 .episodes details { margin-top: 10px; font-size: 14.5px; color: var(--ink-2); max-width: 68ch; }
 .episodes details p { margin: 8px 0; }
