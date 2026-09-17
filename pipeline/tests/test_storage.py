@@ -297,6 +297,9 @@ def test_archive_appends_stories_leaving_the_window_and_rebuilds_when_lost():
         tr.seed(eng)
         from digest import export
 
+        # Never the real site's archive: since production published one, a download found it.
+        saved_download = archive._download
+        archive._download = lambda *a, **k: None
         window = timedelta(days=config.EXPORT_DAYS)
         sources = {1: {"name": "Lab", "type": "primary"}, 2: {"name": "HN", "type": "community"}, 3: {"name": "Press", "type": "press"}}
         with eng.connect() as conn:
@@ -353,6 +356,7 @@ def test_archive_appends_stories_leaving_the_window_and_rebuilds_when_lost():
         tr.new_process()
         stats = export.run()
         assert (config.SITE_DATA_DIR / "archive.json").exists() and "archive" in stats
+        archive._download = saved_download
 
 
 # ---------------------------------------------------------------------------- backup
