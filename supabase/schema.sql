@@ -63,7 +63,7 @@ begin
   end if;
   if length(coalesce(new.session, '')) > 40 or length(coalesce(new.path, '')) > 200
      or length(coalesce(new.visitor, '')) > 40 or length(coalesce(new.source, '')) > 60
-     or length(coalesce(new.detail, '')) > 100 then
+     or length(coalesce(new.detail, '')) > 100 or length(coalesce(new.tz, '')) > 40 then
     raise exception 'payload too large';
   end if;
   -- A search query is kept only as a subject: no e-mail addresses or long numbers, even if typed.

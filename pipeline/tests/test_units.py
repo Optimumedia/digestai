@@ -992,6 +992,17 @@ def test_ollama_cloud_skips_paid_models_and_pauses_on_limits():
         enrich._cloud_dead.update(saved[3])
 
 
+def test_reader_countries_from_time_zones():
+    from digest import admin
+
+    assert admin.country_of("Europe/Warsaw") == "PL" and admin.country_of("America/New_York") == "US"
+    assert admin.country_of("Asia/Calcutta") == "IN" and admin.country_of("Europe/Kiev") == "UA"  # older names
+    assert admin.country_of("UTC") is None and admin.country_of(None) is None
+    rows = [("Europe/Warsaw", 5, 3), ("America/Chicago", 4, 2), ("America/New_York", 2, 1), (None, 9, 6), ("Etc/GMT", 1, 1)]
+    out = admin.countries_summary(rows)
+    assert [(c["name"], c["visitors"], c["views"]) for c in out] == [("United States", 3, 6), ("Poland", 3, 5), ("Unknown", 7, 10)]
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

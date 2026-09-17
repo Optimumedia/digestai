@@ -8,6 +8,7 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from urllib.parse import quote
 
 from sqlalchemy import case, func, select
@@ -50,6 +51,38 @@ _APP_NAMES = {"com.instagram": "Instagram", "com.linkedin": "LinkedIn", "com.red
               "com.discord": "Discord", "com.slack": "Slack", "com.google.android.youtube": "YouTube",
               "com.zhiliaoapp.musically": "TikTok", "org.joinmastodon": "Mastodon", "com.google.android.gm": "Gmail",
               "com.google.android.googlequicksearchbox": "Google"}
+
+
+_TZ: dict | None = None
+
+
+def country_of(zone: str | None) -> str | None:
+    """ISO country code for a browser time zone (tz database zone.tab plus older names browsers still
+    report); None for UTC, Etc/* and anything unknown."""
+    global _TZ
+    if _TZ is None:
+        _TZ = json.loads((Path(__file__).with_name("tz_countries.json")).read_text(encoding="utf-8"))
+    return _TZ["zones"].get((zone or "").strip())
+
+
+def country_name(code: str | None) -> str:
+    if not code:
+        return "Unknown"
+    if _TZ is None:
+        country_of(None)
+    return _TZ["names"].get(code, code)
+
+
+def countries_summary(rows) -> list[dict]:
+    """rows: (time zone, views, visitors) per zone. Visitors in two zones of one country (rare) count twice."""
+    by: dict[str, dict] = {}
+    for zone, views, visitors in rows:
+        code = country_of(zone)
+        key = code or ""
+        row = by.setdefault(key, {"code": code, "name": country_name(code), "views": 0, "visitors": 0})
+        row["views"] += int(views or 0)
+        row["visitors"] += int(visitors or 0)
+    return sorted(by.values(), key=lambda r: (r["code"] is None, -r["visitors"], -r["views"]))
 
 
 def source_name(raw: str | None) -> str:
@@ -257,6 +290,12 @@ def run() -> dict:
             .where(db.events.c.created_at >= since7, db.events.c.type == "view")
             .group_by(db.events.c.path).order_by(func.count().desc()).limit(10)
         ).all()]
+        # Where readers are: the country of each visit's time zone setting, 7 days.
+        countries7 = countries_summary(conn.execute(
+            select(db.events.c.tz, func.count(), func.count(func.distinct(who)))
+            .where(db.events.c.created_at >= since7, db.events.c.type == "view")
+            .group_by(db.events.c.tz)
+        ).all())
         # Reading sessions: distinct (session, story) pairs that reported any time on page.
         for day, n in conn.execute(
             select(func.date(db.events.c.created_at), func.count(func.distinct(db.events.c.session + "|" + func.cast(db.events.c.story_id, db.String))))
@@ -277,7 +316,7 @@ def run() -> dict:
             ).all()
             top_engaged = [{"slug": r.slug, "headline": r.headline, "engagement": round(float(r.e or 0), 1)} for r in rows]
         out["engagement"] = {"available": has_events, "perDay": list(per_day_ev.values()), "topStories": top_engaged,
-                             "sources7": sources7, "pages7": pages7}
+                             "sources7": sources7, "pages7": pages7, "countries7": countries7}
 
         # ---- site searches and how far stories are read.
         out["engagement"]["searches7"] = search_summary(conn.execute(

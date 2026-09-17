@@ -174,6 +174,7 @@ events = Table(
     Column("session", String(64)),  # one browser tab
     Column("visitor", String(40)),  # random per browser, replaced every UTC day
     Column("source", String(60)),  # utm_source, else the referring host, else "direct"
+    Column("tz", String(40)),  # the browser's time zone (e.g. Europe/Warsaw): gives the country, not the city
     Column("path", Text),
     # search: the query as typed (trimmed, lowercased, emails and long numbers removed);
     # depth: how far the reader got (top | summary | full_text | end). Empty for other types.
@@ -635,7 +636,7 @@ begin
   end if;
   if length(coalesce(new.session, '')) > 40 or length(coalesce(new.path, '')) > 200
      or length(coalesce(new.visitor, '')) > 40 or length(coalesce(new.source, '')) > 60
-     or length(coalesce(new.detail, '')) > 100 then
+     or length(coalesce(new.detail, '')) > 100 or length(coalesce(new.tz, '')) > 40 then
     raise exception 'payload too large';
   end if;
   -- A search query is kept only as a subject: no e-mail addresses or long numbers, even if typed.

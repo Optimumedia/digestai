@@ -327,6 +327,13 @@ const homeData = JSON.stringify({
               <p class="muted">From the link a visitor followed: a tag on our own posts (Bluesky, the newsletter), else the site they came from. Direct means typed in, bookmarked or an app that hides where it came from.</p>
             </article>
             <article class="card">
+              <h2>Where readers are <span class="muted">7 days</span></h2>
+              {(eng.countries7 || []).length ? (
+                <ol class="ranked">{eng.countries7.slice(0, 12).map((c: any) => <li><span>{c.name}</span><span class="mono muted">{c.visitors} visitor{c.visitors === 1 ? "" : "s"} · {c.views} view{c.views === 1 ? "" : "s"}</span></li>)}</ol>
+              ) : <p class="muted">Appears with the first visit counted after 17 September.</p>}
+              <p class="muted">From the time zone each device is set to, so a traveller counts where their phone thinks they are. No IP addresses are used. Unknown means an older visit or a device set to UTC.</p>
+            </article>
+            <article class="card">
               <h2>Most viewed pages <span class="muted">7 days</span></h2>
               {(eng.pages7 || []).length ? (
                 <ol class="ranked">{eng.pages7.map((p: any) => <li><a href={p.path}>{p.path}</a><span class="mono muted">{p.views} view{p.views === 1 ? "" : "s"} · {p.visitors} visitor{p.visitors === 1 ? "" : "s"}</span></li>)}</ol>

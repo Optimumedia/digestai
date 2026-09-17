@@ -36,6 +36,9 @@
   // One anonymous visitor number per browser per UTC day, so a reader with several tabs counts once.
   // It is random, never leaves this browser except with the events, and is replaced every day.
   const visitDay = new Date().toISOString().slice(0, 10);
+  // The time zone the device is set to (Europe/Warsaw): enough to tell the country, never the city.
+  let visitZone = null;
+  try { visitZone = String(Intl.DateTimeFormat().resolvedOptions().timeZone || "").slice(0, 40) || null; } catch {}
   let visitor = store.get("visitor", null);
   if (!visitor || visitor.day !== visitDay || typeof visitor.id !== "string") {
     visitor = { id: Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 8), day: visitDay };
@@ -44,7 +47,7 @@
   // extra: { detail } for searches (the query) and read depth (how far), { path } to file it under another page.
   function send(type, value, extra) {
     if (!cfg.supabaseUrl || !cfg.supabaseKey || noTrack) return;
-    const ev = { story_id: storyId, article_id: articleId, type, value: value ?? 1, session: sid, visitor: visitor.id, source: String(visitSource).slice(0, 60), path: (extra && extra.path) || location.pathname, created_at: new Date().toISOString() };
+    const ev = { story_id: storyId, article_id: articleId, type, value: value ?? 1, session: sid, visitor: visitor.id, source: String(visitSource).slice(0, 60), tz: visitZone, path: (extra && extra.path) || location.pathname, created_at: new Date().toISOString() };
     if (extra && extra.detail) ev.detail = String(extra.detail).slice(0, 100);
     const body = JSON.stringify(ev);
     // keepalive lets the request finish after the page is gone (unlike sendBeacon, it can carry
