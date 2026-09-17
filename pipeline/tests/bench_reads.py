@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parents[1]
-STEPS = ["gate", "enrich", "cluster", "threads", "rank", "export", "push", "topics", "intros", "tidy", "admin"]
+STEPS = ["gate", "enrich", "cluster", "threads", "rank", "upgrade", "export", "push", "topics", "intros", "tidy", "admin"]
 WORDS = ("model agents inference open weights launch funding round chips data center regulation safety benchmark "
          "research paper robotics enterprise startup valuation release context window multimodal reasoning").split()
 COMPANIES = ["OpenAI", "Anthropic", "Google", "Meta", "Nvidia", "Mistral", "xAI", "Microsoft", "Apple", "Amazon",

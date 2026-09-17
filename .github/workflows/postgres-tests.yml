@@ -45,3 +45,4 @@ jobs:
           python tests/test_site_redirects.py
           python tests/test_storage.py
           python tests/test_work.py
+          python tests/test_summaries.py
