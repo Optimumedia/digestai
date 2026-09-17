@@ -82,6 +82,36 @@ def test_hedged_headlines_make_an_info_card():
     assert "as fact" in cards["quality:hedged"]["what"] and cards["quality:hedged"]["items"][0]["slug"] == "s1"
 
 
+def test_duplicates_catch_reworded_headlines_and_pipeline_suspects():
+    mistral = lambda sid, h, n: {**story(sid, h, count=n), "entities": {"companies": ["Mistral AI"]}}  # noqa: E731
+    a = mistral(20, "Mistral AI raises €3 billion in funding round led by ASML", 30)
+    b = mistral(21, "Mistral AI raises €3 billion funding round, ASML leads", 4)  # reworded: under the old 80% bar
+    c = mistral(22, "Mistral AI releases a new coding model", 3)  # same company, other news
+    d = {**story(23, "Nvidia and Mistral build a European cloud", count=2), "entities": {"companies": ["Nvidia"]}}
+    dups = quality.duplicates([a, b, c, d], NOW)
+    assert [x["slug"] for x in dups] == ["s21"], dups
+    # A pair the pipeline found alike by embedding but left for review is listed with its reason.
+    dups = quality.duplicates([a, b, c, d], NOW, [{"a": 23, "b": 20, "sim": 0.85, "reason": "0.85 alike, both about Mistral Ai"}])
+    assert [x["slug"] for x in dups] == ["s21", "s23"] and "0.85 alike" in dups[1]["detail"]
+    assert quality.duplicates([a, b], NOW, [{"a": 99, "b": 20}])[0]["slug"] == "s21"  # unknown ids are ignored
+
+
+def test_headline_check_compares_figures_and_names_with_the_sources():
+    text = "Mistral AI said on Tuesday it raised €3 billion in a round led by ASML, valuing it at $14 billion. " * 4
+    arts = [{"title": "Mistral raises €3bn", "description": None, "contentMd": text, "isLead": True, "url": "u"}]
+    ok = {**story(30, "Mistral AI raises €3 billion led by ASML", articles=arts), "entities": {"companies": ["Mistral AI", "ASML"]}}
+    wrong_figure = {**ok, "id": 31, "slug": "s31", "headline": "Mistral AI raises €30 billion led by ASML"}
+    wrong_name = {**ok, "id": 32, "slug": "s32", "headline": "Mistral AI raises €3 billion led by Nvidia",
+                  "entities": {"companies": ["Mistral AI", "Nvidia"]}}
+    rounded = {**ok, "id": 33, "slug": "s33", "headline": "Mistral AI raises $3.5 billion"}  # converted currency, rounded
+    thin = {**wrong_figure, "id": 34, "slug": "s34", "articles": [{"title": "Short", "isLead": True, "url": "u"}]}
+    flagged = {i["slug"]: i for i in quality.headline_check([ok, wrong_figure, wrong_name, rounded, thin], NOW)}
+    assert set(flagged) == {"s31", "s32"}, flagged
+    assert '"€30 billion"' in flagged["s31"]["detail"] and '"Nvidia"' in flagged["s32"]["detail"]
+    card = quality.cards({"headlineCheck": list(flagged.values())})
+    assert card[0]["id"] == "quality:headline_check" and "2 headlines" in card[0]["what"]
+
+
 def test_tracker_gaps():
     trackers = {"models": [{"name": "X-1", "lab": "unknown", "kind": "llm", "storySlug": "a"},
                            {"name": "Y-2", "lab": "Acme", "kind": "other", "storySlug": "b"},

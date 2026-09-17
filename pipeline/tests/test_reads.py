@@ -335,6 +335,71 @@ def test_incremental_export_equals_a_full_export_across_runs():
         assert warm2 == cold2 == warm
 
 
+# ---------------------------------------------------------------------------- merging duplicates
+
+def test_duplicate_stories_merge_into_the_older_and_export_redirects():
+    from digest import export, merge
+
+    with fresh_db() as (eng, tmp):
+        rng = np.random.default_rng(7)
+        seed(eng, stories=4, per_story=3, rng=rng)
+        with eng.connect() as conn:
+            base = db.unpack_vec(conn.execute(select(db.stories.c.embedding).where(db.stories.c.id == 1)).scalar())
+        with eng.begin() as conn:
+            # Two later stories on story 1's event (reworded headlines), and one on another event that
+            # happens to be about the same company: only the first two merge, into story 1.
+            for sid, headline, first, vec in [
+                (60, "Acme closes a record funding round", NOW - timedelta(hours=3), unit(rng, base=base, noise=0.2)),
+                (61, "Investors pour money into Acme", NOW - timedelta(hours=2), unit(rng, base=base, noise=0.2)),
+                (62, "Acme sued over its chatbot", NOW - timedelta(hours=1), unit(rng)),
+            ]:
+                conn.execute(insert(db.stories).values(
+                    id=sid, slug=f"story-{sid}", headline=headline, summary_md="S.", key_points=["k"], category="business",
+                    entities={"companies": ["Acme"]}, lead_article_id=sid * 10, article_count=1, importance=6, score=0.4,
+                    embedding=db.pack_vec(vec), status="published", first_published_at=first, updated_at=first))
+                conn.execute(insert(db.articles).values(
+                    id=sid * 10, url=f"https://dup.test/{sid}", source_id=3, story_id=sid, slug=f"article-{sid * 10}",
+                    title=headline, headline=headline, domain="dup.test", published_at=first, fetched_at=first, created_at=first,
+                    status="published", summary_md="s", content_type="opinion" if sid == 61 else "news", importance=9,
+                    embedding=db.pack_vec(vec), engagement=0.0))
+        new_process()
+        stats = merge.run(eng, 0.88, max_merges=1)
+        assert stats["merged_stories"] == 1, stats  # bounded per run
+        new_process()
+        stats = merge.run(eng, 0.88)
+        assert stats["merged_stories"] == 1, stats
+        new_process()
+        assert merge.run(eng, 0.88)["merged_stories"] == 0  # nothing left to do
+        with eng.connect() as conn:
+            rows = {r.id: r for r in conn.execute(select(db.stories)).all()}
+            moved = conn.execute(select(db.articles.c.id).where(db.articles.c.story_id == 1)).scalars().all()
+        assert rows[60].status == rows[61].status == "merged" and rows[60].redirect_to == rows[61].redirect_to == 1
+        assert rows[62].status == "published" and rows[1].status == "published"
+        assert sorted(moved) == [1, 2, 3, 600, 610] and rows[1].article_count == 5
+        assert rows[1].slug == "story-1" and db.as_utc(rows[1].first_published_at) <= NOW - timedelta(hours=6)
+        # The most important news article leads; the opinion piece never does.
+        assert rows[1].lead_article_id == 600 and rows[1].headline == "Acme closes a record funding round"
+
+        warm, cold = _export_both_ways(eng, tmp)
+        assert warm == cold
+        assert warm["redirects.json"] == [{"from": "story-60", "to": "story-1"}, {"from": "story-61", "to": "story-1"}]
+        slugs = {s["slug"] for s in warm["stories.json"]}
+        assert "story-1" in slugs and "story-60" not in slugs and "story-61" not in slugs
+        assert {s["id"]: s["articleCount"] for s in warm["stories.json"]}[1] == 5
+
+
+def test_merge_follows_chains_and_skips_stories_off_the_site():
+    from types import SimpleNamespace as NS
+
+    from digest import export
+
+    stories = {1: NS(id=1, status="published", redirect_to=None), 2: NS(id=2, status="merged", redirect_to=3),
+               3: NS(id=3, status="merged", redirect_to=1), 4: NS(id=4, status="merged", redirect_to=9),
+               9: NS(id=9, status="unpublished", redirect_to=None)}
+    titles = {2: NS(slug="b"), 3: NS(slug="c"), 4: NS(slug="d")}
+    assert export.story_redirects(stories, titles, {1: "a"}) == [{"from": "b", "to": "a"}, {"from": "c", "to": "a"}]
+
+
 # ---------------------------------------------------------------------------- tidy
 
 def test_tidy_empties_unused_columns_in_bounded_batches():

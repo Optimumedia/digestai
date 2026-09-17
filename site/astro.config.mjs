@@ -3,6 +3,10 @@ import sitemap from "@astrojs/sitemap";
 import fs from "node:fs";
 import path from "node:path";
 import { published, noindexPaths } from "./src/lib/indexing.mjs";
+import { isRedirectPage, loadRedirects } from "./src/lib/redirects.mjs";
+
+// Old addresses of merged stories are redirect pages: never listed for search engines.
+const redirects = loadRedirects(path.resolve("src/data"));
 
 // lastmod per URL from the pipeline export, so search engines re-crawl what actually changed, and
 // the pages the templates mark noindex (indexing.mjs), which stay out of the sitemap as well.
@@ -44,7 +48,7 @@ export default defineConfig({
     sitemap({
       filter: (page) => {
         const p = new URL(page).pathname.replace(/\/$/, "");
-        return !/\/(search|admin|saved|river|subscribe|offline)$/.test(p) && !noindex.has(p) && !(p in legacyRedirects);
+        return !/\/(search|admin|saved|river|subscribe|offline)$/.test(p) && !noindex.has(p) && !(p in legacyRedirects) && !isRedirectPage(page, redirects);
       },
       serialize(item) {
         const p = new URL(item.url).pathname.replace(/\/$/, "");

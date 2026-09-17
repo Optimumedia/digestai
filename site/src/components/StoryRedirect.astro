@@ -1,0 +1,28 @@
+---
+// The old address of a story merged into another one (pipeline/digest/merge.py). Readers and search
+// engines are sent on to the story that now covers the event; the canonical link names it.
+interface Props {
+  to: string;
+  headline: string;
+  site: string;
+}
+const { to, headline, site } = Astro.props;
+const href = `/story/${to}`;
+const canonical = `${site.replace(/\/$/, "")}${href}`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{headline} — Digest AI</title>
+    <meta http-equiv="refresh" content={`0; url=${href}`} />
+    <link rel="canonical" href={canonical} />
+    <meta name="robots" content="noindex, follow" />
+    <script is:inline define:vars={{ href }}>location.replace(href + location.search + location.hash);</script>
+  </head>
+  <body data-pagefind-ignore="all">
+    <p>This story is now part of <a href={href}>{headline}</a>.</p>
+  </body>
+</html>

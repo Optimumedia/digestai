@@ -3,13 +3,18 @@ import Base from "../../layouts/Base.astro";
 import Rail from "../../components/Rail.astro";
 import Coverage from "../../components/Coverage.astro";
 import Breadcrumbs from "../../components/Breadcrumbs.astro";
-import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, dateTime, shortDate, readingMinutes, related, entitySlug, meta, threadFor, threadStories, topicSlugs, storiesInCategory, storyIndexable } from "../../lib/data";
+import StoryRedirect from "../../components/StoryRedirect.astro";
+import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, dateTime, shortDate, readingMinutes, related, entitySlug, meta, threadFor, threadStories, topicSlugs, storiesInCategory, storyIndexable, storyForSlug, storyRedirects } from "../../lib/data";
 
 export function getStaticPaths() {
-  return stories.map((story) => ({ params: { slug: story.slug }, props: { story } }));
+  return [
+    ...stories.map((story) => ({ params: { slug: story.slug }, props: { story, redirect: false } })),
+    // Old addresses of merged stories: a redirect page to the story that covers the event now.
+    ...storyRedirects.map((r) => ({ params: { slug: r.from }, props: { story: storyForSlug(r.to)!, redirect: true } })),
+  ];
 }
 
-const { story } = Astro.props;
+const { story, redirect } = Astro.props;
 const lead = leadArticle(story);
 const full = fullTextArticle(story);
 const shown = full || lead;
@@ -50,6 +55,7 @@ const jsonLd = {
 };
 ---
 
+{redirect ? <StoryRedirect to={story.slug} headline={story.headline} site={site} /> : (
 <Base
   title={story.headline}
   description={description}
@@ -233,3 +239,4 @@ const jsonLd = {
     <Rail exclude={story.id} />
   </div>
 </Base>
+)}

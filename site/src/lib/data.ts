@@ -5,6 +5,7 @@ import { published, entitySlug, dateKey, weekKey, storyIndexable, noindexPaths, 
 
 // Indexing rules live in indexing.mjs so the sitemap in astro.config.mjs applies the same ones.
 export { entitySlug, dateKey, weekKey, storyIndexable, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES };
+import { loadRedirects } from "./redirects.mjs";
 
 export interface Discussion {
   site: "hn" | "reddit";
@@ -108,6 +109,8 @@ export interface Story {
   score: number;
   pinned: boolean;
   articleCount: number;
+  /** Sources counted in articleCount and coverage but not listed (a full story, cluster.py). */
+  overflowCount?: number;
   coverage: Coverage;
   hasPrimary: boolean;
   discussions: Discussion[];
@@ -210,6 +213,10 @@ export const trackers: { models: ModelRelease[]; funding: Funding[] } = readJson
 
 const storyById = new Map(stories.map((s) => [s.id, s]));
 export const storyFor = (id: number): Story | undefined => storyById.get(id);
+const storyBySlug = new Map(stories.map((s) => [s.slug, s]));
+export const storyForSlug = (slug: string): Story | undefined => storyBySlug.get(slug);
+/** Old story addresses that now point at the story they were merged into (redirects.mjs). */
+export const storyRedirects: { from: string; to: string }[] = loadRedirects(DATA_DIR);
 const threadById = new Map(threads.map((t) => [t.id, t]));
 export const threadFor = (id: number | null | undefined): Thread | undefined => (id ? threadById.get(id) : undefined);
 

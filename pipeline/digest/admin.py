@@ -122,7 +122,7 @@ def run() -> dict:
                 continue
             f = funnel[d]
             f["fetched"] += 1
-            if a.status == "published":
+            if a.status in ("published", "overflow"):  # overflow: coverage of a full story (cluster.py)
                 f["published"] += 1
                 m = (a.enrich_model or "heuristic").split(":")[0]
                 by_model.setdefault(d, {})[m] = by_model.get(d, {}).get(m, 0) + 1
@@ -143,7 +143,7 @@ def run() -> dict:
                 continue
             p = per_src.setdefault(a.source_id, {"articles": 0, "published": 0, "rejected": 0, "discussed": 0})
             p["articles"] += 1
-            if a.status == "published":
+            if a.status in ("published", "overflow"):
                 p["published"] += 1
                 if (a.discussion_points or 0) > 0 or (a.trend_score or 0) > 0:
                     p["discussed"] += 1

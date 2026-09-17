@@ -35,7 +35,8 @@ def run() -> dict:
     since = db.utcnow() - timedelta(minutes=45)
     with eng.connect() as conn:
         rows = conn.execute(
-            select(db.stories.c.slug).where(db.stories.c.status == "published", db.stories.c.updated_at >= since)
+            # A story just merged into another (merge.py) is submitted too: its address now redirects.
+            select(db.stories.c.slug).where(db.stories.c.status.in_(["published", "merged"]), db.stories.c.updated_at >= since)
         ).all()
         threads = conn.execute(
             select(db.threads.c.slug).where(db.threads.c.status == "published", db.threads.c.updated_at >= since, db.threads.c.story_count >= 2)

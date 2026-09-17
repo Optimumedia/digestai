@@ -16,10 +16,9 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime, timedelta, timezone
-from difflib import SequenceMatcher
 from typing import Callable
 
-from . import config
+from . import config, merge
 
 log = logging.getLogger("digest.quality")
 
@@ -127,39 +126,104 @@ def over_merged(stories: list[dict]) -> list[dict]:
     return [_item(s, f"{s['articleCount']} sources grouped into one story.", _unpublish(s)) for s in rows]
 
 
-def _tokens(text: str | None) -> list[str]:
-    return [t for t in re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).split() if t not in STOP]
+headline_similarity = merge.headline_similarity
 
 
-def headline_similarity(a: str, b: str) -> float:
-    ta, tb = _tokens(a), _tokens(b)
-    if not ta or not tb:
-        return 0.0
-    sa, sb = set(ta), set(tb)
-    jac = len(sa & sb) / len(sa | sb)
-    if jac < 0.4:
-        return jac
-    return max(jac, SequenceMatcher(None, " ".join(ta), " ".join(tb)).ratio())
+def _facts(s: dict) -> dict:
+    return {"headline": s.get("headline"), "entities": s.get("entities"), "at": _dt(s.get("firstPublishedAt"))}
 
 
-def duplicates(stories: list[dict], now: datetime, threshold: float = 0.8) -> list[dict]:
-    """Near-identical headlines among live stories. The copy with fewer sources is the one to
-    unpublish; the other is named in the detail."""
+def duplicates(stories: list[dict], now: datetime, suspects: list[dict] | None = None) -> list[dict]:
+    """Live stories that are one event, by the rule the pipeline merges with (merge.same_event):
+    the pairs it found with embeddings but left for review (`suspects`, from duplicates.json), and
+    what the wording and the names give away on their own. The copy with fewer sources is the one
+    to unpublish; the other is named in the detail."""
     live = sorted(live_stories(stories, now), key=lambda s: (-(s.get("articleCount") or 0), s.get("firstPublishedAt") or ""))
-    toks = [set(_tokens(s.get("headline"))) for s in live]
-    out, used = [], set()
+    by_id = {s.get("id"): s for s in live}
+    order = {s.get("id"): i for i, s in enumerate(live)}
+    reasons: dict[tuple, str] = {}
+    for p in suspects or []:
+        a, b = by_id.get(p.get("a")), by_id.get(p.get("b"))
+        if a is not None and b is not None and a is not b:
+            keep, dup = sorted((a, b), key=lambda s: order[s.get("id")])
+            reasons.setdefault((keep.get("id"), dup.get("id")), p.get("reason") or "alike")
     for i, keep in enumerate(live):
-        if keep.get("slug") in used:
+        for dup in live[i + 1:]:
+            reason = merge.same_event(_facts(keep), _facts(dup), None, 0.0)
+            if reason:
+                reasons.setdefault((keep.get("id"), dup.get("id")), reason)
+    out, used = [], set()
+    for (keep_id, dup_id), reason in sorted(reasons.items(), key=lambda kv: (order[kv[0][0]], order[kv[0][1]])):
+        if dup_id in used or keep_id in used:
             continue
-        for j in range(i + 1, len(live)):
-            dup = live[j]
-            if dup.get("slug") in used or len(toks[i]) < 3 or len(toks[j]) < 3:
-                continue
-            if len(toks[i] & toks[j]) / len(toks[i] | toks[j]) < 0.4:
-                continue
-            if headline_similarity(keep.get("headline"), dup.get("headline")) >= threshold:
-                used.add(dup.get("slug"))
-                out.append(_item(dup, f"Same news as \"{keep.get('headline')}\" ({keep.get('articleCount') or 1} sources).", _unpublish(dup)))
+        keep, dup = by_id[keep_id], by_id[dup_id]
+        used.add(dup_id)
+        out.append(_item(dup, f"Same news as \"{keep.get('headline')}\" ({keep.get('articleCount') or 1} sources): {reason}.", _unpublish(dup)))
+    return out
+
+
+# ---------------------------------------------------------------------------- headline check
+
+NUMBER = re.compile(r"(?<![\w.])[$€£]?(\d[\d,]*(?:\.\d+)?)\s*(trillion|billion|million|thousand|tn|bn|mn|[tbmk](?![a-z])|%|percent)?(?![\w])", re.I)
+MAGNITUDE = {"trillion": 1e12, "tn": 1e12, "t": 1e12, "billion": 1e9, "bn": 1e9, "b": 1e9,
+             "million": 1e6, "mn": 1e6, "m": 1e6, "thousand": 1e3, "k": 1e3}
+WORD_NUMBERS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+                "eleven": 11, "twelve": 12, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "hundred": 100}
+MIN_SOURCE_CHARS = 200  # less source text than this cannot support or contradict anything
+
+
+def numbers_in(text: str | None) -> list[tuple[str, float]]:
+    """Figures in a text as (as written, value): "€3B", "3 billion" and "3,000m" all read 3e9."""
+    out = []
+    for m in NUMBER.finditer(text or ""):
+        try:
+            value = float(m.group(1).replace(",", ""))
+        except ValueError:
+            continue
+        unit = (m.group(2) or "").lower()
+        out.append((m.group(0).strip(), value * MAGNITUDE.get(unit, 1.0)))
+    for word, value in WORD_NUMBERS.items():
+        if re.search(rf"\b{word}\b", text or "", re.I):
+            out.append((word, float(value)))
+    return out
+
+
+def _same_figure(a: float, b: float) -> bool:
+    # Money is rounded and converted ("€3B" against "$3.5 billion"): a fifth either way.
+    return abs(a - b) <= (0.2 * max(abs(a), abs(b)) if max(abs(a), abs(b)) >= 1e6 else 0.0)
+
+
+def _flat(text: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (text or "").lower())
+
+
+def unsupported_claims(story: dict) -> list[str]:
+    """What the headline states that no source does: its figures, and the named entities it uses.
+    Checked against source material only (article titles, feed descriptions and the text shown),
+    never against the model's own digests. Empty when there is too little source text to judge."""
+    arts = story.get("articles") or []
+    source = " ".join(str(x) for a in arts for x in (a.get("title"), a.get("description"), a.get("contentMd")) if x)
+    if len(source) < MIN_SOURCE_CHARS:
+        return []
+    headline = story.get("headline") or ""
+    found = [v for _w, v in numbers_in(source)]
+    missing = [w for w, v in numbers_in(headline) if not any(_same_figure(v, f) for f in found)]
+    flat_source = _flat(source)
+    for kind in ("companies", "models", "people"):
+        for name in (story.get("entities") or {}).get(kind) or []:
+            name = str(name).strip()
+            if name and name.lower() in headline.lower() and _flat(name) not in flat_source:
+                missing.append(name)
+    return list(dict.fromkeys(missing))
+
+
+def headline_check(stories: list[dict], now: datetime) -> list[dict]:
+    out = []
+    for s in live_stories(stories, now):
+        missing = unsupported_claims(s)
+        if missing:
+            quoted = ", ".join(f'"{m}"' for m in missing[:4])
+            out.append(_item(s, f"The headline says {quoted}, which no source mentions.", _unpublish(s)))
     return out
 
 
@@ -289,7 +353,11 @@ def cards(flags: dict[str, list[dict]]) -> list[dict]:
         "Open the story. If the headline and summary do not match the sources, unpublish it; the grouping rule needs tightening.", f.get("overMerged", []))
     add("duplicates", "warning", n(f.get("duplicates", []), "The same news appears twice.", "{n} stories repeat news that is already on the site."),
         "Readers see the same headline twice on the front page, which looks like a mistake.",
-        "Unpublish the copy listed here; the version with more sources stays.", f.get("duplicates", []))
+        "Unpublish the copy listed here; the version with more sources stays. Pairs the pipeline is sure about merge on their own.", f.get("duplicates", []))
+    add("headline_check", "warning", n(f.get("headlineCheck", []), "A headline states something its sources do not.", "{n} headlines state something their sources do not."),
+        "Every figure and name in a headline should come from the source articles. One that does not may be a summarising error, and readers trust the headline most.",
+        "Open the story and compare the headline with the sources. If it is wrong, unpublish it; the figure may also be written differently in the source, in which case nothing is needed.",
+        f.get("headlineCheck", []))
     add("broken_images", "info", n(f.get("brokenImages", []), "A picture on the front page does not load.", "{n} pictures on the front page do not load."),
         "The page hides a broken picture, so readers see the story without one. It looks less polished but nothing is broken.",
         "No action needed. It is usually the publisher blocking other sites from showing its pictures.", f.get("brokenImages", []))
@@ -334,7 +402,8 @@ def run(now: datetime, own_pages: list[dict] | None = None, fetch: Callable[[str
         "oldNews": old_news(stories, now),
         "singleLead": single_source_lead(briefing, by_id),
         "overMerged": over_merged(stories),
-        "duplicates": duplicates(stories, now),
+        "duplicates": duplicates(stories, now, _load("duplicates.json", [])),
+        "headlineCheck": headline_check(stories, now),
         "trackerGaps": tracker_gaps(_load("trackers.json", {})),
         "hedged": hedged_headlines(stories, now),
         "audio": audio_mismatch(_load("episodes.json", []), briefing, by_id),
