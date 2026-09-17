@@ -111,6 +111,17 @@ def _source_cfg(key: str) -> dict:
     return _SOURCE_CFG.get(key, {})
 
 
+AI_WORDS = re.compile(r"\b(?:AI|A\.I\.|artificial intelligence|generative|GenAI|ChatGPT|GPT|Gemini|Claude|Copilot|"
+                      r"LLMs?|chatbots?|agents?|agentic|machine learning|automation|automate[ds]?|Perplexity|Midjourney|"
+                      r"AI Overviews?|AI Mode|Performance Max|Advantage\+)\b", re.I)
+
+
+def _ai_only(key: str) -> bool:
+    """General marketing blogs publish many posts that are not about AI: keep only those whose title or
+    summary is, before anything is downloaded or summarised."""
+    return bool(_source_cfg(key).get("ai_only"))
+
+
 def _max_items(key: str) -> int:
     return int(_source_cfg(key).get("max_items", config.MAX_FETCH_PER_SOURCE))
 
@@ -166,9 +177,12 @@ def _rss_items(source) -> list[dict]:
     if feed.bozo and not feed.entries:
         raise ValueError(f"unparseable feed: {feed.bozo_exception}")
     items = []
+    ai_only = _ai_only(source.key)
     for e in feed.entries:
         link = e.get("link") or ""
         if not link.startswith("http"):
+            continue
+        if ai_only and not AI_WORDS.search(f"{e.get('title') or ''} {re.sub(r'<[^>]+>', ' ', e.get('summary') or '')[:600]}"):
             continue
         items.append({
             "url": link,

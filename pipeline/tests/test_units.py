@@ -631,6 +631,28 @@ def test_compare_average_position_is_impression_weighted():
     assert small["state"] == "small" and small["tone"] == "neutral", small
 
 
+def test_briefing_keeps_a_place_for_the_focus_category():
+    from datetime import datetime, timedelta, timezone
+
+    from digest import config, export
+
+    now = datetime(2026, 9, 17, 12, 0, tzinfo=timezone.utc)
+    iso = lambda h: (now - timedelta(hours=h)).isoformat().replace("+00:00", "Z")  # noqa: E731
+
+    def story(i, score, category="models", hours=2):
+        return {"id": i, "score": score, "pinned": False, "category": category, "firstPublishedAt": iso(hours),
+                "articles": [{"publishedAt": iso(hours)}], "articleCount": 1, "summaryMd": "words " * 50}
+
+    stories = [story(i, 0.9 - i * 0.01) for i in range(1, 20)] + [story(99, 0.2, "marketing")]
+    top = export.build_briefing(stories, now)["storyIds"]
+    assert len(top) == export.BRIEFING_SIZE and top[-1] == 99 and 1 in top
+    # Already in the top on score: nothing moves. No fresh focus story: nothing is forced in.
+    assert export.build_briefing([story(1, 0.95, "marketing")] + stories[:-1], now)["storyIds"][0] == 1
+    stale = stories[:-1] + [story(99, 0.2, "marketing", hours=200)]
+    assert 99 not in export.build_briefing(stale, now)["storyIds"]
+    assert config.FOCUS_CATEGORIES.get("marketing", 0) > 0 and list(config.CATEGORIES)[1] == "marketing"
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

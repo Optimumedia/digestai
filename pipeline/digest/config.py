@@ -146,6 +146,7 @@ ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS = float(os.environ.get("ENRICH_FIRST_ARTIC
 
 CATEGORIES: dict[str, str] = {
     "models": "Generative AI & Models",
+    "marketing": "Marketing & Small Business",
     "agents": "Agents & Tools",
     "research": "Research",
     "business": "Business & Funding",
@@ -155,6 +156,12 @@ CATEGORIES: dict[str, str] = {
     "robotics": "Robotics & Physical AI",
     "society": "Society & Work",
 }
+
+# Focus categories: a score bonus so their stories hold top places, and a reserved place in the
+# daily briefing when one is fresh. Marketing & Small Business (practical AI for marketers and small
+# businesses) is one of the site's top three focuses (Martin, 17 Sep 2026).
+FOCUS_CATEGORIES: dict[str, float] = {"marketing": 0.06}
+BRIEFING_FOCUS_CATEGORY = "marketing"
 
 # Risky-claim hold (hold.py). Off: Martin decided on 14 Sep that news is published without waiting for
 # approval. Set HOLD_RISKY_CLAIMS=1 to hold single-source allegations for review again.

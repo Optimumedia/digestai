@@ -236,7 +236,9 @@ def score_stories(conn) -> int:
         # is not "new" in the same sense, so its recency counts for less.
         breaking = any((m.content_type in (None, "news", "product", "research")) and source_type.get(m.source_id) != "newsletter"
                        for m in members)
-        recency_weight = 1.0 if breaking else 0.55
+        # Practical guides are the point of a focus category, so they keep full freshness there.
+        focus = config.FOCUS_CATEGORIES.get(s.category or "", 0.0)
+        recency_weight = 1.0 if (breaking or focus) else 0.55
         breadth = min(1.0, math.log1p(len(members)) / math.log(6))
         pop = max(popularity(m.discussion_points, m.trend_score) for m in members)
         age_h = max(1.0, (now - first).total_seconds() / 3600)
@@ -250,7 +252,8 @@ def score_stories(conn) -> int:
             + 0.22 * freshness * recency_weight
             + 0.10 * breadth
             + 0.10 * velocity
-            + 0.08 * min(1.0, math.log1p(engagement) / 6.0),
+            + 0.08 * min(1.0, math.log1p(engagement) / 6.0)
+            + focus,
             4,
         )
         if s.score is None or abs(s.score - score) > 1e-4:

@@ -4,11 +4,18 @@ import StoryRow from "../components/StoryRow.astro";
 import Coverage from "../components/Coverage.astro";
 import Rail from "../components/Rail.astro";
 import ListenPlayer from "../components/ListenPlayer.astro";
-import { briefing, briefingStories, storiesByDay, plain, firstSentence, categories, meta, formatDate, episodes } from "../lib/data";
+import { briefing, briefingStories, storiesByDay, storiesInCategory, plain, firstSentence, categories, meta, formatDate, episodes } from "../lib/data";
 
 const lead = briefingStories[0];
 const rest = briefingStories.slice(1);
 const briefingIds = new Set(briefingStories.map((s) => s.id));
+// Marketing & Small Business is a top focus: its latest week of stories get their own block under the
+// briefing, and are not repeated in the day lists below.
+const weekAgo = Date.parse(meta.generatedAt) - 7 * 24 * 3600 * 1000;
+const focusStories = storiesInCategory("marketing")
+  .filter((s) => !briefingIds.has(s.id) && Date.parse(s.firstPublishedAt || s.updatedAt || "0") >= weekAgo)
+  .slice(0, 5);
+const shownIds = new Set([...briefingIds, ...focusStories.map((s) => s.id)]);
 const episode = episodes[0];
 const episodeIsToday = episode?.date === briefing.date;
 const days = [...storiesByDay().entries()].slice(0, 4);
@@ -78,6 +85,18 @@ const jsonLd = {
         </section>
       )}
 
+      {focusStories.length > 0 && (
+        <section class="focus" aria-labelledby="focus-h">
+          <div class="dayhead">
+            <h2 id="focus-h">For marketers &amp; small businesses</h2>
+            <a class="eyebrow" href="/category/marketing">Practical AI →</a>
+          </div>
+          <ol class="river">
+            {focusStories.map((s) => <StoryRow story={s} />)}
+          </ol>
+        </section>
+      )}
+
       <section id="your-topics" class="your-topics" hidden>
         <div class="dayhead">
           <h2>Your topics</h2>
@@ -95,7 +114,7 @@ const jsonLd = {
             <a class="eyebrow" href={`/daily/${day}`}>{list.length} stories →</a>
           </div>
           <ol class="river">
-            {list.filter((s) => !briefingIds.has(s.id)).slice(0, i === 0 ? 14 : 8).map((s) => <StoryRow story={s} />)}
+            {list.filter((s) => !shownIds.has(s.id)).slice(0, i === 0 ? 14 : 8).map((s) => <StoryRow story={s} />)}
           </ol>
         </section>
       ))}

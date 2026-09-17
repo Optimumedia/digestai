@@ -49,6 +49,14 @@ def build_briefing(stories: list[dict], now) -> dict:
             break
     older = sorted((s for s in stories if not new_story(s, cutoff) and developing(s, cutoff)), key=rank)
     pool = fresh + older
+    # A focus category (config.BRIEFING_FOCUS_CATEGORY) always has a place when it has a fresh story:
+    # the best one takes the last place if none made the top on score alone.
+    focus = config.BRIEFING_FOCUS_CATEGORY
+    if focus and not any(s.get("category") == focus for s in pool[:BRIEFING_SIZE]):
+        pick = next((s for s in fresh if s.get("category") == focus), None)
+        if pick and len(pool) >= BRIEFING_SIZE:
+            pool = [s for s in pool if s is not pick]
+            pool.insert(BRIEFING_SIZE - 1, pick)
     top = pool[:BRIEFING_SIZE]
     also = pool[BRIEFING_SIZE : BRIEFING_SIZE + BRIEFING_ALSO]
     words = sum(word_count(s.get("summaryMd") or "") for s in top) + 25 * len(also)

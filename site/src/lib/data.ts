@@ -158,6 +158,7 @@ export const DEFAULT_CATEGORIES: Record<string, string> = {
   enterprise: "Enterprise & Industry",
   robotics: "Robotics & Physical AI",
   society: "Society & Work",
+  marketing: "Marketing & Small Business",
 };
 
 export const meta: Meta = readJson<Meta>("meta.json", {

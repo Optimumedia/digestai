@@ -20,7 +20,7 @@ MAX_PER_RUN = 400
 CATEGORY_COLORS = {
     "models": "#4f6cf0", "agents": "#12a37a", "research": "#8b5cf6", "business": "#e0961b",
     "policy": "#e5484d", "hardware": "#0ea5c4", "enterprise": "#8892a0", "robotics": "#e04c8e",
-    "society": "#7cb518",
+    "society": "#7cb518", "marketing": "#f97316",
 }
 
 
