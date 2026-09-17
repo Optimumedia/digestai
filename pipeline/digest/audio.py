@@ -280,7 +280,7 @@ def build_work_script(week: str, items: list[dict], skips: list[dict] | None = N
     # "the week of the eighth to the fourteenth of September", or both months when the week straddles two.
     first = f"the {_ordinal(monday.day)}" if monday.month == sunday.month else _spoken_day(monday)
     when = f"the week of {first} to {_spoken_day(sunday)}"
-    opening = (f"This is AI at Work from Digest AI: a five-minute run through what changed for marketers "
+    opening = (f"This is AI at Work from Digest AI: a short run through what changed for marketers "
                f"and small teams {when}. {_count(len(picks)).capitalize()} "
                f"{'thing' if len(picks) == 1 else 'things'} to know")
     if free:

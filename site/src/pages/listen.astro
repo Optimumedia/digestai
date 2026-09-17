@@ -20,7 +20,7 @@ const jsonLd = {
   url: `${meta.siteUrl}/listen`,
   webFeed: feed,
   image: `${meta.siteUrl}/podcast-cover.png`,
-  description: "The five AI stories that matter today, read in about five minutes every morning.",
+  description: "The five AI stories that matter today, read aloud every morning.",
   publisher: { "@type": "Organization", name: "Digest AI", url: meta.siteUrl },
 };
 const workJsonLd = workEpisodes.length
@@ -31,7 +31,7 @@ const workJsonLd = workEpisodes.length
       url: `${meta.siteUrl}/listen#work`,
       webFeed: workFeed,
       image: `${meta.siteUrl}/podcast-cover.png`,
-      description: "A five-minute run through what changed for marketers and small teams this week, every Monday.",
+      description: "A few minutes on what changed for marketers and small teams this week, every Monday.",
       publisher: { "@type": "Organization", name: "Digest AI", url: meta.siteUrl },
     }
   : null;

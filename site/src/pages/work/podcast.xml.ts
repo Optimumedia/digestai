@@ -35,9 +35,9 @@ export const GET: APIRoute = () => {
   <link>${site}/work</link>
   <atom:link href="${site}/work/podcast.xml" rel="self" type="application/rss+xml" />
   <language>en</language>
-  <description>A five-minute run through what changed for marketers and small teams this week: what each thing does, who it helps, what it costs, how long it takes and the one catch. Every Monday. The written version, with links, is at digestai.news/work.</description>
+  <description>A few minutes on what changed for marketers and small teams this week: what each thing does, who it helps, what it costs, how long it takes and the one catch. Every Monday. The written version, with links, is at digestai.news/work.</description>
   <itunes:author>Digest AI</itunes:author>
-  <itunes:summary>A five-minute run through what changed for marketers and small teams this week, every Monday.</itunes:summary>
+  <itunes:summary>A few minutes on what changed for marketers and small teams this week, every Monday.</itunes:summary>
   <itunes:owner><itunes:name>Digest AI</itunes:name><itunes:email>hello@digestai.news</itunes:email></itunes:owner>
   <itunes:image href="${site}/podcast-cover.png" />
   <image><url>${site}/podcast-cover.png</url><title>Digest AI: AI at Work</title><link>${site}/work</link></image>

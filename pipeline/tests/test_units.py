@@ -1189,7 +1189,7 @@ def test_work_audio_script_says_what_it_does_costs_and_takes():
                                           [WORK_STORIES[15]])
     parts = text.split("\n\n")
     assert len(picks) == 4 and len(parts) == 7   # the opening, four items, what to skip, the close
-    assert parts[0].startswith("This is AI at Work from Digest AI: a five-minute run through what changed "
+    assert parts[0].startswith("This is AI at Work from Digest AI: a short run through what changed "
                                "for marketers and small teams the week of the fourteenth to the twentieth "
                                "of September."), parts[0]
     assert "Four things to know, and three of them cost nothing to start." in parts[0]
