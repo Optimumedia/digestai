@@ -4,6 +4,8 @@ import Rail from "../../components/Rail.astro";
 import Coverage from "../../components/Coverage.astro";
 import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import StoryRedirect from "../../components/StoryRedirect.astro";
+import WorkCard from "../../components/WorkCard.astro";
+import { toolFor, toolSlug, workCardFor } from "../../lib/work";
 import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, dateTime, shortDate, readingMinutes, related, entitySlug, meta, threadFor, threadStories, topicSlugs, storiesInCategory, storyIndexable, storyForSlug, storyRedirects, shareImage } from "../../lib/data";
 
 export function getStaticPaths() {
@@ -26,6 +28,10 @@ const rel = related(story, 5);
 const relIds = new Set(rel.map((s) => s.id));
 const moreInCategory = storiesInCategory(story.category || "").filter((s) => s.id !== story.id && !relIds.has(s.id)).slice(0, 5);
 const discussions = story.discussions || [];
+// AI at Work: when the story carries a practical card it goes above the digest, because a reader
+// who came for the tool wants the tool, not the news write-up.
+const workCard = workCardFor(story);
+const workTool = workCard ? toolFor(workCard) : undefined;
 const thread = threadFor(story.threadId);
 const earlier = thread ? threadStories(thread).filter((s) => s.id !== story.id && (s.firstPublishedAt || "") <= (story.firstPublishedAt || "")).reverse() : [];
 const laterEpisodes = thread ? threadStories(thread).filter((s) => s.id !== story.id && (s.firstPublishedAt || "") > (story.firstPublishedAt || "")).reverse() : [];
@@ -96,9 +102,25 @@ const jsonLd = {
         </div>
       </header>
 
+      {workCard && (
+        <section class="work-section workstory" aria-labelledby="work-h">
+          <div class="dayhead">
+            <h2 id="work-h">What you can do with it</h2>
+            <a class="eyebrow" href="/work">AI at Work →</a>
+          </div>
+          <WorkCard story={story} card={workCard} level="p" linkStory={false} />
+          {workTool && (
+            <p class="mono muted">
+              <a href={`/work/tools#${toolSlug(workTool)}`}>{workTool.tool} in the tool directory</a>
+              {workTool.changeCount > 1 && <> · {workTool.changeCount} changes covered</>}
+            </p>
+          )}
+        </section>
+      )}
+
       {story.keyPoints.length > 0 && (
         <section class="keypoints">
-          <h2>Key points</h2>
+          <h2>{workCard ? "Key points from the news" : "Key points"}</h2>
           <ul>{story.keyPoints.map((k) => <li>{k}</li>)}</ul>
         </section>
       )}

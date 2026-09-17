@@ -16,16 +16,16 @@ supabase/   SQL to run once in the Supabase project (indexes, row security, edit
 | fetch   | pulls new links from `pipeline/digest/sources.yaml` (RSS, Hacker News, Reddit)  |
 | extract | fetches each page and extracts the article body (JSON-LD, trafilatura, readability) with boilerplate scrubbing and validation |
 | gate    | English only, AI relevance score, spam and press-release filters, date sanity, duplicate titles |
-| enrich  | one Gemini Flash call per article (Groq fallback): headline, digest, key points, why it matters, category, entities, importance |
+| enrich  | one Gemini Flash call per article (Groq fallback): headline, digest, key points, why it matters, category, entities, importance, and a practical AI at Work card when a small team can act on it |
 | cluster | local sentence embeddings group articles covering the same event into one story |
 | threads | groups stories about the same saga over 14 days into developing threads ("the story so far") |
 | pulse   | summarises the top Hacker News comments on well-discussed stories (LLM, budgeted) |
 | discuss | finds the Hacker News thread for articles that arrived via feeds (Algolia API) |
 | rank    | learns from reader events which articles perform, predicts for new ones, scores stories, adjusts source weights, spins up discovery feeds for hot topics |
-| export  | writes `site/src/data/*.json` for the site build, including the daily briefing selection |
+| export  | writes `site/src/data/*.json` for the site build, including the daily briefing selection and the AI at Work section (`work.json`, `work-briefing.json`) |
 | push    | sends one breaking story per run (three a day at most) to browsers that turned on alerts, via Web Push with our own VAPID keys; prunes dead subscriptions |
 | topics  | writes model-authored introductions for topic hubs (companies, models, people) |
-| intros  | writes introductions for weekly recaps and the model and funding trackers |
+| intros  | writes introductions for weekly recaps, the model and funding trackers and the AI at Work tool directory |
 | images  | renders a 1200×630 share card per story into `site/public/og/` |
 | audio   | reads the five briefing stories aloud once a day (Piper neural voice on the runner, MP3) and publishes /podcast.xml and /listen |
 | newsletter | builds the daily briefing email and sends it through Kit once a day at `NEWSLETTER_HOUR_UTC` |
@@ -66,6 +66,9 @@ the story so far, credited full text, coverage and discussion), `/thread/<slug>`
 (developing stories with timelines), `/models` and `/funding` (trackers extracted from the news),
 `/week/<iso-week>` (weekly recap), `/river` (five days of headlines), `/category/<key>`,
 `/topic/<entity>`, `/daily/<date>`, `/saved`, `/search` (Pagefind, static), `/rss.xml`,
+`/work` (AI at Work: practical AI for marketing, customers and small-business admin, with its own
+briefing, sub-menu and accent), `/work/tools` (tool directory), `/work/week/<iso-week>` (playbook),
+`/work/rss.xml`,
 `/news-sitemap.xml` (Google News, last 48 h), `/sitemap-index.xml`, `/about`, `/sources`.
 
 LLM usage is paced: a daily budget per provider (`GEMINI_DAILY_BUDGET`, default 1,200 of the

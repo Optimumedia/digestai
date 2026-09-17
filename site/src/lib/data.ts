@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { marked } from "marked";
-import { published, entitySlug, dateKey, weekKey, storyIndexable, noindexPaths, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES } from "./indexing.mjs";
+import { published, entitySlug, dateKey, weekKey, storyIndexable, noindexPaths, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES, WORK_MIN_ITEMS } from "./indexing.mjs";
 
 // Indexing rules live in indexing.mjs so the sitemap in astro.config.mjs applies the same ones.
-export { entitySlug, dateKey, weekKey, storyIndexable, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES };
+export { entitySlug, dateKey, weekKey, storyIndexable, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES, WORK_MIN_ITEMS };
 import { loadRedirects } from "./redirects.mjs";
 
 export interface Discussion {

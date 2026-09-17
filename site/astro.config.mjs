@@ -64,6 +64,9 @@ export default defineConfig({
         const mod = lastmod.get(p);
         if (mod) item.lastmod = mod;
         if (p === "" || p === "/today") { item.changefreq = "hourly"; item.priority = 1.0; }
+        else if (p === "/work") { item.changefreq = "hourly"; item.priority = 0.9; }
+        else if (p === "/work/tools") { item.changefreq = "daily"; item.priority = 0.8; }
+        else if (p.startsWith("/work/week/")) { item.changefreq = "weekly"; item.priority = 0.5; }
         else if (archivedPaths.has(p) && !liveStories.has(p)) { item.changefreq = "yearly"; item.priority = 0.2; }
         else if (p.startsWith("/story/")) { item.changefreq = "daily"; item.priority = 0.8; }
         else if (p.startsWith("/topic/") || p.startsWith("/thread/") || p === "/models" || p === "/funding") { item.changefreq = "daily"; item.priority = 0.7; }

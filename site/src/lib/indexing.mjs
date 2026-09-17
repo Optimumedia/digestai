@@ -7,6 +7,8 @@
 export const TOPIC_MIN_STORIES = 3;
 export const DAILY_MIN_STORIES = 3;
 export const WEEK_MIN_STORIES = 5;
+/** An AI at Work playbook week, or the section itself, with fewer practical items than this is thin. */
+export const WORK_MIN_ITEMS = 3;
 /** A story with one source, no primary document and importance at or below this is a thin page. */
 export const THIN_STORY_IMPORTANCE = 4;
 
@@ -72,5 +74,18 @@ export function noindexPaths(stories, entities) {
   }
   for (const [day, n] of days) if (n < DAILY_MIN_STORIES) out.add(`/daily/${day}`);
   for (const [week, n] of weeks) if (n < WEEK_MIN_STORIES) out.add(`/week/${week}`);
+  // AI at Work: the same bar, counted over stories that carry a practical card. The templates mark
+  // these pages thin from the same numbers, so the meta tag and the sitemap always agree.
+  const work = stories.filter((s) => s.workCard);
+  const workWeeks = new Map();
+  for (const s of work) {
+    const key = weekKey(s.firstPublishedAt || s.updatedAt);
+    workWeeks.set(key, (workWeeks.get(key) || 0) + 1);
+  }
+  for (const [week, n] of workWeeks) if (n < WORK_MIN_ITEMS) out.add(`/work/week/${week}`);
+  if (work.length < WORK_MIN_ITEMS) out.add("/work");
+  if (new Set(work.map((s) => `${s.workCard.tool}|${s.workCard.maker || ""}`.toLowerCase())).size < WORK_MIN_ITEMS) {
+    out.add("/work/tools");
+  }
   return out;
 }

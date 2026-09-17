@@ -1,0 +1,167 @@
+---
+import Work from "../../layouts/Work.astro";
+import WorkCard from "../../components/WorkCard.astro";
+import { WORK_MIN_ITEMS, formatDate, dateTime, meta } from "../../lib/data";
+import {
+  JOBS, SECTION_TAGLINE, briefingAlso, briefingItems, sectionStories, work, workBriefing, workWeeks, weekStories,
+} from "../../lib/work";
+
+const thisWeek = workWeeks[0];
+const week = thisWeek ? weekStories(thisWeek) : { changed: [], tryThis: [], skip: [], tools: 0 };
+const briefed = new Set([...briefingItems, ...briefingAlso].map((s) => s.id));
+const rest = sectionStories.filter((s) => !briefed.has(s.id)).slice(0, 18);
+// The filter works on every card the page shows, and only offers a job that has cards behind it.
+const shown = [...briefingItems, ...rest];
+const jobs = JOBS.map((j) => ({ ...j, count: shown.filter((s) => s.workCard.jobs.includes(j.key)).length }))
+  .filter((j) => j.count > 0);
+const free = sectionStories.filter((s) => ["free", "free tier", "included"].includes(s.workCard.costKind)).length;
+const description = briefingItems.length
+  ? `${briefingItems.length} AI things a marketer or small business can use today: ${briefingItems.slice(0, 3).map((s) => s.workCard.tool).join(", ")}. What each one does, what it costs and the catch.`
+  : SECTION_TAGLINE;
+const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: "AI at Work",
+    description: SECTION_TAGLINE,
+    url: `${meta.siteUrl}/work`,
+    isPartOf: { "@type": "WebSite", name: "Digest AI", url: meta.siteUrl },
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: "Practical AI for marketing and small business",
+    numberOfItems: briefingItems.length,
+    itemListElement: briefingItems.map((s, i) => ({
+      "@type": "ListItem", position: i + 1, name: s.workCard.tool, url: `${meta.siteUrl}/story/${s.slug}`,
+    })),
+  },
+];
+---
+
+<Work title="AI at Work" description={description} current="home" jsonLd={jsonLd} thin={sectionStories.length < WORK_MIN_ITEMS}>
+  <header class="page-head work-head">
+    <div class="eyebrow">Practical AI · updated <time datetime={work.generatedAt}>{dateTime(work.generatedAt)}</time></div>
+    <h1>AI you can actually use this week</h1>
+    <p>
+      The AI that changes marketing output, brings in customers and takes admin off a small team's hands.
+      Every item says what it does, who it is for, what it costs, how long it takes and what the catch is.
+      No funding rounds, no benchmarks, nothing you cannot act on.
+    </p>
+  </header>
+
+  {sectionStories.length === 0 && (
+    <p class="muted" style="padding: 32px 0">
+      Nothing here yet. Items appear as soon as the desk covers a tool, a feature or a how-to a small team can use.
+      The <a href="/category/marketing">Marketing &amp; Small Business</a> stories are the nearest thing meanwhile.
+    </p>
+  )}
+
+  {week.changed.length > 0 && (
+    <section class="work-lead" aria-labelledby="changed-h">
+      <h2 id="changed-h">What changed this week</h2>
+      <p class="work-lead-line">
+        {week.changed.length} {week.changed.length === 1 ? "thing" : "things"} worth knowing across {week.tools} {week.tools === 1 ? "tool" : "tools"}.
+        {week.tryThis.length > 0 && <> {week.tryThis.length} you can try now{week.skip.length > 0 && <>, {week.skip.length} to leave for later</>}.</>}
+      </p>
+      <ul class="work-lead-list">
+        {week.changed.slice(0, 5).map((s) => (
+          <li>
+            <a href={`/story/${s.slug}`}><b>{s.workCard.tool}</b> {s.workCard.whatItDoes}</a>
+            <span class="mono muted">{s.workCard.effort || "effort not stated"} · {s.workCard.cost}</span>
+          </li>
+        ))}
+      </ul>
+      <a class="eyebrow" href={`/work/week/${thisWeek}`}>The week's playbook →</a>
+    </section>
+  )}
+
+  {jobs.length > 1 && (
+    <div class="workjobs" role="group" aria-label="Filter by job" data-workfilter>
+      <button type="button" class="workjob" aria-pressed="true" data-job="all">Everything <span class="mono">{shown.length}</span></button>
+      {jobs.map((j) => (
+        <button type="button" class="workjob" aria-pressed="false" data-job={j.key} title={j.blurb}>{j.label} <span class="mono">{j.count}</span></button>
+      ))}
+      <span class="mono muted workjob-note">{free} of {sectionStories.length} cost nothing to start</span>
+    </div>
+  )}
+  <p class="muted work-empty" data-workempty hidden>Nothing on this page does that job. The <a href="/work/tools">tool directory</a> goes back further.</p>
+
+  {briefingItems.length > 0 && (
+    <section aria-labelledby="brief-h">
+      <div class="dayhead">
+        <h2 id="brief-h">Today's five</h2>
+        <span class="eyebrow">
+          {formatDate(workBriefing.date + "T12:00:00Z", { day: "numeric", month: "long" })} · last {workBriefing.windowHours} hours · {workBriefing.stats.free} free
+        </span>
+      </div>
+      <p class="muted work-note">
+        Ordered by how much use they are to a small team, not by how big the news is. The news order is on the <a href="/today">daily briefing</a>.
+      </p>
+      <div class="workgrid" data-workgrid>
+        {briefingItems.map((s) => <WorkCard story={s} card={s.workCard} level="h3" />)}
+      </div>
+      {briefingAlso.length > 0 && (
+        <ul class="coverage work-also">
+          {briefingAlso.map((s) => (
+            <li>
+              <a class="t" href={`/story/${s.slug}`}>{s.workCard.tool}: {s.workCard.whatItDoes}</a>
+              <span class="mono muted">{s.workCard.cost}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )}
+
+  {rest.length > 0 && (
+    <section aria-labelledby="more-h">
+      <div class="dayhead"><h2 id="more-h">More from the section</h2><a class="eyebrow" href="/work/tools">Tool directory →</a></div>
+      <div class="workgrid" data-workgrid>
+        {rest.map((s) => <WorkCard story={s} card={s.workCard} level="h3" />)}
+      </div>
+    </section>
+  )}
+
+  {workWeeks.length > 1 && (
+    <section aria-labelledby="weeks-h">
+      <div class="dayhead"><h2 id="weeks-h">Earlier weeks</h2></div>
+      <ul class="coverage">
+        {workWeeks.slice(0, 8).map((w) => {
+          const data = weekStories(w);
+          return (
+            <li>
+              <a class="t" href={`/work/week/${w}`}>Week {w}</a>
+              <span class="mono muted">{data.changed.length} items · {data.tools} tools</span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  )}
+</Work>
+
+{/* The filter is an extra, not the page: without JavaScript every card stays visible. */}
+<script is:inline>
+  (() => {
+    const bar = document.querySelector("[data-workfilter]");
+    const grids = [...document.querySelectorAll("[data-workgrid]")];
+    if (!bar || !grids.length) return;
+    bar.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-job]");
+      if (!btn) return;
+      const job = btn.dataset.job;
+      for (const b of bar.querySelectorAll("button[data-job]")) b.setAttribute("aria-pressed", String(b === btn));
+      let left = 0;
+      for (const grid of grids) {
+        for (const card of grid.querySelectorAll(".workcard")) {
+          const jobs = (card.dataset.jobs || "").split(" ");
+          card.hidden = job !== "all" && !jobs.includes(job);
+          if (!card.hidden) left++;
+        }
+      }
+      const empty = document.querySelector("[data-workempty]");
+      if (empty) empty.hidden = left > 0;
+    });
+  })();
+</script>

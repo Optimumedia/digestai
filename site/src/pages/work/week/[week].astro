@@ -1,0 +1,89 @@
+---
+import Work from "../../../layouts/Work.astro";
+import WorkCard from "../../../components/WorkCard.astro";
+import { WORK_MIN_ITEMS, formatDate, meta, weekMonday } from "../../../lib/data";
+import { weekStories, workWeeks } from "../../../lib/work";
+
+export function getStaticPaths() {
+  return workWeeks.map((week) => ({ params: { week } }));
+}
+
+const { week } = Astro.params;
+const { changed, tryThis, skip, tools } = weekStories(week!);
+const monday = weekMonday(week!);
+const sunday = new Date(monday.getTime() + 6 * 864e5);
+const range = `${formatDate(monday.toISOString(), { day: "numeric", month: "short" })} to ${formatDate(sunday.toISOString(), { day: "numeric", month: "long", year: "numeric" })}`;
+const idx = workWeeks.indexOf(week!);
+const leadTools = [...new Set(changed.map((s) => s.workCard.tool))].slice(0, 3);
+const description = changed.length
+  ? `The practical AI changes of ${range} for marketers and small businesses: ${leadTools.join(", ")}. What to try, what to leave.`
+  : `Practical AI for marketers and small businesses, ${range}.`;
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Article",
+  headline: `AI at Work playbook, ${range}`,
+  description,
+  datePublished: changed[changed.length - 1]?.firstPublishedAt,
+  dateModified: changed[0]?.firstPublishedAt,
+  author: { "@type": "Organization", name: "Digest AI", url: meta.siteUrl },
+  mainEntityOfPage: `${meta.siteUrl}/work/week/${week}`,
+};
+---
+
+<Work title={`AI at Work playbook, ${range}`} description={description} current="week" jsonLd={jsonLd} thin={changed.length < WORK_MIN_ITEMS}>
+  <header class="page-head work-head">
+    <div class="eyebrow">Playbook · week {week}</div>
+    <h1>What to do about AI this week</h1>
+    <p>
+      {changed.length} practical {changed.length === 1 ? "item" : "items"} across {tools} {tools === 1 ? "tool" : "tools"}, {range}.
+      The things worth an hour of your time, and the things that can wait — with the reason they can wait.
+    </p>
+  </header>
+
+  {changed.length === 0 && <p class="muted" style="padding: 32px 0">Nothing practical was covered that week.</p>}
+
+  {changed.length > 0 && (
+    <section aria-labelledby="changed-h">
+      <div class="dayhead"><h2 id="changed-h">What changed</h2></div>
+      <ul class="coverage">
+        {changed.map((s) => (
+          <li>
+            <a class="t" href={`/story/${s.slug}`}><b>{s.workCard.tool}</b>: {s.workCard.whatItDoes}</a>
+            <span class="mono muted"><time datetime={s.firstPublishedAt || undefined} data-static>{formatDate(s.firstPublishedAt, { day: "numeric", month: "short" })}</time></span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  {tryThis.length > 0 && (
+    <section aria-labelledby="try-h">
+      <div class="dayhead"><h2 id="try-h">What to try</h2><span class="eyebrow">most useful first</span></div>
+      <p class="muted work-note">Open to everyone, and nothing here needs a developer.</p>
+      <div class="workgrid">
+        {tryThis.map((s) => <WorkCard story={s} card={s.workCard} level="h3" />)}
+      </div>
+    </section>
+  )}
+
+  {skip.length > 0 && (
+    <section aria-labelledby="skip-h">
+      <div class="dayhead"><h2 id="skip-h">What to leave for now</h2></div>
+      <p class="muted work-note">Not a verdict on the tool — only on this week. Each line says what is in the way.</p>
+      <ul class="coverage workskip">
+        {skip.map((s) => (
+          <li>
+            <a class="t" href={`/story/${s.slug}`}><b>{s.workCard.tool}</b>: {s.workCard.whatItDoes}</a>
+            <span class="mono muted">{s.workCard.skip}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  <nav class="meta-row" style="padding: 24px 0" aria-label="Playbook navigation">
+    {idx < workWeeks.length - 1 && <a href={`/work/week/${workWeeks[idx + 1]}`}>← {workWeeks[idx + 1]}</a>}
+    <a href="/work" style="margin-left:auto">AI at Work</a>
+    {idx > 0 && <a href={`/work/week/${workWeeks[idx - 1]}`}>{workWeeks[idx - 1]} →</a>}
+  </nav>
+</Work>

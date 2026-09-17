@@ -4,17 +4,22 @@ import StoryRow from "../components/StoryRow.astro";
 import Coverage from "../components/Coverage.astro";
 import Rail from "../components/Rail.astro";
 import ListenPlayer from "../components/ListenPlayer.astro";
-import { briefing, briefingStories, storiesByDay, storiesInCategory, plain, firstSentence, categories, meta, formatDate, dateTime, shortDate, episodes, thumbImage } from "../lib/data";
+import WorkCard from "../components/WorkCard.astro";
+import { briefing, briefingStories, storiesByDay, plain, firstSentence, categories, meta, formatDate, dateTime, shortDate, episodes, thumbImage } from "../lib/data";
+import { briefingItems, sectionStories } from "../lib/work";
 
 const lead = briefingStories[0];
 const rest = briefingStories.slice(1);
 const briefingIds = new Set(briefingStories.map((s) => s.id));
-// Marketing & Small Business is a top focus: its latest week of stories get their own block under the
-// briefing, and are not repeated in the day lists below.
+// AI at Work is a top focus: the three most useful practical items of the last week get their own
+// block directly under the briefing, as cards rather than story rows, and are not repeated in the
+// day lists below. The section's own briefing sets the order (usefulness, not news importance).
 const weekAgo = Date.parse(meta.generatedAt) - 7 * 24 * 3600 * 1000;
-const focusStories = storiesInCategory("marketing")
-  .filter((s) => !briefingIds.has(s.id) && Date.parse(s.firstPublishedAt || s.updatedAt || "0") >= weekAgo)
-  .slice(0, 5);
+const fresh = (s: { firstPublishedAt: string | null; updatedAt: string | null }) =>
+  Date.parse(s.firstPublishedAt || s.updatedAt || "0") >= weekAgo;
+const focusStories = [...briefingItems, ...sectionStories.filter((s) => !briefingItems.some((b) => b.id === s.id))]
+  .filter(fresh)
+  .slice(0, 3);
 const shownIds = new Set([...briefingIds, ...focusStories.map((s) => s.id)]);
 const episode = episodes[0];
 const leadThumb = lead?.imageUrl ? thumbImage(lead) : null;
@@ -87,14 +92,15 @@ const jsonLd = {
       )}
 
       {focusStories.length > 0 && (
-        <section class="focus" aria-labelledby="focus-h">
+        <section class="focus work-section" aria-labelledby="focus-h">
           <div class="dayhead">
-            <h2 id="focus-h">For marketers &amp; small businesses</h2>
-            <a class="eyebrow" href="/category/marketing">Practical AI →</a>
+            <h2 id="focus-h">AI at Work: for marketers &amp; small businesses</h2>
+            <a class="eyebrow" href="/work">More in AI at Work →</a>
           </div>
-          <ol class="river">
-            {focusStories.map((s) => <StoryRow story={s} />)}
-          </ol>
+          <p class="muted work-note">What each one does, who it is for, what it costs, how long it takes and the catch.</p>
+          <div class="workgrid">
+            {focusStories.map((s) => <WorkCard story={s} card={s.workCard} level="h3" />)}
+          </div>
         </section>
       )}
 

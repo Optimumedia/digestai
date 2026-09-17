@@ -1,0 +1,40 @@
+---
+/* The frame every AI at Work page sits in: its own wordmark under the masthead, its own sub-menu,
+   its own accent colour and a way back to the news desk. The accent is set on the wrapper, so every
+   component inside (chips, buttons, the "why it matters" box) picks it up without a second set of
+   styles. */
+import Base from "./Base.astro";
+import { workWeeks } from "../lib/work";
+
+interface Props {
+  title: string;
+  description?: string;
+  current?: "home" | "tools" | "week";
+  jsonLd?: Record<string, unknown> | Record<string, unknown>[];
+  thin?: boolean;
+  canonical?: string;
+}
+const { title, description, current = "home", jsonLd, thin = false, canonical } = Astro.props;
+const latestWeek = workWeeks[0];
+const links: { href: string; label: string; key: string }[] = [
+  { href: "/work", label: "This week", key: "home" },
+  { href: "/work/tools", label: "Tool directory", key: "tools" },
+  ...(latestWeek ? [{ href: `/work/week/${latestWeek}`, label: "Playbooks", key: "week" }] : []),
+];
+---
+
+<Base title={title} description={description} jsonLd={jsonLd} thin={thin} canonical={canonical}>
+  <div class="work-section">
+    <div class="work-band">
+      <a class="work-wordmark" href="/work">AI at <b>Work</b></a>
+      <nav class="work-nav" aria-label="AI at Work">
+        {links.map((l) => (
+          <a href={l.href} aria-current={current === l.key ? "page" : undefined}>{l.label}</a>
+        ))}
+        <a href="/work/rss.xml">RSS</a>
+      </nav>
+      <a class="work-back" href="/">← AI news desk</a>
+    </div>
+    <slot />
+  </div>
+</Base>

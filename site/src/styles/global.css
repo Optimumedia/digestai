@@ -726,3 +726,91 @@ table.sortable th:hover { color: var(--ink); }
 .consent-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .consent-btn:focus-visible, .footer-link-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .footer-link-btn { font: inherit; color: inherit; background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
+
+/* ---------- AI at Work (/work): a section inside the site ----------
+   The section has its own accent. It is set as --accent on the wrapper, so every component already
+   written against --accent (chips, buttons, the "why it matters" box) turns green inside the section
+   and nothing needs a second copy. The three tokens are declared for both themes at the top of the
+   file's cascade, next to the ones they shadow. */
+.work-section {
+  --accent: #0f6f5c;
+  --accent-soft: #daf0ea;
+  --accent-ink: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .work-section { --accent: #5ed3b4; --accent-soft: #10302a; --accent-ink: #05231d; }
+}
+:root[data-theme="dark"] .work-section { --accent: #5ed3b4; --accent-soft: #10302a; --accent-ink: #05231d; }
+
+.work-band { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 18px; padding: 16px 0 10px; border-bottom: 2px solid var(--accent); margin-bottom: 4px; }
+.work-wordmark { font-family: var(--font-display); font-size: 26px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); }
+.work-wordmark b { color: var(--accent); font-weight: 600; }
+.work-nav { display: flex; flex-wrap: wrap; gap: 2px; }
+.work-nav a { padding: 5px 10px; border-radius: 4px; font-size: 14px; font-weight: 600; color: var(--ink-2); }
+.work-nav a:hover { background: var(--accent-soft); color: var(--accent); }
+.work-nav a[aria-current="page"] { background: var(--accent); color: var(--accent-ink); }
+.work-back { margin-left: auto; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.work-back:hover { color: var(--accent); }
+@media (max-width: 640px) { .work-back { margin-left: 0; } }
+.nav a.nav-work { color: var(--accent); }
+:root .nav a.nav-work[aria-current="page"] { background: var(--accent-soft); color: var(--accent); }
+
+.work-head { border-bottom-color: var(--accent); }
+.work-note { font-size: 14.5px; margin: 6px 0 12px; max-width: 68ch; }
+.work-empty { padding: 16px 0; }
+
+.work-lead { background: var(--accent-soft); border-radius: 4px; padding: 18px 20px 14px; margin: 20px 0 8px; }
+.work-lead h2 { font-size: 22px; margin-bottom: 6px; }
+.work-lead-line { color: var(--ink); margin: 0 0 10px; max-width: 64ch; }
+.work-lead-list { list-style: none; margin: 0 0 10px; padding: 0; }
+.work-lead-list li { padding: 7px 0; border-top: 1px solid color-mix(in srgb, var(--accent) 24%, transparent); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: baseline; }
+.work-lead-list li:first-child { border-top: 0; }
+.work-lead-list a:hover { color: var(--accent); }
+.work-lead-list b { font-weight: 700; }
+@media (max-width: 560px) { .work-lead-list li { grid-template-columns: minmax(0, 1fr); } }
+
+.workgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 12px 0 16px; }
+@media (max-width: 760px) { .workgrid { grid-template-columns: minmax(0, 1fr); } }
+.workcard { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 4px; padding: 14px 16px 12px; }
+.workcard.is-skip { border-left-color: var(--ink-3); }
+.workcard-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.workcard-top time { margin-left: auto; }
+.work-chip { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 8px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.workcard-title { font-family: var(--font-display); font-weight: 500; font-size: 20px; line-height: 1.2; margin: 0 0 10px; }
+.workcard-title a:hover { color: var(--accent); }
+.workcard-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); margin: 10px 0 4px; }
+.workfacts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0 0 8px; }
+@media (max-width: 460px) { .workfacts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.workfacts dt { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.workfacts dd { margin: 2px 0 0; font-size: 14.5px; color: var(--ink); }
+.workuses { margin: 0 0 8px; padding-left: 18px; color: var(--ink-2); font-size: 15px; }
+.workuses li { margin: 3px 0; }
+.workwatch { background: var(--surface-2); border-radius: 4px; padding: 9px 12px; margin: 10px 0; font-size: 14.5px; color: var(--ink-2); }
+.workwatch b { display: block; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--hot); margin-bottom: 2px; font-weight: 500; }
+.workcard-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; }
+.work-btn { display: inline-block; font-size: 14px; font-weight: 600; padding: 6px 14px; border-radius: 4px; background: var(--accent); color: var(--accent-ink); }
+.work-btn:hover { color: var(--accent-ink); filter: brightness(1.08); }
+.work-link { font-size: 14px; font-weight: 600; color: var(--ink-2); }
+.work-link:hover { color: var(--accent); }
+.worktags { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.worktag { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 7px; border-radius: 3px; border: 1px solid var(--line); color: var(--ink-3); }
+.worktag.skip { border-color: var(--hot); color: var(--hot); }
+.workcard.compact .workfacts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.workjobs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 4px; }
+.workjob { font: inherit; font-size: 14px; font-weight: 600; padding: 6px 13px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); cursor: pointer; }
+.workjob:hover { border-color: var(--accent); color: var(--accent); }
+.workjob[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.workjob .mono { color: inherit; opacity: 0.75; margin-left: 4px; }
+.workjob-note { margin-left: auto; }
+@media (max-width: 640px) { .workjob-note { margin-left: 0; } }
+
+.work-also { margin-top: 8px; }
+.worktools { margin: 8px 0 32px; }
+.worktool { padding: 18px 0; border-top: 1px solid var(--line); scroll-margin-top: 20px; }
+.worktool h3 { font-size: 22px; margin-bottom: 6px; }
+.worktool h3 .muted { font-family: var(--font-body); font-size: 15px; font-weight: 400; }
+.worktool > p { color: var(--ink-2); max-width: 68ch; }
+.workskip li a.t { color: var(--ink-2); }
+.workstory { margin: 18px 0 8px; }
+.workstory .workcard { border-left-width: 4px; }
