@@ -96,7 +96,9 @@ SUPABASE_DB_MB = float(os.environ.get("SUPABASE_DB_MB") or "500")
 SUPABASE_CYCLE_DAY = int(os.environ.get("SUPABASE_CYCLE_DAY") or "11")
 DAILY_BUDGET = {
     "gemini": int(os.environ.get("GEMINI_DAILY_BUDGET") or "54"),
-    "groq": int(os.environ.get("GROQ_DAILY_BUDGET") or "2400"),  # 3 models x 1,000/day, 80%
+    "groq": int(os.environ.get("GROQ_DAILY_BUDGET") or "2400"),
+    # Ollama's free allowance is usage-based (hourly and weekly); a 429 pauses it for the rest of the run.
+    "cloud": int(os.environ.get("OLLAMA_CLOUD_DAILY_BUDGET") or "400"),  # 3 models x 1,000/day, 80%
 }
 # Groq's free tier allows ~8,000 tokens per minute per model, so the article text sent to it is
 # shorter than Gemini's and calls are paced from the rate-limit headers.
@@ -105,6 +107,12 @@ GROQ_INPUT_WORDS = int(os.environ.get("GROQ_INPUT_WORDS") or "2200")
 # Local model through Ollama (used when no API key is configured, e.g. on the GitHub runner).
 # A 3B model on a 4-core runner takes ~40 s per article, so the per-run cap is lower.
 OLLAMA_URL = (os.environ.get("OLLAMA_URL") or "").rstrip("/")
+# Ollama Cloud: large models on Ollama's servers with a free allowance (checked 17 Sep 2026: the free
+# account can use gpt-oss 120B/20B, Nemotron 3 Ultra/Super/Nano and Gemma 4; others need credits).
+OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "")
+OLLAMA_CLOUD_URL = (os.environ.get("OLLAMA_CLOUD_URL") or "https://ollama.com").rstrip("/")
+OLLAMA_CLOUD_MODEL = os.environ.get("OLLAMA_CLOUD_MODEL") or "gpt-oss:120b"
+OLLAMA_CLOUD_FALLBACK_MODELS = [m.strip() for m in (os.environ.get("OLLAMA_CLOUD_FALLBACK_MODELS") or "nemotron-3-ultra,gemma4:31b").split(",") if m.strip()]
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL") or "qwen2.5:3b"
 MAX_ENRICH_LOCAL_PER_RUN = int(os.environ.get("MAX_ENRICH_LOCAL_PER_RUN") or "10")
 LOCAL_INPUT_WORDS = int(os.environ.get("LOCAL_INPUT_WORDS") or "1200")

@@ -59,6 +59,10 @@ class QuotaExhausted(Exception):
     pass
 
 
+class ProviderPaused(Exception):
+    """A usage limit that resets within hours: skip the provider for this run, not the whole day."""
+
+
 # ----------------------------------------------------------------- time budget
 # The step's deadline (time.monotonic()); provider calls size their timeouts and rate-limit
 # waits to it, so one slow call cannot carry the step far past ENRICH_TIME_BUDGET_SECONDS.
@@ -268,6 +272,48 @@ def call_groq(prompt: str) -> dict:
     raise last or QuotaExhausted("groq: no model available")
 
 
+_cloud_dead: set[str] = set()  # Ollama Cloud models that need a paid plan (402) or do not exist
+
+
+def call_ollama_cloud(prompt: str) -> dict:
+    """Ollama Cloud's free models, primary first. 402/403/404: that model is not available on the free
+    plan, try the next. 429: the free usage limit, which resets within hours, so the cloud sits out
+    the rest of this run and is tried again next run."""
+    last: Exception | None = None
+    for model in [config.OLLAMA_CLOUD_MODEL, *config.OLLAMA_CLOUD_FALLBACK_MODELS]:
+        if model in _cloud_dead:
+            continue
+        resp = requests.post(
+            f"{config.OLLAMA_CLOUD_URL}/api/chat",
+            headers={"Authorization": f"Bearer {config.OLLAMA_API_KEY}"},
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "format": "json",
+                "stream": False,
+                "think": False,
+                "options": {"temperature": 0.3},
+            },
+            timeout=_request_timeout(120),
+        )
+        if resp.status_code in (401, 402, 403, 404):
+            _cloud_dead.add(model)
+            last = QuotaExhausted(f"ollama cloud {model} http {resp.status_code}: {resp.text[:100]}")
+            continue
+        if resp.status_code == 429:
+            raise ProviderPaused(f"ollama cloud usage limit: {resp.text[:120]}")
+        if resp.status_code >= 500:
+            last = RuntimeError(f"ollama cloud {model} http {resp.status_code}")
+            continue
+        if resp.status_code >= 400:
+            raise RuntimeError(f"ollama cloud {model} http {resp.status_code}: {resp.text[:160]}")
+        try:
+            return _parse_json(resp.json()["message"]["content"])
+        except Exception as exc:  # noqa: BLE001 - another model usually manages valid JSON
+            last = RuntimeError(f"ollama cloud {model} gave no usable JSON: {str(exc)[:80]}")
+    raise last or QuotaExhausted("ollama cloud: no model available")
+
+
 def call_ollama(prompt: str) -> dict:
     resp = requests.post(
         f"{config.OLLAMA_URL}/api/chat",
@@ -433,11 +479,15 @@ def run() -> dict:
             budgets["gemini"] = allowance(conn, "gemini")
             if budgets["gemini"] > 0:
                 providers.append((f"gemini:{config.GEMINI_MODEL}", call_gemini))
+        if config.OLLAMA_API_KEY:
+            budgets["cloud"] = allowance(conn, "cloud")
+            if budgets["cloud"] > 0:
+                providers.append((f"cloud:{config.OLLAMA_CLOUD_MODEL}", call_ollama_cloud))
         if config.GROQ_API_KEY:
             budgets["groq"] = allowance(conn, "groq")
             if budgets["groq"] > 0:
                 providers.append((f"groq:{config.GROQ_MODEL}", call_groq))
-    keyed = bool(config.GEMINI_API_KEY or config.GROQ_API_KEY)
+    keyed = bool(config.GEMINI_API_KEY or config.GROQ_API_KEY or config.OLLAMA_API_KEY)
     # The local model is the safety net: it takes over when the keyed providers are out of quota
     # (for the day, or mid-run), so a run never leaves the site without fresh stories.
     if ollama_available():
@@ -515,6 +565,9 @@ def run() -> dict:
                 if provider in budgets and provider != "ollama":
                     record_usage(eng, provider, 1)
                 break
+            except ProviderPaused as exc:
+                log.warning("%s paused for this run (%s); switching provider", name, exc)
+                providers = [p for p in providers if p[0] != name]
             except QuotaExhausted as exc:
                 log.warning("%s quota exhausted (%s); switching provider", name, exc)
                 if provider in budgets:

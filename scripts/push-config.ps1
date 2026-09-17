@@ -48,7 +48,7 @@ if (-not $vals["GSC_SERVICE_ACCOUNT_JSON"] -and (Test-Path $gscFile)) {
 
 # Secrets stay secret; PUBLIC_ values are embedded in the site so they are stored as secrets too
 # (harmless) except the ones that are convenient to edit in the GitHub UI, which go to variables.
-$secrets   = @("DATABASE_URL", "GEMINI_API_KEY", "GROQ_API_KEY", "KIT_API_KEY",
+$secrets   = @("DATABASE_URL", "GEMINI_API_KEY", "GROQ_API_KEY", "OLLAMA_API_KEY", "KIT_API_KEY",
                "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID",
                "PUBLIC_SUPABASE_URL", "PUBLIC_SUPABASE_ANON_KEY", "GSC_SERVICE_ACCOUNT_JSON",
                "BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHANNEL", "VAPID_PRIVATE_KEY",

@@ -951,6 +951,47 @@ def test_repair_hides_teasers_and_unpublishes_bare_stories():
     assert all(arts[i].rev >= wm for i in (1, 2, 4)) and arts[3].rev < wm
 
 
+def test_ollama_cloud_skips_paid_models_and_pauses_on_limits():
+    from digest import config, enrich
+
+    calls = []
+
+    class Resp:
+        def __init__(self, code, body):
+            self.status_code, self._body, self.text = code, body, str(body)
+
+        def json(self):
+            return self._body
+
+    def fake_post(url, headers=None, json=None, timeout=None):  # noqa: A002
+        calls.append(json["model"])
+        if json["model"] == "paid-model":
+            return Resp(402, {"error": "this model requires a subscription"})
+        if json["model"] == "busy-model":
+            return Resp(429, {"error": "usage limit"})
+        return Resp(200, {"message": {"content": '{"headline": "ok"}'}})
+
+    saved = (enrich.requests.post, config.OLLAMA_CLOUD_MODEL, config.OLLAMA_CLOUD_FALLBACK_MODELS, set(enrich._cloud_dead))
+    try:
+        enrich.requests.post = fake_post
+        enrich._cloud_dead.clear()
+        config.OLLAMA_CLOUD_MODEL, config.OLLAMA_CLOUD_FALLBACK_MODELS = "paid-model", ["free-model"]
+        assert enrich.call_ollama_cloud("prompt") == {"headline": "ok"}
+        assert calls == ["paid-model", "free-model"] and "paid-model" in enrich._cloud_dead
+        enrich.call_ollama_cloud("prompt")
+        assert calls[-1] == "free-model" and calls.count("paid-model") == 1  # not asked again this run
+        config.OLLAMA_CLOUD_MODEL, config.OLLAMA_CLOUD_FALLBACK_MODELS = "busy-model", []
+        try:
+            enrich.call_ollama_cloud("prompt")
+            raise AssertionError("a usage limit must pause the provider")
+        except enrich.ProviderPaused:
+            pass
+    finally:
+        enrich.requests.post, config.OLLAMA_CLOUD_MODEL, config.OLLAMA_CLOUD_FALLBACK_MODELS = saved[:3]
+        enrich._cloud_dead.clear()
+        enrich._cloud_dead.update(saved[3])
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

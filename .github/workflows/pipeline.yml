@@ -37,6 +37,7 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
       SITE_URL: https://digestai.news
       KIT_API_KEY: ${{ secrets.KIT_API_KEY }}
       NEWSLETTER_HOUR_UTC: ${{ vars.NEWSLETTER_HOUR_UTC || '5' }}
