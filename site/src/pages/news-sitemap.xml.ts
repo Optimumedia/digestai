@@ -1,13 +1,13 @@
 import type { APIRoute } from "astro";
-import { byRecency, meta } from "../lib/data";
+import { byRecency, meta, storyIndexable } from "../lib/data";
 
-// Google News sitemap: only stories from the last 48 hours, max 1,000.
+// Google News sitemap: only indexable stories from the last 48 hours, max 1,000.
 export const GET: APIRoute = () => {
   const site = meta.siteUrl;
   const cutoff = Date.now() - 48 * 3600 * 1000;
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const urls = byRecency
-    .filter((s) => Date.parse(s.firstPublishedAt || s.updatedAt || "0") > cutoff)
+    .filter((s) => storyIndexable(s) && Date.parse(s.firstPublishedAt || s.updatedAt || "0") > cutoff)
     .slice(0, 1000)
     .map(
       (s) => `<url>

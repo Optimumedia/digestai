@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { marked } from "marked";
+import { published, entitySlug, dateKey, weekKey, storyIndexable, noindexPaths, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES } from "./indexing.mjs";
+
+// Indexing rules live in indexing.mjs so the sitemap in astro.config.mjs applies the same ones.
+export { entitySlug, dateKey, weekKey, storyIndexable, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES };
 
 export interface Discussion {
   site: "hn" | "reddit";
@@ -171,8 +175,10 @@ export const meta: Meta = readJson<Meta>("meta.json", {
 
 export const categories: Record<string, string> = meta.categories || DEFAULT_CATEGORIES;
 
-export const stories: Story[] = readJson<Story[]>("stories.json", []).filter((s) => s.articles?.length);
+export const stories: Story[] = published(readJson<Story[]>("stories.json", []));
 export const entities: Entity[] = readJson<Entity[]>("entities.json", []);
+/** Paths built but kept out of the index and the sitemaps (thin hubs, single-source briefs, quiet days). */
+export const noindex: Set<string> = noindexPaths(stories, entities);
 export const sources: { key: string; name: string; url: string; kind: string; type: string }[] = readJson("sources.json", []);
 export interface Episode {
   date: string;
@@ -209,16 +215,7 @@ export function threadStories(t: Thread): Story[] {
   return t.storyIds.map(storyFor).filter((s): s is Story => Boolean(s));
 }
 
-/** ISO week key like 2026-W37 and its Monday. */
-export function weekKey(iso: string | null | undefined): string {
-  const d = new Date(iso || Date.now());
-  const day = (d.getUTCDay() + 6) % 7;
-  const thursday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day + 3));
-  const jan4 = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 4));
-  const week = 1 + Math.round(((thursday.getTime() - jan4.getTime()) / 864e5 - 3 + ((jan4.getUTCDay() + 6) % 7)) / 7);
-  return `${thursday.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
-}
-
+/** Monday of an ISO week key like 2026-W37 (the key itself comes from indexing.mjs). */
 export function weekMonday(key: string): Date {
   const [y, w] = key.split("-W").map(Number);
   const jan4 = new Date(Date.UTC(y, 0, 4));
@@ -295,15 +292,6 @@ export function storiesForEntity(e: Entity): Story[] {
   );
 }
 
-export function entitySlug(name: string): string {
-  return name
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-zA-Z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .toLowerCase();
-}
-
 /** Topic pages, with spelling variants (OpenAI / Openai) merged under one slug. */
 export function topicPages(): { slug: string; entity: Entity }[] {
   const bySlug = new Map<string, Entity>();
@@ -319,10 +307,6 @@ export function topicPages(): { slug: string; entity: Entity }[] {
 
 /** Slugs that actually have a topic page; tags for anything else render as plain text. */
 export const topicSlugs: Set<string> = new Set(topicPages().map((t) => t.slug));
-
-export function dateKey(iso: string | null | undefined): string {
-  return (iso || "").slice(0, 10);
-}
 
 export function storiesByDay(): Map<string, Story[]> {
   const map = new Map<string, Story[]>();
@@ -388,6 +372,24 @@ export function relativeTime(iso: string | null | undefined, now = Date.now()): 
 export function formatDate(iso: string | null | undefined, opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "long", year: "numeric" }): string {
   if (!iso) return "";
   return new Date(iso).toLocaleDateString("en-GB", { ...opts, timeZone: "UTC" });
+}
+
+/* Text for <time> elements, written at build time so the date is in the HTML that crawlers and
+   readers without JavaScript see. app.js swaps it for "3h ago" while the date is under two weeks
+   old and leaves it alone after that. */
+const buildYear = new Date(meta.generatedAt).getUTCFullYear();
+
+/** "16 Sep", or "16 Sep 2025" once the year differs from the build's. */
+export function shortDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const year = new Date(iso).getUTCFullYear() === buildYear ? {} : { year: "numeric" as const };
+  return formatDate(iso, { day: "numeric", month: "short", ...year });
+}
+
+/** "16 September 2026, 09:55 UTC". */
+export function dateTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  return `${formatDate(iso)}, ${new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC`;
 }
 
 export function readingMinutes(words: number): number {

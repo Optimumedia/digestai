@@ -1,7 +1,7 @@
 ---
 import Base from "../layouts/Base.astro";
 import Rail from "../components/Rail.astro";
-import { threads, threadStories, formatDate, categories } from "../lib/data";
+import { threads, threadStories, formatDate, shortDate, categories } from "../lib/data";
 ---
 
 <Base title="Developing stories" description="The AI sagas still unfolding: every thread with its episodes in order.">
@@ -22,7 +22,7 @@ import { threads, threadStories, formatDate, categories } from "../lib/data";
                 <div class="meta-row">
                   <a class="chip" href={`/category/${t.category}`}>{categories[t.category || ""] || "AI"}</a>
                   <span>{t.storyCount} episodes</span>
-                  <span>{formatDate(t.firstAt, { day: "numeric", month: "short" })} → <time datetime={t.updatedAt || undefined}></time></span>
+                  <span>{formatDate(t.firstAt, { day: "numeric", month: "short" })} → <time datetime={t.updatedAt || undefined}>{shortDate(t.updatedAt)}</time></span>
                   <span class="new-badge">new</span>
                 </div>
                 <h3><a href={`/thread/${t.slug}`}>{t.title}</a></h3>

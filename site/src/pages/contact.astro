@@ -1,0 +1,37 @@
+---
+import Base from "../layouts/Base.astro";
+import Rail from "../components/Rail.astro";
+import OperatorDetails from "../components/OperatorDetails.astro";
+---
+
+<Base title="Contact" description="How to reach Digest AI: corrections, publisher requests and takedowns, press and everything else, at hello@digestai.news.">
+  <div class="grid">
+    <div class="article">
+      <header class="page-head">
+        <div class="eyebrow">Contact</div>
+        <h1>Get in touch</h1>
+        <p>One address for everything: <a href="mailto:hello@digestai.news">hello@digestai.news</a>. We read it every working day.</p>
+      </header>
+
+      <h2 id="corrections">Corrections</h2>
+      <p>If a headline, key point or digest misstates what the sources say, email us the story link and what is wrong. Corrected stories are updated on the next publishing run and marked as updated. The full process is in our <a href="/about#corrections">corrections policy</a>.</p>
+
+      <h2 id="takedown">Publishers: digest-only and takedown requests</h2>
+      <p>Story pages reproduce the lead article with attribution and a link. If you publish one of the sources and would rather we show only a digest and a link, or not list your articles at all, email us from an address at your domain with:</p>
+      <ul>
+        <li>the domain (or the specific article links) the request covers, and</li>
+        <li>whether you want a digest with a link, or no listing at all.</li>
+      </ul>
+      <p>Requests are applied to the whole domain on the next publishing run, usually within a day, and stay in force for every future article. You will get a reply confirming what was changed.</p>
+
+      <h2>Sources</h2>
+      <p>If you publish on AI and want to be added as a source, send the feed or site address. Digest AI identifies itself as <code>DigestAIBot</code> when it fetches pages.</p>
+
+      <h2>Privacy questions</h2>
+      <p>What the site records is set out on the <a href="/privacy">privacy page</a>. Questions about it go to the same address.</p>
+
+      <OperatorDetails />
+    </div>
+    <Rail />
+  </div>
+</Base>

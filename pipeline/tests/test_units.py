@@ -653,6 +653,46 @@ def test_briefing_keeps_a_place_for_the_focus_category():
     assert config.FOCUS_CATEGORIES.get("marketing", 0) > 0 and list(config.CATEGORIES)[1] == "marketing"
 
 
+def test_topic_intro_grounding():
+    from digest.topics import PROMPT, grounded_description, story_lines, templated_intro, unsupported_names
+
+    stories = [
+        {"headline": "Nvidia releases Nemotron 4 as open weights", "summaryMd": "Nvidia has published **Nemotron 4**, a 340B model, under an open licence.\n\nMore detail.",
+         "keyPoints": ["340B parameters"], "firstPublishedAt": "2026-09-10T08:00:00Z"},
+        {"headline": "Nemotron 4 tops the open-model leaderboard", "summaryMd": None, "keyPoints": ["Beats Llama 4 on MMLU"], "firstPublishedAt": "2026-09-12T08:00:00Z"},
+        {"headline": "Hugging Face adds Nemotron 4 to its inference API", "summaryMd": "Hugging Face now serves the model.", "keyPoints": [], "firstPublishedAt": "2026-09-14T08:00:00Z"},
+    ]
+    evidence = story_lines(stories)
+    # Newest first, digest under the headline, key points when there is no digest.
+    assert evidence.startswith("- Hugging Face adds Nemotron 4") and "a 340B model" in evidence and "Beats Llama 4 on MMLU" in evidence
+    assert "**" not in evidence and "More detail" not in evidence
+    prompt = PROMPT.format(name="Nemotron", kind="AI model", stories=evidence)
+    assert "Do not add anything you know from elsewhere" in prompt
+    source = "Nemotron\n" + evidence
+
+    # Facts the stories state pass; names they never mention (the intro that said Nemotron was
+    # "developed by Palantir") do not. Sentence-starting common words and digits are not names.
+    assert unsupported_names("Nemotron 4 is Nvidia's open-weights model. It tops the leaderboard and Hugging Face serves it.", source) == []
+    assert unsupported_names("Nemotron is a model family developed by Palantir. Recently it beat Llama 4.", source) == ["Palantir"]
+    assert unsupported_names("Qwen is a Chinese AI research firm within DAMO Academy.", "Qwen\n- Qwen 3 released") == ["Chinese", "DAMO", "Academy"]
+    assert unsupported_names("The model, GPT-7, ships in 2027.", source) == ["GPT-7", "2027"]
+
+    line = templated_intro(stories)
+    assert line == "3 stories since 10 September 2026, most recently: Hugging Face adds Nemotron 4 to its inference API."
+    import re
+    assert re.match(r"^\d+ stor(y|ies) since ", line)  # the site keeps this out of the "What is X?" answer
+
+    good = "Nemotron 4 is Nvidia's open-weights model with 340B parameters. It tops the open-model leaderboard and Hugging Face serves it through its inference API."
+    assert grounded_description("Nemotron", "AI model", stories, lambda p: {"description": good}) == (good, True)
+    bad = "Nemotron is developed by Palantir and Nvidia and competes with Llama 4 on the open-model leaderboard."
+    assert grounded_description("Nemotron", "AI model", stories, lambda p: {"description": bad}) == (line, False)
+    assert grounded_description("Nemotron", "AI model", stories, lambda p: {"description": "Too short."}) == (line, False)
+
+    def boom(p):
+        raise RuntimeError("quota")
+    assert grounded_description("Nemotron", "AI model", stories, boom) == (line, False)
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

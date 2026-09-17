@@ -1,7 +1,7 @@
 ---
 import type { Story } from "../lib/data";
 import Coverage from "./Coverage.astro";
-import { plain, categories, sourceNames } from "../lib/data";
+import { plain, categories, sourceNames, shortDate } from "../lib/data";
 
 interface Props { story: Story; showImage?: boolean }
 const { story, showImage = true } = Astro.props;
@@ -13,7 +13,7 @@ const img = showImage ? story.imageUrl : null;
   <div>
     <div class="meta-row">
       <a class:list={["chip", { hot: story.importance >= 8 }]} href={`/category/${story.category}`}>{categories[story.category || ""] || "AI"}</a>
-      <time datetime={story.firstPublishedAt || story.updatedAt || undefined}></time>
+      <time datetime={story.firstPublishedAt || story.updatedAt || undefined}>{shortDate(story.firstPublishedAt || story.updatedAt)}</time>
       <span class="new-badge">new</span>
     </div>
     <h3><a href={`/story/${story.slug}`}>{story.headline}</a></h3>

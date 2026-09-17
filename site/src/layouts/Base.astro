@@ -2,7 +2,7 @@
 import SocialLinks from "../components/SocialLinks.astro";
 import Analytics from "../components/Analytics.astro";
 import "../styles/global.css";
-import { categories, meta, byScore, byRecency } from "../lib/data";
+import { categories, meta, byScore, byRecency, shortDate, dateTime } from "../lib/data";
 
 interface Props {
   title: string;
@@ -16,7 +16,11 @@ interface Props {
   currentCategory?: string | null;
   storyId?: number;
   articleId?: number;
+  /** Utility page (search, saved, admin): no index, no canonical, no analytics. */
   noindex?: boolean;
+  /** Content page too thin to index yet (a one-story hub, a single-source brief): "noindex, follow",
+      no canonical, out of the sitemaps; everything else, analytics included, as on any page. */
+  thin?: boolean;
 }
 
 const {
@@ -32,7 +36,9 @@ const {
   storyId,
   articleId,
   noindex = false,
+  thin = false,
 } = Astro.props;
+const indexable = !noindex && !thin;
 
 const site = (Astro.site?.toString() || meta.siteUrl).replace(/\/$/, "");
 // The static build serves every page as a .html file, so Astro.url carries ".html". The public
@@ -42,9 +48,11 @@ const cleanPath = Astro.url.pathname.replace(/\.html$/, "").replace(/\/index$/, 
 const url = canonical || new URL(cleanPath, site).toString();
 const ogImage = image || `${site}/og-default.png`;
 const fullTitle = title === "Digest AI" ? "Digest AI — AI news, digested" : `${title} — Digest AI`;
-// Broadcast-style ticker: the hottest stories interleaved with the newest, no repeats.
-const hot = byScore.slice(0, 8);
-const fresh = byRecency.filter((s) => !hot.some((h) => h.id === s.id)).slice(0, 8);
+// Broadcast-style ticker: the hottest stories interleaved with the newest, no repeats. Eight links,
+// rendered after the main content (CSS puts it back under the masthead) so the first thing a
+// crawler reads on every page is the page itself, not the same eight headlines.
+const hot = byScore.slice(0, 4);
+const fresh = byRecency.filter((s) => !hot.some((h) => h.id === s.id)).slice(0, 4);
 const ticker: { s: (typeof byScore)[number]; tag: string }[] = [];
 for (let i = 0; i < Math.max(hot.length, fresh.length); i++) {
   if (hot[i]) ticker.push({ s: hot[i], tag: "hot" });
@@ -54,7 +62,7 @@ const footerColumns: { title: string; links: [string, string][] }[] = [
   { title: "Read", links: [["Today's briefing", "/today"], ["Developing stories", "/threads"], ["River", "/river"], ["Weekly recaps", "/week"], ["Archive", "/daily"]] },
   { title: "Trackers & tools", links: [["Model tracker", "/models"], ["Funding tracker", "/funding"], ["Sources", "/sources"], ["Search", "/search"], ["Saved stories", "/saved"]] },
   { title: "Listen & follow", links: [["Listen", "/listen"], ["Podcast feed", "/podcast.xml"], ["RSS feed", "/rss.xml"], ["Browser alerts", "/subscribe"]] },
-  { title: "About", links: [["About Digest AI", "/about"], ["Editorial standards", "/about#standards"], ["Corrections", "/about#corrections"], ["Contact", "mailto:hello@digestai.news"]] },
+  { title: "About", links: [["About Digest AI", "/about"], ["Editorial standards", "/about#standards"], ["Corrections", "/about#corrections"], ["Contact", "/contact"], ["Privacy", "/privacy"], ["Terms", "/terms"]] },
 ];
 const footerYear = new Date(meta.generatedAt || Date.now()).getUTCFullYear();
 const clientConfig = {
@@ -72,9 +80,9 @@ const clientConfig = {
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
     <meta name="google-site-verification" content="1HVcSBsyJYBfZLnj_r85TRK8n70zv2rexCrkXu6Bbyw" />
-    {!noindex && <link rel="canonical" href={url} />}
-    <meta name="robots" content={noindex ? "noindex, nofollow" : "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"} />
-    <meta name="googlebot-news" content={noindex ? "noindex" : "index"} />
+    {indexable && <link rel="canonical" href={url} />}
+    <meta name="robots" content={noindex ? "noindex, nofollow" : thin ? "noindex, follow" : "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"} />
+    <meta name="googlebot-news" content={indexable ? "index" : "noindex"} />
     <meta name="theme-color" content="#0e1116" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -96,12 +104,8 @@ const clientConfig = {
     {modifiedAt && <meta property="article:modified_time" content={modifiedAt} />}
     {currentCategory && <meta property="article:section" content={categories[currentCategory] || currentCategory} />}
     {type === "article" && <meta property="article:publisher" content={site} />}
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap"
-    />
+    <link rel="preload" href="/fonts/newsreader-normal-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/source-sans-3-normal-latin.woff2" as="font" type="font/woff2" crossorigin />
     <script is:inline>
       try {
         const t = JSON.parse(localStorage.getItem("theme"));
@@ -124,7 +128,7 @@ const clientConfig = {
       foundingDate: "2026",
       publishingPrinciples: `${site}/about#standards`,
       correctionsPolicy: `${site}/about#corrections`,
-      contactPoint: { "@type": "ContactPoint", contactType: "editorial", email: "hello@digestai.news" },
+      contactPoint: { "@type": "ContactPoint", contactType: "editorial", email: "hello@digestai.news", url: `${site}/contact` },
       sameAs: [
         "https://www.linkedin.com/company/digestai-news/",
         "https://bsky.app/profile/digestai.bsky.social",
@@ -158,8 +162,13 @@ const clientConfig = {
         </div>
       </div>
     </header>
+
+    <main class="wrap" data-pagefind-body>
+      <slot />
+    </main>
+
     {ticker.length > 0 && (
-      <div class="ticker" aria-label="Latest and hottest stories">
+      <div class="ticker" aria-label="Latest and hottest stories" data-nosnippet>
         <div class="wrap">
           <span class="live" aria-hidden="true">Live</span>
           <div class="ticker-viewport">
@@ -167,7 +176,7 @@ const clientConfig = {
               {[0, 1].map((copy) => (
                 <div class="ticker-run" aria-hidden={copy === 1 ? "true" : undefined}>
                   {ticker.map(({ s, tag }) => (
-                    <a href={`/story/${s.slug}`} tabindex={copy === 1 ? -1 : undefined}><span class:list={["tag", tag]}>{tag}</span> {s.headline} <span class="muted"><time datetime={s.firstPublishedAt || s.updatedAt || undefined}></time></span></a>
+                    <a href={`/story/${s.slug}`} tabindex={copy === 1 ? -1 : undefined}><span class:list={["tag", tag]}>{tag}</span> {s.headline} <span class="muted"><time datetime={s.firstPublishedAt || s.updatedAt || undefined}>{shortDate(s.firstPublishedAt || s.updatedAt)}</time></span></a>
                   ))}
                 </div>
               ))}
@@ -176,10 +185,6 @@ const clientConfig = {
         </div>
       </div>
     )}
-
-    <main class="wrap" data-pagefind-body>
-      <slot />
-    </main>
 
     <footer class="footer">
       <div class="wrap footer-main">
@@ -205,7 +210,7 @@ const clientConfig = {
       </div>
       <div class="footer-bar">
         <div class="wrap">
-          <p class="gen"><span class="gen-dot" aria-hidden="true"></span>Updated <time datetime={meta.generatedAt}></time> · {meta.storyCount} stories from {meta.articleCount} articles</p>
+          <p class="gen"><span class="gen-dot" aria-hidden="true"></span>Updated <time datetime={meta.generatedAt}>{dateTime(meta.generatedAt)}</time> · {meta.storyCount} stories from {meta.articleCount} articles</p>
           <p class="footer-copy">© {footerYear} Digest AI · Built from public sources, linked in every story{!noindex && <> · <button type="button" class="footer-link-btn" data-consent-open>Cookie settings</button></>}</p>
         </div>
       </div>

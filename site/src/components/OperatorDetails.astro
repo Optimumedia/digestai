@@ -1,0 +1,13 @@
+---
+/* The legal name and postal address of the operator, required on the privacy, terms and contact
+   pages. The owner supplies them; until then the block says so instead of inventing anything. */
+interface Props { heading?: string }
+const { heading = "Operator" } = Astro.props;
+---
+
+<!-- operator details: fill in the legal name and postal address, then delete the placeholder paragraph -->
+<section class="operator" id="operator">
+  <h2>{heading}</h2>
+  <p>Digest AI is published by the operator named here. <em>Operator details will be added shortly.</em></p>
+  <p>Email: <a href="mailto:hello@digestai.news">hello@digestai.news</a></p>
+</section>

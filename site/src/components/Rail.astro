@@ -1,5 +1,5 @@
 ---
-import { byScore, byRecency, entities, entitySlug, categories, threads, trackers } from "../lib/data";
+import { byScore, byRecency, entities, entitySlug, categories, threads, trackers, shortDate } from "../lib/data";
 import SocialLinks from "./SocialLinks.astro";
 
 interface Props { exclude?: number }
@@ -21,7 +21,7 @@ const topics = entities.slice(0, 18);
         <li>
           <div>
             <a href={`/story/${s.slug}`}>{s.headline}</a>
-            <span class="meta mono muted">{categories[s.category || ""] || "AI"} · <time datetime={s.firstPublishedAt || s.updatedAt || undefined}></time></span>
+            <span class="meta mono muted">{categories[s.category || ""] || "AI"} · <time datetime={s.firstPublishedAt || s.updatedAt || undefined}>{shortDate(s.firstPublishedAt || s.updatedAt)}</time></span>
           </div>
         </li>
       ))}
@@ -35,7 +35,7 @@ const topics = entities.slice(0, 18);
           <li>
             <div>
               <a href={`/thread/${t.slug}`}>{t.title}</a>
-              <span class="meta mono muted">{t.storyCount} episodes · <time datetime={t.updatedAt || undefined}></time></span>
+              <span class="meta mono muted">{t.storyCount} episodes · <time datetime={t.updatedAt || undefined}>{shortDate(t.updatedAt)}</time></span>
             </div>
           </li>
         ))}
@@ -62,7 +62,7 @@ const topics = entities.slice(0, 18);
         <li>
           <div>
             <a href={`/story/${s.slug}`}>{s.headline}</a>
-            <span class="meta mono muted"><time datetime={s.firstPublishedAt || s.updatedAt || undefined}></time></span>
+            <span class="meta mono muted"><time datetime={s.firstPublishedAt || s.updatedAt || undefined}>{shortDate(s.firstPublishedAt || s.updatedAt)}</time></span>
           </div>
         </li>
       ))}
