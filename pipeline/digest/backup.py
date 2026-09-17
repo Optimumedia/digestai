@@ -11,6 +11,9 @@ Reads stay small: the story, article and thread rows come from the runner's copy
 database (cache.py), which every run already brings up to date, and are remembered here after
 they leave that copy's window; only the small tables are read in full each night. A backup
 store that is missing (the cache was evicted) is seeded from the latest backup asset.
+
+Restore: `openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -in FILE -out backup.tar.gz`
+with the BACKUP_KEY passphrase, then `tar xzf backup.tar.gz` (one JSON object per line per table).
 """
 from __future__ import annotations
 
@@ -43,7 +46,23 @@ NAME_RE = re.compile(r"^digest-backup-(\d{4}-\d{2}-\d{2})\.tar\.gz\.enc$")
 
 
 def store_dir() -> Path:
+    """When the last backup ran (small; rides in the read cache every run)."""
     return config.CACHE_DIR / "backup"
+
+
+def tables_dir() -> Path:
+    """The remembered table rows (a few MB): the workflow restores and saves this only on the run that
+    makes the backup (marker file next to it)."""
+    return Path(os.environ.get("BACKUP_STORE_DIR") or config.DATA_DIR / "backup-store")
+
+
+def marker() -> Path:
+    return tables_dir().with_name(tables_dir().name + ".new")
+
+
+def due(now: datetime, st: dict | None = None) -> bool:
+    last = (st if st is not None else _state()).get("lastAt")
+    return not last or (now - datetime.fromisoformat(last)).total_seconds() >= EVERY_HOURS * 3600
 
 
 # ---------------------------------------------------------------------------- encryption
@@ -82,7 +101,7 @@ def decrypt(blob: bytes, passphrase: str) -> bytes:
 # ---------------------------------------------------------------------------- the store
 
 def _load(name: str) -> dict:
-    p = store_dir() / f"{name}.json.gz"
+    p = tables_dir() / f"{name}.json.gz"
     try:
         with gzip.open(p, "rt", encoding="utf-8") as f:
             data = json.load(f)
@@ -94,8 +113,8 @@ def _load(name: str) -> dict:
 
 
 def _save(name: str, rows: dict) -> None:
-    store_dir().mkdir(parents=True, exist_ok=True)
-    p = store_dir() / f"{name}.json.gz"
+    tables_dir().mkdir(parents=True, exist_ok=True)
+    p = tables_dir() / f"{name}.json.gz"
     tmp = p.with_name(p.name + ".tmp")
     with gzip.open(tmp, "wt", encoding="utf-8", compresslevel=6) as f:
         json.dump(rows, f, ensure_ascii=False, separators=(",", ":"), default=str)
@@ -128,21 +147,24 @@ def collect(conn) -> dict[str, dict]:
     """Every table as {id: row}. Tracked tables: what the runner's copy shows now, merged over what
     it showed before (rows keep their last known version once they age out of the copy)."""
     tables: dict[str, dict] = {}
+    # Text columns only for published rows: the export keeps those in the runner's copy every run, so
+    # they cost no reads here. Other rows (rejected articles, unpublished stories) keep their small
+    # columns (status, dates, scores) and whatever text an earlier backup already had.
     stories = cache.stories(conn)
-    s_text = cache.story_text(conn, list(stories.values()))
+    s_text = cache.story_text(conn, [s for s in stories.values() if s.status == "published"])
     tables["stories"] = _load("stories")
     for i, s in stories.items():
-        tables["stories"][str(i)] = _row(s, s_text.get(i))
+        tables["stories"][str(i)] = {**tables["stories"].get(str(i), {}), **_row(s, s_text.get(i))}
     articles = cache.articles(conn)
-    a_text = cache.article_text(conn, list(articles.values()))
+    a_text = cache.article_text(conn, [a for a in articles.values() if a.status == "published"])
     tables["articles"] = _load("articles")
     for i, a in articles.items():
-        tables["articles"][str(i)] = _row(a, a_text.get(i))
+        tables["articles"][str(i)] = {**tables["articles"].get(str(i), {}), **_row(a, a_text.get(i))}
     threads = cache.threads(conn)
-    t_text = cache.thread_text(conn, list(threads.values()))
+    t_text = cache.thread_text(conn, [t for t in threads.values() if t.status == "published"])
     tables["threads"] = _load("threads")
     for i, t in threads.items():
-        tables["threads"][str(i)] = _row(t, t_text.get(i))
+        tables["threads"][str(i)] = {**tables["threads"].get(str(i), {}), **_row(t, t_text.get(i))}
     # Rows deleted by hand disappear from the mirror through deleted_rows; drop them here too.
     gone = conn.execute(select(db.deleted_rows.c.table_name, db.deleted_rows.c.row_id)).all()
     for table, rid in gone:
@@ -232,11 +254,11 @@ def run(session=None, now: datetime | None = None) -> dict:
     passphrase = os.environ.get("BACKUP_KEY") or ""
     st = _state()
     force = os.environ.get("BACKUP_FORCE") == "1"
-    last = st.get("lastAt")
+    marker().unlink(missing_ok=True)
     if not passphrase:
         stats["reason"] = "no BACKUP_KEY"
-    elif last and not force and (now - datetime.fromisoformat(last)).total_seconds() < EVERY_HOURS * 3600:
-        stats["reason"] = f"last backup {last[:16]}"
+    elif not force and not due(now, st):
+        stats["reason"] = f"last backup {st['lastAt'][:16]}"
     if stats["reason"]:
         _write_status(st, stats, now)
         return stats
@@ -245,7 +267,7 @@ def run(session=None, now: datetime | None = None) -> dict:
         stats["reason"] = "no token"
         _write_status(st, stats, now)
         return stats
-    if not any((store_dir() / f"{t}.json.gz").exists() for t in TRACKED):
+    if not any((tables_dir() / f"{t}.json.gz").exists() for t in TRACKED):
         stats["seeded"] = seed(store, passphrase)
     b0 = db.bytes_read()
     with db.engine().connect() as conn:
@@ -253,6 +275,8 @@ def run(session=None, now: datetime | None = None) -> dict:
     stats["readKBOwn"] = round((db.bytes_read() - b0) / 1024, 1)
     for name in TRACKED:
         _save(name, tables[name])
+    marker().parent.mkdir(parents=True, exist_ok=True)
+    marker().write_text(now.isoformat(), encoding="utf-8")
     archive = pack(tables, now)
     blob = encrypt(archive, passphrase)
     name = f"digest-backup-{now.date().isoformat()}.tar.gz.enc"
