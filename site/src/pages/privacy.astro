@@ -15,11 +15,11 @@ import { formatDate, meta } from "../lib/data";
       </header>
 
       <h2>Our own reader counts</h2>
-      <p>To count readers and learn which stories matter, the page sends a few anonymous events to our database (hosted by Supabase in the European Union): the page you are on, the site you came from (the domain only), the type of event (a view, time on page, how far down a story you read, a click to a source, or a search), a session number that lives in the tab until you close it, and a random visitor number that is created in your browser, stays there, and is replaced every day. Neither number can be linked to you or across days. We do not record your IP address, your name, your email address or a device fingerprint in these events.</p>
+      <p>To count readers and learn which stories matter, the page sends a few anonymous events to our database (hosted by Supabase): the page you are on, the site you came from (the domain only), the type of event (a view, time on page, how far down a story you read, a click to a source, or a search), a session number that lives in the tab until you close it, and a random visitor number that is created in your browser, stays there, and is replaced every day. Neither number can be linked to you or across days. We do not record your IP address, your name, your email address or a device fingerprint in these events.</p>
       <p>When you search the site we record the words you searched for and how many stories matched, so we can see what we do not yet cover. The words are lowercased, and email addresses and long numbers are removed before they are stored.</p>
       <p>While a page is open it also joins a live count of current readers (the page, the referring domain and whether the device is a phone). That count is never stored.</p>
       <p>Individual events are deleted within 90 days. Only daily totals are kept after that.</p>
-      <p>To switch these events off in your browser, open <a href="/admin?notrack=1">/admin?notrack=1</a> once; <code>?notrack=0</code> turns them back on. Browsers that block scripts send nothing.</p>
+      <p>To switch these events off in your browser, open <a href="/?notrack=1" rel="nofollow">digestai.news/?notrack=1</a> once; this browser then sends nothing, and <code>?notrack=0</code> turns them back on. Browsers that block scripts send nothing either.</p>
 
       <h2>Stored in your browser only</h2>
       <p>Saved stories, followed topics, your light or dark theme choice, the time of your last visit and your answer to the analytics notice are kept in your browser's local storage. They never leave your device unless you clear them yourself.</p>
