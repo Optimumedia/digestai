@@ -13,3 +13,4 @@ site/.astro/
 site/public/audio/
 gsc-service-account.json
 site/public/media/
+tmp-samples/

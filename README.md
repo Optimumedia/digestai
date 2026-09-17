@@ -27,7 +27,7 @@ supabase/   SQL to run once in the Supabase project (indexes, row security, edit
 | topics  | writes model-authored introductions for topic hubs (companies, models, people) |
 | intros  | writes introductions for weekly recaps and the model and funding trackers |
 | images  | renders a 1200×630 share card per story into `site/public/og/` |
-| audio   | reads the five briefing stories aloud once a day (Piper neural voice on the runner, MP3) and publishes /podcast.xml and /listen |
+| audio   | reads the briefing aloud once a day (Kokoro neural voice on the runner, Piper as fallback, MP3) and publishes /podcast.xml and /listen; synthesis is resumable, so a long episode is finished by the next run |
 | newsletter | builds the daily briefing email and sends it through Kit once a day at `NEWSLETTER_HOUR_UTC` |
 
 ## Local run

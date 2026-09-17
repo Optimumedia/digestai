@@ -67,8 +67,20 @@ SOCIAL_MAX_PER_DAY = int(os.environ.get("SOCIAL_MAX_PER_DAY") or 6)       # brea
 SOCIAL_BRIEFING_HOUR_UTC = int(os.environ.get("SOCIAL_BRIEFING_HOUR_UTC") or 19)
 SOCIAL_DRY_RUN = os.environ.get("SOCIAL_DRY_RUN") == "1"
 
-# Spoken briefing (Piper voice on the runner, MP3 via LAME). Generated once a day at/after this hour.
-AUDIO_VOICE = os.environ.get("AUDIO_VOICE") or "en_US-lessac-medium"
+# Spoken briefing (a neural voice on the runner's CPU, MP3 via LAME). Once a day at/after this hour.
+# Engine "kokoro" (default) reads far more like a person than Piper, at about real time on a runner
+# core; "piper" is the older, faster engine and the automatic fallback when Kokoro's model files are
+# missing. AUDIO_VOICE names a voice of the chosen engine (Kokoro: af_heart, am_michael, bf_emma...).
+AUDIO_ENGINE = (os.environ.get("AUDIO_ENGINE") or "kokoro").strip().lower()
+AUDIO_VOICE = os.environ.get("AUDIO_VOICE") or ("af_heart" if AUDIO_ENGINE == "kokoro" else "en_US-lessac-medium")
+AUDIO_PIPER_VOICE = os.environ.get("AUDIO_PIPER_VOICE") or "en_US-lessac-medium"   # the fallback's voice
+AUDIO_LANG = os.environ.get("AUDIO_LANG") or "en-us"
+AUDIO_SPEED = float(os.environ.get("AUDIO_SPEED") or 1.0)
+# Kokoro costs about 1.5 seconds of CPU per second of speech (measured), so a 3.5-minute episode is
+# ~5 minutes of work: too much to do in one run beside everything else. The step stops starting new
+# parts after this many seconds and finishes the episode on a later run (audio.py, "resumable"); a
+# part is one story, ~60 s, so a run spends at most ~4 minutes here and an episode takes two runs.
+AUDIO_TIME_BUDGET_SECONDS = int(os.environ.get("AUDIO_TIME_BUDGET_SECONDS") or 180)
 AUDIO_HOUR_UTC = int(os.environ.get("AUDIO_HOUR_UTC") or os.environ.get("NEWSLETTER_HOUR_UTC") or 5)
 NEWSLETTER_HOUR_UTC = int(os.environ.get("NEWSLETTER_HOUR_UTC", "5"))
 

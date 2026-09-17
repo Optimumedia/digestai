@@ -1,6 +1,7 @@
 """Offline unit tests: python -m pytest tests/ or python tests/test_units.py"""
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -1030,6 +1031,101 @@ def test_story_address_is_free_even_when_a_merged_story_kept_it():
                                                first_published_at=db.utcnow(), updated_at=db.utcnow()))
         assert cluster._unique_slug(conn, base, db.stories, url) == f"{hashed}-3"
     eng.dispose()
+
+
+# ---------------------------------------------------------------------------- spoken briefing
+
+AUDIO_STORIES = {
+    1: {"id": 1, "slug": "a", "headline": "OpenAI Raises $3.3B at a $500B Valuation",
+        "summaryMd": "OpenAI has **raised** $3.3B in a round led by [SoftBank](https://example.test/sb), "
+                     "valuing the lab at $500B. The round closed on Tuesday after 1,200 investors were "
+                     "approached. A third sentence that should not be read out.",
+        "whyItMatters": "It is the largest private round on record. A second sentence, not read."},
+    2: {"id": 2, "slug": "b", "headline": "EU Opens AI Act Inquiry",
+        "summaryMd": "The EU has opened an inquiry under the AI Act. Regulators want answers within 27%.",
+        "whyItMatters": "It is the first test of the Act."},
+    3: {"id": 3, "slug": "c", "headline": "Nvidia Ships 2.5 Million GPUs",
+        "summaryMd": "In this analysis, Nvidia shipped 2.5 million GPUs last quarter, up 27% on the year. "
+                     "Demand came mostly from cloud providers.",
+        "whyItMatters": ""},
+    4: {"id": 4, "slug": "d", "headline": "Anthropic Restricts Claude to Adults",
+        "summaryMd": "Anthropic has restricted Claude to users aged 18 and over. The company will verify ages.",
+        "whyItMatters": "Labs are under pressure to protect minors."},
+    5: {"id": 5, "slug": "e", "headline": "Google Ships Gemini for Windows",
+        "summaryMd": "Google has released a Gemini desktop app for Windows. It costs €20 a month.",
+        "whyItMatters": "It puts Google's models next to Copilot."},
+}
+AUDIO_BRIEFING = {"date": "2026-09-17", "storyIds": [1, 2, 3, 4, 5]}
+
+
+def _audio_leads(text: str) -> list[str]:
+    from digest import audio
+
+    pools = audio._FIRST + audio._MIDDLE + audio._LAST
+    return [next(lead for lead in pools if para.startswith(lead)) for para in text.split("\n\n")[1:-1]]
+
+
+def test_audio_script_opens_closes_and_never_numbers_the_stories():
+    from digest import audio
+
+    text, picks = audio.build_script(AUDIO_BRIEFING, AUDIO_STORIES)
+    parts = text.split("\n\n")
+    assert len(picks) == 5 and len(parts) == 7          # the opening, five stories, the close
+    assert parts[0] == ("Good morning. This is the Digest AI briefing for Thursday the seventeenth "
+                        "of September. Five stories today.")
+    assert "sources" in parts[-1] and "digestai.news" in parts[-1] and "every hour" in parts[-1]
+    assert not re.search(r"\bStory \d", text)
+    # the news first, then why it matters, and only the first sentence of each
+    assert parts[1].endswith("It is the largest private round on record.")
+    assert "not read" not in text and "should not be read out" not in text
+    # a summary that points at itself is read as news
+    assert "In this analysis" not in text and "Nvidia shipped 2.5 million GPUs" in text
+
+
+def test_audio_script_varies_its_transitions():
+    from digest import audio
+
+    leads = _audio_leads(audio.build_script(AUDIO_BRIEFING, AUDIO_STORIES)[0])
+    assert len(set(leads)) == 5, leads                   # no lead-in twice in one episode
+    assert leads[0] in audio._FIRST and leads[-1] in audio._LAST
+    other = _audio_leads(audio.build_script({**AUDIO_BRIEFING, "date": "2026-09-18"}, AUDIO_STORIES)[0])
+    assert other != leads                                # and the next day does not sound the same
+    assert audio.build_script(AUDIO_BRIEFING, AUDIO_STORIES)[0] == audio.build_script(AUDIO_BRIEFING, AUDIO_STORIES)[0]
+
+
+def test_audio_script_leaves_no_markdown_or_addresses():
+    from digest import audio
+
+    text, _ = audio.build_script(AUDIO_BRIEFING, AUDIO_STORIES)
+    assert "SoftBank" in text                            # the link text stays
+    assert not re.search(r"https?://|\]\(|[*_`#>]", text)
+
+
+def test_audio_spoken_form_expands_what_the_voice_gets_wrong():
+    from digest import audio
+
+    said = audio.spoken(audio.build_script(AUDIO_BRIEFING, AUDIO_STORIES)[0])
+    assert "3 point 3 billion dollars" in said and "500 billion dollars" in said
+    assert "1200 investors" in said                      # a thousands comma is read as a pause
+    assert "27 percent" in said and "2 point 5 million" in said
+    assert "20 euros a month" in said
+    assert "Digest AI dot news" in said and "digestai.news" not in said
+    assert not re.search(r"[$€£%]|\d,\d\d\d|\d\.\d", said)
+    # the voice says these correctly by itself, so they are left alone
+    assert "AI Act" in said and "the EU has opened" in said and "GPUs" in said
+    assert "A.I." not in said and "E U " not in said
+
+
+def test_audio_chunks_stay_sentence_sized():
+    from digest import audio
+
+    text, _ = audio.build_script(AUDIO_BRIEFING, AUDIO_STORIES)
+    for para in audio._paragraphs(audio.spoken(text)):
+        chunks = audio._chunks(para)
+        assert chunks and all(0 < len(c) <= audio.CHUNK_CHARS for c in chunks), chunks
+        assert " ".join(chunks).split() == para.split()  # nothing lost, nothing added
+    long_one = "A clause that runs on and on, " * 20
+    assert all(len(c) <= audio.CHUNK_CHARS for c in audio._chunks(long_one))
 
 
 if __name__ == "__main__":
