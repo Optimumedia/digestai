@@ -694,6 +694,11 @@ def test_headline_hedged_when_the_source_only_suggests():
     assert headline_hedged("OpenAI could raise $40B, sources say", "OpenAI raises $40B")
     assert not headline_hedged("OpenAI could raise $40B, sources say", "OpenAI in talks to raise $40B")
     assert not headline_hedged("OpenAI raises $40B", "OpenAI closes $40B round")  # nothing hedged to lose
+    # A company describing its own action is attribution, not a hedge (a false positive on the export check).
+    assert not headline_hedged("Anthropic says Claude thwarted bioweapon research from state-sponsored actors",
+                               "Anthropic Blocks State-Sponsored Actors Using Claude for Bioweapon Research")
+    assert headline_hedged("Nvidia reportedly in talks to buy Groq", "Nvidia buys Groq")
+    assert not headline_hedged("Nvidia reportedly in talks to buy Groq", "Nvidia in talks to buy Groq, report says")
     assert not headline_hedged(None, "x") and not headline_hedged(title, title)
     from types import SimpleNamespace
 

@@ -313,29 +313,32 @@ def heuristic(row, category_hint: str | None) -> dict:
     }
 
 
-# Words that mark a claim as unconfirmed, attributed or a possibility. A source title with one of
-# them (or a question mark) hedges; a headline without any of them states a fact.
-HEDGE_WORDS = re.compile(
-    r"\b(?:may|might|could|reportedly|allegedly|alleged|according to|claims?|claimed|suggests?|suggested|"
-    r"appears?|appeared|seems?|seemed|possibl[ey]|potential(?:ly)?|rumou?r(?:s|ed)?|sources? say|"
-    r"report(?:s|ed|edly)?|says?|said|tells?|told|opinion|likely|perhaps|expected to|in talks|considering|"
-    r"plans? to|would|should|is said to|are said to|accus(?:es|ed|ation)|denies|denied|questions?|"
-    r"why|whether|what if|is it|are we|do we|does it|can it|will it|debate|argues?|argued|warns?|warned)\b", re.I)
+# Words that mark a source's claim as unconfirmed: a possibility, an allegation, a rumour. Kept
+# narrow on purpose: "Anthropic says Claude blocked..." is a company describing its own action, and
+# flagging every "says" would bury the real cases on the dashboard.
+SOURCE_HEDGE = re.compile(
+    r"\b(?:may|might|could|reportedly|allegedly|alleged|according to|claims?|claimed|suggests?|"
+    r"appears? to|seems? to|possibl[ey]|rumou?r(?:s|ed)?|sources? (?:say|said|tell)|is said to|are said to|"
+    r"report says|reports say|in talks|considering|opinion)\b", re.I)
+# What counts as our headline keeping a hedge or an attribution: any of the above, or a named source.
+HEADLINE_HEDGE = re.compile(
+    SOURCE_HEDGE.pattern[:-3] + r"|says?|said|tells?|told|report(?:s|ed)?|likely|would|expected to|plans? to|"
+    r"accus(?:es|ed)|warns?|argues?|opinion:?)\b", re.I)
 QUESTION = re.compile(r"\?")
 
 
 def title_hedges(title: str | None) -> bool:
-    """The source's own title frames its claim as a question, a possibility or someone's account."""
-    return bool(title) and bool(QUESTION.search(title) or HEDGE_WORDS.search(title))
+    """The source's own title frames its claim as a question, a possibility or an allegation."""
+    return bool(title) and bool(QUESTION.search(title) or SOURCE_HEDGE.search(title))
 
 
 def headline_hedged(title: str | None, headline: str | None) -> bool:
-    """True when the source title hedges (a question, may/could/reportedly/according to) and our
-    headline drops the hedge and states the claim as fact. Rewriting is not something a cheap check
-    can do, so the flag is reported (export.py, quality.py) rather than fixed."""
+    """True when the source title hedges (a question, may/could/reportedly/allegedly/according to)
+    and our headline keeps neither a hedge nor an attribution, stating the claim as fact. Rewriting is
+    not something a cheap check can do, so the flag is reported (export.py, quality.py), not fixed."""
     if not title or not headline or title.strip() == headline.strip():
         return False
-    return title_hedges(title) and not (QUESTION.search(headline) or HEDGE_WORDS.search(headline))
+    return title_hedges(title) and not (QUESTION.search(headline) or HEADLINE_HEDGE.search(headline))
 
 
 def _as_list(value) -> list:
