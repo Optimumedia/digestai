@@ -440,6 +440,8 @@ def run() -> dict:
         out["schedule"] = {"runsPerDay": config.RUNS_PER_DAY, "intervalMinutes": config.RUN_INTERVAL_MINUTES,
                            "runMinutes": config.RUN_MINUTES}
         actions += database_cards(out["database"])
+        out["storage"] = storage_summary()
+        actions += storage_cards(out["storage"], now)
 
         # ---- content quality: sample older story pages that should still be online.
         cut_hi, cut_lo = now - timedelta(days=2), now - timedelta(days=60)
@@ -670,6 +672,54 @@ def database_summary(size: dict | None, rows: list[dict], history: list[dict], n
             "projectedMB": round(projected, 1),
         },
     }
+
+
+def _read_cache_json(*parts: str) -> dict:
+    try:
+        return json.loads(config.CACHE_DIR.joinpath(*parts).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def storage_summary() -> dict:
+    """The media store (media.py) and the nightly backup (backup.py), as their steps left them."""
+    media = _read_cache_json("media", "status.json")
+    backup = _read_cache_json("backup", "state.json")
+    archive_count = None
+    try:
+        archive_count = len(json.loads((config.SITE_DATA_DIR / "archive.json").read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        pass
+    return {
+        "media": {k: media.get(k) for k in ("at", "assets", "mb", "pending", "store", "lastUploadAt", "error")} if media else None,
+        "backup": {"lastAt": backup.get("lastAt"), "asset": backup.get("lastAsset"), "mb": backup.get("lastMB"),
+                   "rows": backup.get("lastRows"), "reason": backup.get("reason"), "configured": bool(os.environ.get("BACKUP_KEY"))},
+        "archivePages": archive_count,
+        "releasesUrl": f"https://github.com/{os.environ.get('GITHUB_REPOSITORY') or 'Optimumedia/digestai'}/releases",
+    }
+
+
+def storage_cards(s: dict, now) -> list[dict]:
+    out = []
+    b = s.get("backup") or {}
+    last = datetime.fromisoformat(b["lastAt"]) if b.get("lastAt") else None
+    if not b.get("configured"):
+        out.append(_card("backup:setup", "info", "The database is not backed up yet.",
+                         "Supabase's free plan keeps no copy you can download, so a mistake or a lost project would lose every story.",
+                         "Create the BACKUP_KEY secret (SETUP.md, \"Database backup\"). The pipeline then saves an encrypted copy every night."))
+    elif last is None or now - last > timedelta(hours=50):
+        out.append(_card("backup:stale", "warning", "The nightly database backup has not run for two days." if last else "No database backup has been made yet.",
+                         "Without a recent copy, anything lost in the database cannot be restored.",
+                         "Open the Actions log and look at the backup step.",
+                         detail=f"Last reason: {b.get('reason')}" if b.get("reason") else None,
+                         action={"kind": "link", "url": ACTIONS_URL, "label": "Open the Actions log"}))
+    m = s.get("media") or {}
+    if m.get("store") == "unreachable" or (m.get("pending") or 0) >= 300:
+        out.append(_card("media:store", "warning", f"{m.get('pending') or 0} share images, thumbnails or episodes are waiting to be uploaded.",
+                         "They are served from the site meanwhile, which uses up its size limit; if the runner's copy is lost they are made again.",
+                         "No action needed if it clears within a day. If not, check the media step in the Actions log.",
+                         detail=m.get("error")))
+    return out
 
 
 def database_cards(d: dict) -> list[dict]:

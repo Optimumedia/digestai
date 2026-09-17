@@ -45,6 +45,13 @@ const mb = (v: number | null | undefined) => v == null ? "—" : v >= 1024 ? `${
 const kb = (v: number | null | undefined) => v == null ? "—" : v >= 1024 ? `${(v / 1024).toFixed(1)} MB` : `${Math.round(v)} KB`;
 const dbSizePct = dbInfo?.sizeMB != null && dbInfo?.limitMB ? Math.round((dbInfo.sizeMB / dbInfo.limitMB) * 100) : null;
 const readRows = (dbReads.steps || []).slice(0, 10).map((s: any) => ({ label: s.step, value: s.readKB, title: `${s.step}: ${kb(s.readKB)} read in the latest run` }));
+// ---- storage: the media store (release assets) and the nightly database backup.
+const storage = admin?.storage || null;
+const fmtAgo = (iso: string | null | undefined) => {
+  if (!iso) return "never";
+  const h = (Date.now() - Date.parse(iso)) / 36e5;
+  return h < 1 ? "under an hour ago" : h < 48 ? `${Math.round(h)} hours ago` : `${Math.round(h / 24)} days ago`;
+};
 const fmtDayShort = (d: string | null | undefined) => d ? formatDate(`${d}T12:00:00Z`, { day: "numeric", month: "short" }) : "—";
 
 // ---- derived numbers with deltas
@@ -488,6 +495,17 @@ const homeData = JSON.stringify({
                 </>
               )}
               {(dbInfo.tables || []).length > 0 && <p class="muted">Biggest tables: {dbInfo.tables.map((t: any) => `${t.name} ${mb(t.mb)}`).join(", ")}. Old article text and embeddings nothing uses are emptied a little every run, so the database stops growing; Postgres reuses the freed space rather than shrinking.</p>}
+            </section>
+          )}
+          {storage && (
+            <section class="card">
+              <h2>Storage and backups <span class="muted">free: GitHub releases</span></h2>
+              <div class="tiles">
+                <div class:list={["tile", { bad: storage.backup?.configured && (!storage.backup?.lastAt || Date.now() - Date.parse(storage.backup.lastAt) > 50 * 36e5) }]}><span class="label">Database backup</span><span class="value">{storage.backup?.configured ? fmtAgo(storage.backup?.lastAt) : "Not set up"}</span><span class="sub">{storage.backup?.lastAt ? `${storage.backup.mb} MB, kept 30 days` : storage.backup?.configured ? "the first one runs tonight" : "needs the BACKUP_KEY secret"}</span></div>
+                <div class:list={["tile", { bad: storage.media?.store === "unreachable" }]}><span class="label">Media store</span><span class="value">{storage.media ? `${storage.media.assets ?? 0} files` : "—"}</span><span class="sub">{storage.media ? `${mb(storage.media.mb)} · ${storage.media.pending ?? 0} waiting · last upload ${fmtAgo(storage.media.lastUploadAt)}` : "no run yet"}</span></div>
+                <div class="tile"><span class="label">Archive pages</span><span class="value">{storage.archivePages ?? "—"}</span><span class="sub">older stories kept in short form</span></div>
+              </div>
+              <p class="muted">Share images, thumbnails and the podcast episodes are uploaded once to <a href={storage.releasesUrl} target="_blank" rel="noopener">the repository's releases</a>; the site serves the last week's copies itself. Every night an encrypted copy of the stories, articles (without their text), threads, sources and daily statistics is added to the "backups" release; reader events and alert subscriptions are never included. SETUP.md explains how to restore it.</p>
             </section>
           )}
           <section class="card">

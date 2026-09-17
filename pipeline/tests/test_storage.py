@@ -428,6 +428,19 @@ def test_backup_runs_daily_uploads_one_bounded_file_rotates_and_excludes_private
             media.reset()
 
 
+def test_admin_storage_cards():
+    from digest import admin
+
+    now = NOW
+    none = admin.storage_cards({"backup": {"configured": False}, "media": {}}, now)
+    assert [c["id"] if "id" in c else c.get("key") for c in none] and none[0]["level"] == "info"
+    fresh = {"backup": {"configured": True, "lastAt": (now - timedelta(hours=10)).isoformat()}, "media": {"store": "ok", "pending": 0}}
+    assert admin.storage_cards(fresh, now) == []
+    stale = {"backup": {"configured": True, "lastAt": (now - timedelta(days=3)).isoformat(), "reason": "upload failed"},
+             "media": {"store": "unreachable", "pending": 12, "error": "HTTP 502"}}
+    assert [c["level"] for c in admin.storage_cards(stale, now)] == ["warning", "warning"]
+
+
 # ---------------------------------------------------------------------------- watchdog
 
 class FakeActions:

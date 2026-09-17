@@ -11,6 +11,8 @@ const important = byScore
   .slice(0, 8);
 const latest = byRecency.filter((s) => s.id !== exclude).slice(0, 6);
 const topics = entities.slice(0, 18);
+// The daily email needs the Kit form (PUBLIC_KIT_FORM_URL). Until it is connected, offer what works today.
+const kitForm = import.meta.env.PUBLIC_KIT_FORM_URL || "";
 ---
 
 <aside class="rail">
@@ -77,13 +79,26 @@ const topics = entities.slice(0, 18);
     </section>
   )}
   <section>
-    <div class="newsletter">
-      <h3>The daily digest</h3>
-      <p>The five stories that matter, in your inbox at 7:00 every morning. No spam, one click to leave.</p>
-      <form action="/subscribe" method="get">
-        <input type="email" name="email" placeholder="you@example.com" required aria-label="Email address" />
-        <button type="submit">Subscribe</button>
-      </form>
-    </div>
+    {kitForm ? (
+      <div class="newsletter">
+        <h3>The daily digest</h3>
+        <p>The five stories that matter, in your inbox at 7:00 every morning. No spam, one click to leave.</p>
+        <form action="/subscribe" method="get">
+          <input type="email" name="email" placeholder="you@example.com" required aria-label="Email address" />
+          <button type="submit">Subscribe</button>
+        </form>
+      </div>
+    ) : (
+      <div class="newsletter">
+        <h3>Keep up with AI news</h3>
+        <p>The daily email is on its way. Today you can follow Digest AI with:</p>
+        <ul class="follow-ways">
+          <li><a href="/subscribe#alerts">Browser alerts</a> <span class="muted">for breaking stories, at most three a day</span></li>
+          <li><a href="/listen">The podcast</a> <span class="muted">the morning briefing in five minutes</span></li>
+          <li><a href="/rss.xml">RSS feed</a> <span class="muted">every story as it is published</span></li>
+          <li><a href="https://bsky.app/profile/digestai.bsky.social" rel="me noopener" target="_blank">Bluesky</a> <span class="muted">the day's biggest stories</span></li>
+        </ul>
+      </div>
+    )}
   </section>
 </aside>

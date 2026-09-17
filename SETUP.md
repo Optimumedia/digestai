@@ -4,6 +4,9 @@
 
 - [ ] **Podcast directories** (free, 10 min each): submit `https://digestai.news/podcast.xml` at podcastsconnect.apple.com and podcasters.spotify.com (both need an Apple ID / Spotify login); Pocket Casts and Overcast pick it up from Apple. The feed, artwork and daily episodes are already live.
 - [ ] **Kit** newsletter account, form and v4 API key → `.env` → `scripts\push-config.ps1` (section 3). Turns on the 07:00 daily email; everything else is wired.
+- [ ] **Database backup key** (2 min): put a long random passphrase in `.env` as `BACKUP_KEY=...`, save it in your password manager, run `scripts\push-config.ps1`. The nightly encrypted backup starts with the next run ("Database backup" below).
+- [ ] **Optional: healthchecks.io** (5 min, free): an email when runs stop arriving ("Alerts when the pipeline stops" below).
+- [ ] **Optional: free the Actions cache sooner.** After the first successful run on the new version, the ~6.6 GB of old `og-images-...` copies and the per-run `audio-<number>` copies are no longer used; they expire by themselves after 7 days. To free the space at once: Actions → Caches (left sidebar) → delete the entries starting with `og-images-` and `audio-3` (keep `audio-recent-...`).
 - [x] **Bluesky** auto-posting (14 Sep): app password pushed as BLUESKY_HANDLE / BLUESKY_APP_PASSWORD; the `social` step posts the daily briefing (from 07:00 UTC) and up to 6 breaking stories a day. Profiles: LinkedIn company page, bsky digestai.bsky.social, X @DigestAINews (X and LinkedIn posting stay manual).
 - [x] **Google News Publisher Center**: submitted 12 September 2026; approval usually takes days to two weeks. Check status at https://publishercenter.google.com; once approved, Google News and Discover traffic shows in Search Console → Performance → Discover / News tabs.
 - [x] Social profiles created (14 Sep): LinkedIn company page, Bluesky digestai.bsky.social, X @DigestAINews; linked from the site. Add digestai.news to the Bluesky bio.
@@ -197,3 +200,76 @@ shows under Custom domains; GitHub Pages then simply stops being used.
 - Kit → Broadcasts shows a draft or sent email each morning at the configured hour.
 - Search Console: add the property and submit `https://digestai.news/sitemap-index.xml` and
   `https://digestai.news/news-sitemap.xml`.
+
+## Media storage: share images, thumbnails, podcast episodes (17 Sep)
+
+GitHub Pages allows a 1 GB site and the Actions cache 10 GB for the repository; one share image per
+story and a new copy of all of them saved by every run filled both. Now:
+
+- **Kept for good as release assets.** Every share image (1200x630, ~25 KB), story thumbnail (~600 px
+  WebP, ~7 KB) and podcast episode (~2.4 MB) is uploaded once to a weekly release named
+  `media-<year>-W<week>` (Releases on the repository page; they are marked as not the latest release).
+  Each weekly release has an `index.json`; the story archive is in the `archive` release. Releases
+  and their files are free and have no total size limit (2 GB per file).
+- **Served by the site where it matters.** Release downloads have no image or audio type, which
+  Facebook and LinkedIn refuse for link previews and some podcast apps dislike. So the site itself
+  serves the share images of the last 7 days' stories, thread and topic cards, and the newest 7
+  episodes; older stories show the default card when shared, and older episodes play from the release.
+  Set the repository variable `PUBLIC_OG_FROM_STORE=1` to try release share images for older stories
+  (test a link in https://developers.facebook.com/tools/debug/ first).
+- **Front page pictures** are our thumbnails, not the publisher's full-size image (faster, and readers'
+  browsers no longer contact the publisher); the original is used only when there is no thumbnail.
+- The Actions cache keeps only a daily copy of the site's recent cards (`og-cards-<date>`) and the
+  recent episodes (`audio-recent-<episode>`), instead of a copy per run.
+
+## Old stories keep their pages (17 Sep)
+
+A story stays a full page for 120 days after its last update (`EXPORT_DAYS`). After that it becomes a
+short archive page at the same address (headline, summary, key points and sources, no full text), so
+links from search engines and social posts keep working. Unpublishing a story in `moderation.yaml`
+also removes its archive page.
+
+## Database backup (17 Sep)
+
+Every night the `backup` step saves the stories, articles (without their full text and embeddings),
+threads, sources, daily statistics, newsletters, topics, social posts and model usage, compressed and
+encrypted, to the `backups` release as `digest-backup-<date>.tar.gz.enc`; files older than 30 days are
+deleted. Reader events and browser-alert subscriptions are never included. It reads almost nothing
+extra from Supabase (the runner already has the rows), well under 1 MB a night.
+
+**Set up (2 min).** Generate a long random passphrase in your password manager and keep it there: a
+backup cannot be opened without it, and the repository is public, so the file is useless to anyone
+else. Put it in `.env` as `BACKUP_KEY=...` and run `.\scripts\push-config.ps1`. The admin Pipeline
+tab shows when the last backup ran.
+
+**Restore.** Download the newest file from the `backups` release, then (Git Bash, macOS or Linux):
+
+```bash
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -in digest-backup-2026-09-17.tar.gz.enc -out backup.tar.gz
+tar xzf backup.tar.gz     # one file per table, one JSON object per line, plus manifest.json
+```
+
+It asks for the passphrase. Loading the rows back into a new database is a job to ask for when needed
+(the files hold every column the pipeline needs, except article text and embeddings, which it rebuilds).
+
+## Alerts when the pipeline stops (17 Sep)
+
+- **Watchdog workflow** (on by itself): every hour at :37 it checks when "Ingest and publish" last
+  succeeded. After 3 hours without success it opens one issue labelled `pipeline-stopped` (GitHub
+  emails you), updates it while the problem lasts and closes it after the next success.
+- **Keeping the schedule alive** (on by itself): GitHub switches off scheduled workflows in a public
+  repository after 60 days without activity, and the pipeline never commits. Every Monday the watchdog
+  re-enables both workflows through the API (and at once if it finds one switched off), without a
+  commit, so nothing is rebuilt. If GitHub ever still disables them, Actions shows a banner with an
+  "Enable workflow" button, and the watchdog issue tells you.
+- **healthchecks.io** (optional, independent of GitHub): sign up free at https://healthchecks.io → Add
+  Check → period 1 hour, grace 2 hours → copy the ping URL → `.env` as `HEALTHCHECK_URL=...` →
+  `.\scripts\push-config.ps1`. Every run pings it (a failed run pings `/fail`), and it emails you when
+  the pings stop, even if GitHub Actions itself is down.
+
+## Newsletter sign-up until Kit is connected (17 Sep)
+
+Without `PUBLIC_KIT_FORM_URL` the sidebar offers browser alerts, the podcast, RSS and Bluesky instead
+of an email box, and `/subscribe` says the daily email is coming. Setting the variable (section 3)
+brings the sign-up form back everywhere with the next run.
+

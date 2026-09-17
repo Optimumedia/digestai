@@ -1,29 +1,36 @@
 ---
 import Base from "../layouts/Base.astro";
 import Rail from "../components/Rail.astro";
-// Week 4 wires this to Kit. Until then the page explains what the newsletter is and
-// forwards the email to the Kit form URL when one is configured.
+// The daily email switches on when the Kit form is configured (PUBLIC_KIT_FORM_URL, SETUP.md section 3).
+// Until then this page says so plainly and offers the ways to follow that already work.
 const kitForm = import.meta.env.PUBLIC_KIT_FORM_URL || "";
+const bluesky = "https://bsky.app/profile/digestai.bsky.social";
 ---
 
-<Base title="Subscribe" description="The Digest AI daily email: five stories that matter, every morning at 7:00." noindex={!kitForm}>
+<Base
+  title={kitForm ? "Subscribe" : "Follow Digest AI"}
+  description={kitForm ? "The Digest AI daily email: five stories that matter, every morning at 7:00." : "Follow AI news on Digest AI with browser alerts, the daily podcast, RSS and Bluesky. A daily email is coming."}
+  noindex={!kitForm}
+>
   <div class="grid">
     <div class="article">
       <header class="page-head">
-        <div class="eyebrow">Newsletter</div>
-        <h1>The daily digest</h1>
-        <p>Five stories that matter, chosen by importance and by what readers actually opened, in your inbox at 7:00 every morning.</p>
+        <div class="eyebrow">{kitForm ? "Newsletter" : "Follow"}</div>
+        <h1>{kitForm ? "The daily digest" : "Keep up with AI news"}</h1>
+        {kitForm ? (
+          <p>Five stories that matter, chosen by importance and by what readers actually opened, in your inbox at 7:00 every morning.</p>
+        ) : (
+          <p>A daily email with the five stories that matter is coming, but sign-up is not open yet. Until it is, these work today, with no account needed.</p>
+        )}
       </header>
-      {kitForm ? (
+      {kitForm && (
         <form action={kitForm} method="post" class="newsletter" style="max-width: 460px">
           <input type="email" name="email_address" placeholder="you@example.com" required aria-label="Email address" />
           <button type="submit">Subscribe</button>
         </form>
-      ) : (
-        <p class="muted">Sign-up opens shortly. Meanwhile, the <a href="/rss.xml">RSS feed</a> carries every story.</p>
       )}
 
-      <section class="pushbox" data-push-box hidden>
+      <section class="pushbox" id="alerts" data-push-box hidden>
         <div class="eyebrow">Browser alerts</div>
         <h2>Breaking news, at most three a day</h2>
         <p>Turn on alerts and this browser gets a notification when a story breaks that most outlets are covering: a major model release, a big deal, a rule that changes the industry. No email, no account; switch it off any time from the same button.</p>
@@ -32,8 +39,18 @@ const kitForm = import.meta.env.PUBLIC_KIT_FORM_URL || "";
       </section>
 
       <section style="margin-top: 32px">
+        <div class="eyebrow">Podcast</div>
+        <p>The morning briefing read aloud in about five minutes. <a href="/listen">Listen here</a> or add <a href="/podcast.xml">the podcast feed</a> to your podcast app.</p>
+      </section>
+
+      <section style="margin-top: 24px">
         <div class="eyebrow">Feeds</div>
-        <p>Everything also flows through <a href="/rss.xml">the main RSS feed</a> and one feed per section from the category pages; follow a topic and its stories appear on your <a href="/">front page</a>.</p>
+        <p>Every story flows through <a href="/rss.xml">the main RSS feed</a>, and each section has its own feed on its category page. Follow a topic and its stories appear on your <a href="/">front page</a>.</p>
+      </section>
+
+      <section style="margin-top: 24px">
+        <div class="eyebrow">Bluesky</div>
+        <p>The day's biggest stories and an evening recap: <a href={bluesky} rel="me noopener" target="_blank">@digestai.bsky.social</a>.</p>
       </section>
     </div>
     <Rail />
