@@ -66,10 +66,21 @@ def _story_text(row) -> str:
 
 
 def _unique_slug(conn, base: str, table, url_hint: str) -> str:
-    slug = base
-    if conn.execute(select(table.c.id).where(table.c.slug == slug)).first():
-        slug = f"{base[:70]}-{short_hash(url_hint)}"
-    return slug
+    """A free address. Both the plain one and the one with the article's hash can be taken: a merged
+    story keeps its address, and its articles come back through clustering with the same headline and
+    the same link, so the hashed address is already in use too."""
+    base = (base or "story")[:70].strip("-") or "story"
+    taken = {r[0] for r in conn.execute(
+        select(table.c.slug).where(table.c.slug.like(f"{base}%"))).all()}
+    if base not in taken:
+        return base
+    stem = f"{base}-{short_hash(url_hint)}"
+    if stem not in taken:
+        return stem
+    for n in range(2, 60):
+        if f"{stem}-{n}" not in taken:
+            return f"{stem}-{n}"
+    return f"{stem}-{short_hash(url_hint + db.utcnow().isoformat())}"
 
 
 def _vec(value) -> np.ndarray | None:

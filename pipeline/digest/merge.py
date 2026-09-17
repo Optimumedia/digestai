@@ -138,6 +138,11 @@ def same_event(a: dict, b: dict, sim: float | None, thr: float) -> str | None:
     if len(ta) >= 3 and sorted(ta) == sorted(tb):
         return "the same headline"
     shared = shared_entities(a.get("entities"), b.get("entities"))
+    if not config.MERGE_DUPLICATES:
+        # Wording only: two feeds carrying the same piece, or the same headline reworded slightly.
+        if shared and headline_similarity(a.get("headline"), b.get("headline")) >= 0.85:
+            return f"nearly the same headline, both about {shared[0].title()}"
+        return None
     if sim is not None:
         if sim >= thr and shared:
             return f"{sim:.2f} alike, both about {shared[0].title()}"

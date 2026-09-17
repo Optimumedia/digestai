@@ -338,8 +338,33 @@ def test_incremental_export_equals_a_full_export_across_runs():
 # ---------------------------------------------------------------------------- merging duplicates
 
 def test_duplicate_stories_merge_into_the_older_and_export_redirects():
-    from digest import export, merge
+    from digest import config, export, merge
 
+    # The similarity rule is off by default since it merged separate events (17 Sep); this checks it.
+    was = config.MERGE_DUPLICATES
+    config.MERGE_DUPLICATES = True
+    try:
+        _duplicate_merge_case(export, merge)
+    finally:
+        config.MERGE_DUPLICATES = was
+
+
+def test_wording_merge_still_catches_the_same_piece_twice():
+    from digest import config, merge
+
+    a = {"headline": "Acme closes a record funding round", "entities": {"companies": ["Acme"]}, "at": NOW}
+    b = {"headline": "Acme closes record funding round", "entities": {"companies": ["Acme"]}, "at": NOW}
+    c = {"headline": "Acme opens a data centre in Ohio", "entities": {"companies": ["Acme"]}, "at": NOW}
+    was = config.MERGE_DUPLICATES
+    config.MERGE_DUPLICATES = False
+    try:
+        assert merge.same_event(a, b, 0.99, 0.97)  # the same piece from two feeds
+        assert merge.same_event(a, c, 0.95, 0.88) is None  # a different event about the same company
+    finally:
+        config.MERGE_DUPLICATES = was
+
+
+def _duplicate_merge_case(export, merge):
     with fresh_db() as (eng, tmp):
         rng = np.random.default_rng(7)
         seed(eng, stories=4, per_story=3, rng=rng)

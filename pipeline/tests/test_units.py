@@ -1003,6 +1003,35 @@ def test_reader_countries_from_time_zones():
     assert [(c["name"], c["visitors"], c["views"]) for c in out] == [("United States", 3, 6), ("Poland", 3, 5), ("Unknown", 7, 10)]
 
 
+def test_story_address_is_free_even_when_a_merged_story_kept_it():
+    """A merged story keeps its address; its articles come back through clustering and must not
+    collide (the cluster step crashed on 17 Sep with duplicate key stories_slug_key)."""
+    import tempfile
+
+    from sqlalchemy import create_engine, insert
+
+    from digest import cluster, db
+
+    tmp = Path(tempfile.mkdtemp()) / "slugs.db"
+    eng = create_engine(f"sqlite:///{tmp.as_posix()}", future=True)
+    db.metadata.create_all(eng)
+    base, url = "ai-experts-warn-of-extinction-risk", "https://example.test/a"
+    with eng.begin() as conn:
+        assert cluster._unique_slug(conn, base, db.stories, url) == base
+        conn.execute(insert(db.stories).values(slug=base, headline="h", status="merged",
+                                               first_published_at=db.utcnow(), updated_at=db.utcnow()))
+        hashed = cluster._unique_slug(conn, base, db.stories, url)
+        assert hashed.startswith(base + "-") and hashed != base
+        conn.execute(insert(db.stories).values(slug=hashed, headline="h", status="merged",
+                                               first_published_at=db.utcnow(), updated_at=db.utcnow()))
+        third = cluster._unique_slug(conn, base, db.stories, url)
+        assert third == f"{hashed}-2"
+        conn.execute(insert(db.stories).values(slug=third, headline="h", status="published",
+                                               first_published_at=db.utcnow(), updated_at=db.utcnow()))
+        assert cluster._unique_slug(conn, base, db.stories, url) == f"{hashed}-3"
+    eng.dispose()
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

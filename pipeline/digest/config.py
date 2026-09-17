@@ -156,7 +156,11 @@ CLUSTER_LEAD_MARGIN = float(os.environ.get("CLUSTER_LEAD_MARGIN") or "0.03")
 # they broke within MERGE_PAIR_DAYS of each other. The smaller pool of pairs just under the bar is
 # listed for review on the dashboard. At most MERGE_MAX_PER_RUN stories are merged per run, among
 # stories first published in the last MERGE_LOOKBACK_DAYS (threads read the same window's vectors).
-MERGE_THRESHOLD_MODEL = float(os.environ.get("MERGE_THRESHOLD_MODEL") or "0.88")
+# Off since 17 Sep: at 0.88 with a shared name ("Anthropic" is in most AI stories) separate events
+# were merged - a Samsung investment, a Fujitsu chip launch and a dozen policy stories went into one.
+# Only near-identical wording merges now; MERGE_DUPLICATES=1 turns the similarity rule back on.
+MERGE_DUPLICATES = os.environ.get("MERGE_DUPLICATES", "0") == "1"
+MERGE_THRESHOLD_MODEL = float(os.environ.get("MERGE_THRESHOLD_MODEL") or "0.97")
 MERGE_THRESHOLD_FALLBACK = float(os.environ.get("MERGE_THRESHOLD_FALLBACK") or "0.72")
 MERGE_PAIR_DAYS = int(os.environ.get("MERGE_PAIR_DAYS") or "7")
 MERGE_LOOKBACK_DAYS = int(os.environ.get("MERGE_LOOKBACK_DAYS") or "14")
