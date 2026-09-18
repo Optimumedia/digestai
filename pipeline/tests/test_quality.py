@@ -261,6 +261,39 @@ def test_ranking_card_needs_enough_impressions():
     assert admin.ranking_cards({"perDay": gap["perDay"][:10]}) == []
 
 
+def test_over_merged_starts_at_twice_the_cluster_cap():
+    """A story is full at the cap and counts the rest as overflow, so 45 sources is a big story,
+    not a merge gone wrong (three "worth a look" cards on 17 Sept were full stories)."""
+    from digest import config
+
+    cap = config.CLUSTER_MAX_ARTICLES
+    full = story(1, "Big story", count=cap + 5)
+    lumped = story(2, "Lumped story", count=2 * cap + 1)
+    assert [i["slug"] for i in quality.over_merged([full, lumped])] == ["s2"]
+    assert str(quality.MAX_SOURCES) in quality.cards({"overMerged": quality.over_merged([lumped])})[0]["why"]
+
+
+def test_headline_check_allows_rounding_makers_and_text_it_cannot_see():
+    text = "The paper analyses 2,507 head-to-head comparisons across 27 disciplines, published between 2000 and 2025. " * 3
+    arts = [{"title": "AI versus traditional methods", "description": None, "contentMd": text, "isLead": True, "url": "u", "wordCount": 400}]
+    rounded = {**story(40, "Study: AI lags scientific computing in 2,500 comparisons", articles=arts), "entities": {}}
+    exact_wrong = {**rounded, "id": 41, "slug": "s41", "headline": "Study: AI lags scientific computing in 26 disciplines"}
+    chat = "ChatGPT for Teens adds Study Mode, homework reminders and parental controls for families. " * 4
+    maker = {**story(42, "OpenAI adds Study Mode and parental controls to ChatGPT",
+                     articles=[{"title": "ChatGPT for Homework: 5 features", "contentMd": chat, "isLead": True, "url": "u", "wordCount": 300}]),
+             "entities": {"companies": ["OpenAI"]}}
+    stranger = {**maker, "id": 43, "slug": "s43", "headline": "Anthropic adds Study Mode to ChatGPT", "entities": {"companies": ["Anthropic"]}}
+    # Text the export withholds (a publisher whose article the site does not reproduce): nothing to judge against.
+    withheld = {**story(44, "Syensqo leverages AI to accelerate advanced materials",
+                        articles=[{"title": "Materials for the AI era", "description": "A sponsored feature on materials science. " * 8,
+                                   "contentMd": None, "wordCount": 900, "isLead": True, "url": "u"}]),
+                "entities": {"companies": ["Syensqo"]}}
+    flagged = {i["slug"]: i for i in quality.headline_check([rounded, exact_wrong, maker, stranger, withheld], NOW)}
+    assert set(flagged) == {"s41", "s43"}, flagged
+    assert quality.same_figure(2500, 2507) and quality.same_figure(10, 10.4) and not quality.same_figure(27, 26)
+    assert not quality.same_figure(2507, 2600) and quality.same_figure(83000, 83412) and not quality.same_figure(10, 14)
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

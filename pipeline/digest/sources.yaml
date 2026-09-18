@@ -212,6 +212,7 @@ sources:
     url: https://www.kdnuggets.com/feed
     category: agents
     weight: 0.6
+    agent: browser  # its WAF answered the bot agent with 403 on 17 Sept
   - key: eu-ai-act
     name: EU AI Act Newsletter
     url: https://artificialintelligenceact.eu/feed/

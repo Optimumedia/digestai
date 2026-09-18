@@ -29,6 +29,8 @@ def story(slug, headline, articles, first="2026-09-15T08:00:00Z"):
 
 def test_company_names_share_a_key():
     assert funding.company_key("Mistral AI") == funding.company_key("Mistral") == funding.company_key("MISTRAL AI Inc.")
+    assert funding.company_key("Mistral AI SAS") == funding.company_key("Mistral AI S.A.S.") == funding.company_key("Mistral AI")  # two rows on 8 Sept
+    assert funding.company_key("Aleph Alpha GmbH") == funding.company_key("Aleph Alpha") and funding.company_key("Sakana AI") != funding.company_key("Sana")
     assert funding.company_key("xAI") != funding.company_key("Anthropic")
     assert funding.company_key("Humane") != funding.company_key("Human")
 

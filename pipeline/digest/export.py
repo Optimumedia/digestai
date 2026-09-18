@@ -54,6 +54,23 @@ def story_redirects(stories: dict[int, tuple], titles: dict[int, tuple], exporte
     return sorted(out, key=lambda r: r["from"])
 
 
+def add_entity(index: dict[str, dict], name: str, kind: str, story_id: int) -> None:
+    """One topic per name whatever the stories' spelling: "Nvidia" and "NVIDIA" are one hub, named
+    the way most stories write it (they used to be two rail entries with one address)."""
+    key = str(name).strip()
+    if not key:
+        return
+    ent = index.setdefault(key.lower(), {"name": key, "kind": kind, "storyIds": [], "spellings": {}})
+    ent["storyIds"].append(story_id)
+    ent["spellings"][key] = ent["spellings"].get(key, 0) + 1
+
+
+def entity_out(ent: dict) -> dict:
+    spellings = ent.get("spellings") or {ent["name"]: 1}
+    name = max(spellings, key=lambda k: (spellings[k], k == ent["name"]))
+    return {"name": name, "kind": ent["kind"], "storyIds": ent["storyIds"]}
+
+
 def build_briefing(stories: list[dict], now) -> dict:
     """Today's top stories: first new ones, then developing ones only to fill empty places.
 
@@ -350,11 +367,7 @@ def run() -> dict:
         stories_out.append(story)
         for kind in ("companies", "models", "people"):
             for name in (s.entities or {}).get(kind, []) or []:
-                key = name.strip()
-                if not key:
-                    continue
-                ent = entity_index.setdefault(key, {"name": key, "kind": kind, "storyIds": []})
-                ent["storyIds"].append(s.id)
+                add_entity(entity_index, name, kind, s.id)
 
     briefing = build_briefing(stories_out, now)
     # AI at Work: its own briefing, its own tool directory and its own weekly playbooks, all built
@@ -430,7 +443,7 @@ def run() -> dict:
     # tracker row (a fact box makes a page worthwhile even with one story).
     tracked = {r["name"].strip().lower() for r in trackers["models"]} | {r["company"].strip().lower() for r in trackers["funding"]}
     entities_out = sorted(
-        (e for e in entity_index.values() if len(e["storyIds"]) >= 2 or e["name"].strip().lower() in tracked),
+        (entity_out(e) for e in entity_index.values() if len(e["storyIds"]) >= 2 or e["name"].strip().lower() in tracked),
         key=lambda e: len(e["storyIds"]), reverse=True,
     )
 
