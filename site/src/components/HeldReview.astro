@@ -163,7 +163,7 @@ const waiting = count === 1 ? "1 story is waiting" : `${count} stories are waiti
       done.textContent = "Saving…";
       try {
         await decide(li.dataset.slug, act === "approve" ? "approve" : "unpublish");
-        done.textContent = act === "approve" ? "✓ Approved. It goes live on the next run, within about 30 minutes." : "✓ Kept off the site. It will not be published.";
+        done.textContent = act === "approve" ? "✓ Approved. It goes live on the next run, within about an hour." : "✓ Kept off the site. It will not be published.";
       } catch (err) {
         buttons.forEach((b) => (b.disabled = false));
         done.classList.add("bad");

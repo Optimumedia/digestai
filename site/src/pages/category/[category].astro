@@ -35,7 +35,7 @@ const jsonLd = {
 };
 ---
 
-<Base title={`${name} news`} description={`${blurbs[category!]} ${list.length} stories, updated every 30 minutes.`} currentCategory={category} jsonLd={jsonLd}>
+<Base title={`${name} news`} description={`${blurbs[category!]} ${list.length} stories, updated every hour.`} currentCategory={category} jsonLd={jsonLd}>
   <link slot="head" rel="alternate" type="application/rss+xml" title={`Digest AI: ${name}`} href={`${meta.siteUrl}/feeds/category/${category}.xml`} />
   <div class="grid">
     <div>

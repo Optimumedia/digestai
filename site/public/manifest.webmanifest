@@ -1,7 +1,7 @@
 {
   "name": "Digest AI",
   "short_name": "Digest AI",
-  "description": "AI news, digested. Every story with its sources, updated every 30 minutes.",
+  "description": "AI news, digested. Every story with its sources, updated every hour.",
   "start_url": "/?source=pwa",
   "display": "standalone",
   "background_color": "#0e1116",

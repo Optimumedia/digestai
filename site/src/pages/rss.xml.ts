@@ -24,7 +24,7 @@ export const GET: APIRoute = () => {
   <title>Digest AI</title>
   <link>${site}</link>
   <atom:link href="${site}/rss.xml" rel="self" type="application/rss+xml" />
-  <description>AI news, digested: every important story with its sources, updated every 30 minutes.</description>
+  <description>AI news, digested: every important story with its sources, updated every hour.</description>
   <language>en</language>
   <lastBuildDate>${new Date(meta.generatedAt).toUTCString()}</lastBuildDate>
   ${items.join("\n")}

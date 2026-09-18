@@ -25,7 +25,7 @@ interface Props {
 
 const {
   title,
-  description = "The AI news desk: every important story in artificial intelligence, digested and linked to its sources, updated every 30 minutes.",
+  description = "The AI news desk: every important story in artificial intelligence, digested and linked to its sources, updated every hour.",
   image,
   canonical,
   type = "website",
@@ -47,7 +47,7 @@ const site = (Astro.site?.toString() || meta.siteUrl).replace(/\/$/, "");
 const cleanPath = Astro.url.pathname.replace(/\.html$/, "").replace(/\/index$/, "/").replace(/(.)\/$/, "$1");
 const url = canonical || new URL(cleanPath, site).toString();
 const ogImage = image || `${site}/og-default.png`;
-const fullTitle = title === "Digest AI" ? "Digest AI — AI news, digested" : `${title} — Digest AI`;
+const fullTitle = title === "Digest AI" ? "Digest AI: AI news today, digested and sourced" : `${title} — Digest AI`;
 // Broadcast-style ticker: the hottest stories interleaved with the newest, no repeats. Eight links,
 // rendered after the main content (CSS puts it back under the masthead) so the first thing a
 // crawler reads on every page is the page itself, not the same eight headlines.
@@ -126,7 +126,7 @@ const clientConfig = {
       alternateName: "Digest AI News",
       url: site,
       logo: { "@type": "ImageObject", url: `${site}/logo-512.png`, width: 512, height: 512 },
-      description: "The AI news desk: every important story in artificial intelligence, digested and linked to its sources, updated every 30 minutes.",
+      description: "The AI news desk: every important story in artificial intelligence, digested and linked to its sources, updated every hour.",
       foundingDate: "2026",
       publishingPrinciples: `${site}/about#standards`,
       correctionsPolicy: `${site}/about#corrections`,
@@ -142,7 +142,7 @@ const clientConfig = {
     <header class="masthead">
       <div class="wrap masthead-row">
         <a class="brand" href="/" aria-label="Digest AI home">Digest<b>AI</b> <small>news desk</small></a>
-        <p class="masthead-tag">AI news, digested. Every story with its sources, every 30 minutes.</p>
+        <p class="masthead-tag">AI news, digested. Every story with its sources, every hour.</p>
         <div class="tools">
           <a class="icon-btn listen-btn" href="/listen" aria-label="Listen to the audio briefing" title="Listen to the briefing">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3" /><rect x="3" y="14" width="4.5" height="7" rx="1.5" /><rect x="16.5" y="14" width="4.5" height="7" rx="1.5" /></svg>
@@ -212,7 +212,7 @@ const clientConfig = {
             <span class="footer-mark" aria-hidden="true">D</span>
             <span class="footer-word">Digest<b>AI</b></span>
           </a>
-          <p class="footer-tagline">AI news, digested. Every story with its sources, every 30 minutes.</p>
+          <p class="footer-tagline">AI news, digested. Every story with its sources, every hour.</p>
           <p class="footer-follow" id="footer-follow">Follow &amp; subscribe</p>
           <nav aria-labelledby="footer-follow"><SocialLinks variant="footer" /></nav>
         </div>
