@@ -1,0 +1,36 @@
+# Digest AI
+
+> The AI news desk: every important story in artificial intelligence, digested and linked to its sources, updated every hour. Each story page carries a plain-English digest, three key points, why it matters, the list of outlets that reported it with links and dates, and the full text of the lead article, credited. Nothing is published without a named source.
+
+Site: https://digestai.news
+Contact: hello@digestai.news
+Corrections policy: https://digestai.news/about#corrections
+Editorial standards: https://digestai.news/about#standards
+
+## What is where
+
+- Today's briefing (the five stories that matter, updated hourly): https://digestai.news/today
+- Front page: https://digestai.news/
+- AI at Work (practical AI for marketers and small businesses: what a tool does, who it is for, cost, effort, one caveat): https://digestai.news/work
+- Tool directory (AI tools for marketing and small business, newest change first): https://digestai.news/work/tools
+- Model tracker (releases with lab, type, availability, licence, context window): https://digestai.news/models
+- Funding tracker (rounds, acquisitions and valuations as reported, one row per deal): https://digestai.news/funding
+- Developing stories (threads that update as coverage grows): https://digestai.news/threads
+- Categories: https://digestai.news/category/models, /category/marketing, /category/agents, /category/research, /category/business, /category/policy, /category/hardware, /category/enterprise, /category/robotics, /category/society
+- Weekly recaps: https://digestai.news/week
+- Audio briefing and podcast: https://digestai.news/listen
+- About, privacy, terms, contact: https://digestai.news/about, /privacy, /terms, /contact
+
+## Machine-readable feeds
+
+- All stories (RSS): https://digestai.news/rss.xml
+- Google News sitemap (last 48 hours): https://digestai.news/news-sitemap.xml
+- Sitemap index: https://digestai.news/sitemap-index.xml
+- Per-category RSS and JSON feeds: https://digestai.news/feeds/
+- AI at Work RSS: https://digestai.news/work/rss.xml
+- Podcast (daily briefing): https://digestai.news/podcast.xml
+- Podcast (AI at Work, weekly): https://digestai.news/work/podcast.xml
+
+## How to cite
+
+Cite the story page (https://digestai.news/story/<slug>) and the original outlets it links to; each story lists them with publication dates. Digests are written by Digest AI from those sources and marked as such; quoted figures and names are checked against the sources before publishing, and stories are corrected or withdrawn when a source retracts.

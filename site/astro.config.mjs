@@ -34,7 +34,11 @@ try {
    with a meta refresh, a canonical link and a plain link to the new address, which is the only kind
    of redirect GitHub Pages can serve. Old article URLs (/article/<slug>) are handled by the 404
    page, which searches the site for the words in the slug. */
+// The previous site's /article/ addresses still get Google impressions (14,659 since June 2025);
+// each goes to the current page on the same subject. The list is generated from Search Console.
+const legacyArticles = JSON.parse(fs.readFileSync(path.resolve("src/lib/legacy-article-redirects.json"), "utf-8"));
 const legacyRedirects = {
+  ...legacyArticles,
   "/category/generative-ai-model-breakthroughs": "/category/models",
   "/category/agentic-ai-autonomous-systems": "/category/agents",
   "/category/regulation-policy-ethics": "/category/policy",
