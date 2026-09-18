@@ -140,17 +140,13 @@ const clientConfig = {
   </head>
   <body data-story-id={storyId} data-article-id={articleId}>
     <header class="masthead">
-      <div class="wrap">
+      <div class="wrap masthead-row">
         <a class="brand" href="/" aria-label="Digest AI home">Digest<b>AI</b> <small>news desk</small></a>
-        <nav class="nav" aria-label="Sections and categories">
-          <a class="nav-work" href="/work" aria-current={Astro.url.pathname.startsWith("/work") ? "page" : undefined}>AI at Work</a>
-          {Object.entries(categories).map(([key, name]) => (
-            <a href={`/category/${key}`} aria-current={currentCategory === key ? "page" : undefined}>{name.split(" & ")[0]}</a>
-          ))}
-        </nav>
+        <p class="masthead-tag">AI news, digested. Every story with its sources, every 30 minutes.</p>
         <div class="tools">
           <a class="icon-btn listen-btn" href="/listen" aria-label="Listen to the audio briefing" title="Listen to the briefing">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3" /><rect x="3" y="14" width="4.5" height="7" rx="1.5" /><rect x="16.5" y="14" width="4.5" height="7" rx="1.5" /></svg>
+            <span class="btn-label">Listen</span>
           </a>
           <a class="icon-btn" href="/saved" aria-label="Saved stories" title="Saved stories">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z" /></svg>
@@ -164,6 +160,26 @@ const clientConfig = {
           </button>
         </div>
       </div>
+      {/* The section row: AI at Work first, then every category. One line on a desktop; on a phone
+          the same row scrolls sideways under faded edges, and the small script below starts it on
+          the current category so a reader always sees where they are. */}
+      <nav class="nav" aria-label="Sections and categories">
+        <div class="wrap nav-scroll" data-nav-scroll>
+          <a class="nav-work" href="/work" aria-current={Astro.url.pathname.startsWith("/work") ? "page" : undefined}>AI at Work</a>
+          {Object.entries(categories).map(([key, name]) => (
+            <a href={`/category/${key}`} aria-current={currentCategory === key ? "page" : undefined}>{name.split(" & ")[0]}</a>
+          ))}
+        </div>
+      </nav>
+      <script is:inline>
+        (() => {
+          const strip = document.querySelector("[data-nav-scroll]");
+          const on = strip && strip.querySelector("[aria-current]");
+          if (!strip || !on || strip.scrollWidth <= strip.clientWidth) return;
+          // Only when the current item is under the faded edge; then centre it for context both ways.
+          if (on.offsetLeft + on.offsetWidth > strip.clientWidth - 24) strip.scrollLeft = on.offsetLeft - (strip.clientWidth - on.offsetWidth) / 2;
+        })();
+      </script>
     </header>
 
     <main class="wrap" data-pagefind-body>
