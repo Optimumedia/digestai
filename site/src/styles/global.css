@@ -783,6 +783,28 @@ table.sortable th:hover { color: var(--ink); }
 }
 /* ---------- /Admin: Home header and action list ---------- */
 
+/* ---------- Admin: Morning note ---------- */
+.mnote { margin-bottom: 16px; padding: 14px 18px 10px; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--series-1); border-radius: 4px; }
+.mnote-head h2 { margin: 0; font-family: var(--font-display); font-size: clamp(19px, 2.3vw, 23px); font-weight: 600; line-height: 1.3; color: var(--ink); }
+.mnote-meta { margin: 4px 0 0; font-size: 13px; line-height: 1.45; color: var(--ink-3); }
+.mnote-list { margin: 10px 0 4px; padding: 0; list-style: none; }
+.mnote-line { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 4px 14px; padding: 7px 0; border-top: 1px solid var(--line); }
+.mnote-label { padding-top: 3px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.mnote-line p { margin: 0; max-width: 78ch; font-size: 15px; line-height: 1.55; color: var(--ink); overflow-wrap: anywhere; text-wrap: pretty; }
+.mnote-line.decide .mnote-label { color: var(--ink); font-weight: 600; }
+.mnote-line.decide p { font-weight: 600; }
+.mnote-earlier { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 14px; }
+.mnote-earlier > summary, .mnote-old > summary { cursor: pointer; font-weight: 600; color: var(--ink-2); padding: 3px 0; }
+.mnote-old { margin: 4px 0 0 14px; }
+.mnote-old .mnote-line p { font-size: 14px; color: var(--ink-2); }
+@media (max-width: 640px) {
+  .mnote { padding: 12px 13px 8px; }
+  .mnote-line { grid-template-columns: 1fr; gap: 2px; }
+  .mnote-label { padding-top: 0; }
+  .mnote-old { margin-left: 0; }
+}
+/* ---------- /Admin: Morning note ---------- */
+
 /* ---------- Analytics consent ----------
    A card in the bottom-left corner on a desktop. On a phone it is a compact sheet along the bottom
    edge, and while it is open Analytics.astro pads the page by its height, so the footer and the

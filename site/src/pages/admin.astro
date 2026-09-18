@@ -11,6 +11,14 @@ import path from "node:path";
 let admin: any = null;
 try { admin = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "src/data/admin.json"), "utf-8")); } catch {}
 const holdOn = fs.existsSync(path.resolve(process.cwd(), "src/data/held.json"));
+// The morning note (pipeline/digest/morning.py): six sentences a day, the newest first, 14 kept.
+type NoteLine = { key: string; label: string; text: string };
+type MorningNote = { day: string; title: string; writtenAt: string; sentences: NoteLine[]; polish?: { polished?: boolean } };
+let morningNotes: MorningNote[] = [];
+try { morningNotes = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "src/data/morning.json"), "utf-8")).notes || []; } catch {}
+const morningNote = morningNotes[0] || null;
+const earlierNotes = morningNotes.slice(1);
+const noteHow = (n: MorningNote) => (n.polish?.polished ? "reworded by a model, every figure checked against the data" : "written from the data by rules");
 let gsc: any = null;
 try { gsc = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "src/data/gsc.json"), "utf-8")); } catch {}
 const sv = gsc?.end && gsc?.start ? searchView(gsc) : null;
@@ -178,6 +186,30 @@ const homeData = JSON.stringify({
       <>
         <!-- ============ TODAY: the 30-second read ============ -->
         <section class="tab" data-tab="today">
+          {morningNote && (
+            <section class="mnote" id="morning-note" aria-labelledby="mnote-title">
+              <div class="mnote-head">
+                <h2 id="mnote-title">{morningNote.title}</h2>
+                <p class="mnote-meta">Written at <time datetime={morningNote.writtenAt} data-static data-clock>{morningNote.writtenAt.slice(11, 16)} UTC</time> about the last 24 hours, {noteHow(morningNote)}.</p>
+              </div>
+              <ol class="mnote-list">
+                {morningNote.sentences.map((s) => <li class:list={["mnote-line", { decide: s.key === "decide" }]}><span class="mnote-label">{s.label}</span><p>{s.text}</p></li>)}
+              </ol>
+              {earlierNotes.length > 0 && (
+                <details class="mnote-earlier">
+                  <summary>Earlier notes <span class="muted">({earlierNotes.length})</span></summary>
+                  {earlierNotes.map((n) => (
+                    <details class="mnote-old">
+                      <summary>{n.title}</summary>
+                      <ol class="mnote-list">
+                        {n.sentences.map((s) => <li class="mnote-line"><span class="mnote-label">{s.label}</span><p>{s.text}</p></li>)}
+                      </ol>
+                    </details>
+                  ))}
+                </details>
+              )}
+            </section>
+          )}
           <section class="home" id="home" data-kind={statusKind} aria-labelledby="home-sentence">
             <div class="home-status">
               <span class="home-dot" aria-hidden="true"></span>
