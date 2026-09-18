@@ -101,8 +101,7 @@ def pick_lead(members: list, texts: dict, primary) -> object | None:
 
 # ---------------------------------------------------------------------------- same event
 
-def headline_similarity(a: str | None, b: str | None) -> float:
-    ta, tb = headline_tokens(a), headline_tokens(b)
+def _tokens_similarity(ta: list[str], tb: list[str]) -> float:
     if not ta or not tb:
         return 0.0
     sa, sb = set(ta), set(tb)
@@ -110,6 +109,10 @@ def headline_similarity(a: str | None, b: str | None) -> float:
     if jac < 0.4:
         return jac
     return max(jac, SequenceMatcher(None, " ".join(ta), " ".join(tb)).ratio())
+
+
+def headline_similarity(a: str | None, b: str | None) -> float:
+    return _tokens_similarity(headline_tokens(a), headline_tokens(b))
 
 
 def entity_names(entities) -> set[str]:
@@ -128,19 +131,33 @@ def shared_entities(a, b) -> list[str]:
     return sorted(entity_names(a) & entity_names(b))
 
 
+def facts_of(headline, entities, at) -> dict:
+    """What same_event compares, with the headline's tokens and the entity names worked out once:
+    find_pairs asks about every pair of stories in the window, so per-pair tokenising was the
+    whole cost of the cluster step (fifty seconds over a thousand stories)."""
+    tokens = headline_tokens(headline)
+    return {"headline": headline, "entities": entities, "at": at,
+            "tokens": tokens, "sorted": sorted(tokens), "names": entity_names(entities)}
+
+
+def _facts(x: dict) -> dict:
+    return x if "tokens" in x else facts_of(x.get("headline"), x.get("entities"), x.get("at"))
+
+
 def same_event(a: dict, b: dict, sim: float | None, thr: float) -> str | None:
     """Why two stories are one event, or None. a and b: headline, entities, at (when each broke, a
-    datetime or None). sim: the cosine similarity of their embeddings, or None when unknown (the
-    exported data carries none): then the wording and the names have to give it away."""
+    datetime or None), or the same prepared by facts_of. sim: the cosine similarity of their
+    embeddings, or None when unknown (the exported data carries none): then the wording and the
+    names have to give it away."""
     if a.get("at") and b.get("at") and abs(a["at"] - b["at"]) > timedelta(days=config.MERGE_PAIR_DAYS):
         return None
-    ta, tb = headline_tokens(a.get("headline")), headline_tokens(b.get("headline"))
-    if len(ta) >= 3 and sorted(ta) == sorted(tb):
+    a, b = _facts(a), _facts(b)
+    if len(a["tokens"]) >= 3 and a["sorted"] == b["sorted"]:
         return "the same headline"
-    shared = shared_entities(a.get("entities"), b.get("entities"))
+    shared = sorted(a["names"] & b["names"])
     if not config.MERGE_DUPLICATES:
         # Wording only: two feeds carrying the same piece, or the same headline reworded slightly.
-        if shared and headline_similarity(a.get("headline"), b.get("headline")) >= 0.85:
+        if shared and _tokens_similarity(a["tokens"], b["tokens"]) >= 0.85:
             return f"nearly the same headline, both about {shared[0].title()}"
         return None
     if sim is not None:
@@ -149,7 +166,7 @@ def same_event(a: dict, b: dict, sim: float | None, thr: float) -> str | None:
         if sim >= thr + STRONG_MARGIN:
             return f"{sim:.2f} alike"
         return None
-    if shared and headline_similarity(a.get("headline"), b.get("headline")) >= 0.6:
+    if shared and _tokens_similarity(a["tokens"], b["tokens"]) >= 0.6:
         return f"nearly the same headline, both about {shared[0].title()}"
     return None
 
@@ -157,7 +174,7 @@ def same_event(a: dict, b: dict, sim: float | None, thr: float) -> str | None:
 def find_pairs(stories: list, vecs: dict, thr: float) -> tuple[list[tuple], list[tuple]]:
     """Among stories (id, headline, entities, first_published_at) with their vectors: the pairs that
     are one event, most alike first, and the pairs just under the bar. Each is (sim, reason, a_id, b_id)."""
-    facts = {s.id: {"headline": s.headline, "entities": s.entities, "at": db.as_utc(s.first_published_at)} for s in stories}
+    facts = {s.id: facts_of(s.headline, s.entities, db.as_utc(s.first_published_at)) for s in stories}
     with_vec = [s.id for s in stories if vecs.get(s.id) is not None]
     dims = [vecs[i].shape[0] for i in with_vec]
     dim = max(set(dims), key=dims.count) if dims else 0
@@ -182,7 +199,7 @@ def find_pairs(stories: list, vecs: dict, thr: float) -> tuple[list[tuple], list
                 fa, fb = facts[a], facts[b]
                 if fa["at"] and fb["at"] and abs(fa["at"] - fb["at"]) > timedelta(days=config.MERGE_PAIR_DAYS):
                     continue
-                shared = shared_entities(fa["entities"], fb["entities"])
+                shared = sorted(fa["names"] & fb["names"])
                 if shared:
                     suspects.append((sim, f"{sim:.2f} alike, both about {shared[0].title()}", a, b))
     pairs.sort(key=lambda p: (-p[0], p[2], p[3]))

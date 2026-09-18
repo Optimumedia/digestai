@@ -208,6 +208,11 @@ def record_usage(eng, provider: str, n: int = 1, exhausted: bool = False) -> Non
             conn.execute(insert(db.llm_usage).values(day=_today(), provider=provider, requests=n, exhausted=exhausted))
 
 
+def _minutes_left_today() -> int:
+    now = db.utcnow()
+    return 24 * 60 - (now.hour * 60 + now.minute)
+
+
 def allowance(conn, provider: str) -> int:
     """Requests this run may spend: the day's remaining budget spread over the runs still to come.
 
@@ -221,9 +226,7 @@ def allowance(conn, provider: str) -> int:
     if exhausted:
         return 0
     remaining = max(0, budget - used)
-    now = db.utcnow()
-    minutes_left = 24 * 60 - (now.hour * 60 + now.minute)
-    runs_left = max(1, -(-minutes_left * config.RUNS_PER_DAY // (24 * 60)))  # ceil
+    runs_left = max(1, -(-_minutes_left_today() * config.RUNS_PER_DAY // (24 * 60)))  # ceil
     return max(0, min(config.MAX_ENRICH_PER_RUN, -(-remaining // runs_left)))
 
 
@@ -239,9 +242,7 @@ def spare(conn, provider: str) -> int:
     used, exhausted = usage_today(conn, provider)
     if exhausted:
         return 0
-    now = db.utcnow()
-    minutes_left = 24 * 60 - (now.hour * 60 + now.minute)
-    return int(max(0, budget - used) - budget * (minutes_left / (24 * 60)))
+    return int(max(0, budget - used) - budget * (_minutes_left_today() / (24 * 60)))
 
 
 # ----------------------------------------------------------------- queue order
