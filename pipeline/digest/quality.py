@@ -25,7 +25,10 @@ log = logging.getLogger("digest.quality")
 LIVE_HOURS = 48            # a story first published this recently is shown as news
 OLD_DAYS = 10              # an article this much older than the story's first publication is old news
 URL_DATE_DAYS = 62         # a /2024/03/ style link path this much older is old news
-MAX_SOURCES = 40           # more sources than this means unrelated articles were merged
+# A story is full at CLUSTER_MAX_ARTICLES shown sources and keeps counting the rest as overflow
+# (cluster.py), so a big story legitimately passes the cap; twice the cap means unrelated articles
+# were merged.
+MAX_SOURCES = 2 * config.CLUSTER_MAX_ARTICLES
 MAX_IMAGES = 30            # image checks per run
 MAX_LINKS = 8              # source-link checks per run (front-page stories)
 MAX_STORY_PAGES = 6        # checks of our own older story pages
@@ -188,10 +191,29 @@ def numbers_in(text: str | None) -> list[tuple[str, float]]:
     return out
 
 
+def _round_step(value: float) -> int | None:
+    """The precision a headline figure was rounded to: 100 for 2,500, 1,000 for 83,000, 10 for 40
+    (two significant digits from 100 up, one from 10 up). None for an exact figure: 27, 2,507, 3.5."""
+    if value < 10 or value != round(value):
+        return None
+    digits = len(str(int(value)))
+    step = 10 ** (digits - (2 if value >= 100 else 1))
+    return step if int(value) % step == 0 else None
+
+
 def same_figure(a: float, b: float) -> bool:
     """Two figures a reader would call the same. Money is rounded and converted ("€3B" against
-    "$3.5 billion"), so large values match within a fifth; small ones must match exactly."""
-    return abs(a - b) <= (0.2 * max(abs(a), abs(b)) if max(abs(a), abs(b)) >= 1e6 else 0.0)
+    "$3.5 billion"), so large values match within a fifth. A round headline figure stands for the
+    source figure that rounds to it, if it is within a twentieth (2,500 for 2,507; not for 2,600, and
+    not 10% for 14%); other small figures must match exactly."""
+    big = max(abs(a), abs(b))
+    if big >= 1e6:
+        return abs(a - b) <= 0.2 * big
+    for rounded, exact in ((a, b), (b, a)):
+        step = _round_step(rounded)
+        if step and round(exact / step) * step == rounded and abs(a - b) <= 0.05 * big:
+            return True
+    return a == b
 
 
 _same_figure = same_figure  # the older private name, used below and by tests
@@ -201,11 +223,40 @@ def _flat(text: str | None) -> str:
     return re.sub(r"[^a-z0-9]+", "", (text or "").lower())
 
 
+# A maker named in a headline is supported by a source that names its product: "OpenAI adds Study
+# Mode to ChatGPT" over an article that only ever says ChatGPT.
+# Matched on flattened text, so only names that are not also inside ordinary words ("ios" is in
+# "curious", "aws" in "laws").
+MAKERS = {
+    "openai": ("chatgpt", "gpt", "codex", "sora", "dalle"),
+    "anthropic": ("claude",),
+    "google": ("gemini", "gemma", "deepmind", "alphabet", "youtube", "android", "waymo"),
+    "googledeepmind": ("gemini", "gemma", "deepmind", "google"),
+    "alphabet": ("google", "gemini", "deepmind", "youtube", "waymo"),
+    "meta": ("llama", "facebook", "instagram", "whatsapp"),
+    "microsoft": ("copilot", "azure", "github"),
+    "xai": ("grok",),
+    "alibaba": ("qwen", "alibaba"),
+    "nvidia": ("nemotron", "cuda", "geforce", "blackwell", "rubin"),
+    "apple": ("siri", "iphone", "macos", "ipad"),
+    "amazon": ("alexa", "bedrock"),
+    "mistralai": ("mistral", "lechat", "magistral"),
+}
+
+
+def _maker_supported(name: str, flat_source: str) -> bool:
+    return any(p in flat_source for p in MAKERS.get(_flat(name), ()))
+
+
 def unsupported_claims(story: dict) -> list[str]:
     """What the headline states that no source does: its figures, and the named entities it uses.
     Checked against source material only (article titles, feed descriptions and the text shown),
-    never against the model's own digests. Empty when there is too little source text to judge."""
+    never against the model's own digests. Empty when there is too little source text to judge,
+    or when the lead article has text that is not exported (a publisher whose text the site does
+    not reproduce) and no other article's is: the claim may well be in what we cannot see."""
     arts = story.get("articles") or []
+    if (_lead(story).get("wordCount") or 0) > 0 and not any(a.get("contentMd") for a in arts):
+        return []
     source = " ".join(str(x) for a in arts for x in (a.get("title"), a.get("description"), a.get("contentMd")) if x)
     if len(source) < MIN_SOURCE_CHARS:
         return []
@@ -216,7 +267,7 @@ def unsupported_claims(story: dict) -> list[str]:
     for kind in ("companies", "models", "people"):
         for name in (story.get("entities") or {}).get(kind) or []:
             name = str(name).strip()
-            if name and name.lower() in headline.lower() and _flat(name) not in flat_source:
+            if name and name.lower() in headline.lower() and _flat(name) not in flat_source and not _maker_supported(name, flat_source):
                 missing.append(name)
     return list(dict.fromkeys(missing))
 
@@ -353,7 +404,7 @@ def cards(flags: dict[str, list[dict]]) -> list[dict]:
         "Usually nothing: the order changes as more sources arrive. If it is still first in a few hours and does not deserve it, unpublish it.",
         [x for x in [f.get("singleLead")] if x], {"kind": "link", "url": "/today", "label": "Open /today"})
     add("over_merged", "warning", n(f.get("overMerged", []), "One story has grouped too many sources.", "{n} stories have grouped too many sources."),
-        "More than 40 sources in one story almost always means unrelated articles were lumped together, so the summary can mix up different news.",
+        f"More than {MAX_SOURCES} sources in one story almost always means unrelated articles were lumped together, so the summary can mix up different news.",
         "Open the story. If the headline and summary do not match the sources, unpublish it; the grouping rule needs tightening.", f.get("overMerged", []))
     add("duplicates", "warning", n(f.get("duplicates", []), "The same news appears twice.", "{n} stories repeat news that is already on the site."),
         "Readers see the same headline twice on the front page, which looks like a mistake.",
