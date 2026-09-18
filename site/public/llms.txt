@@ -21,16 +21,29 @@ Editorial standards: https://digestai.news/about#standards
 - Audio briefing and podcast: https://digestai.news/listen
 - About, privacy, terms, contact: https://digestai.news/about, /privacy, /terms, /contact
 
-## Machine-readable feeds
+## Every story as data (best for quoting and citing)
+
+Add .json or .md to any story address. Both carry the canonical URL, headline, digest, key points, why it matters, category, names, first-published and updated dates, every source (outlet, title, URL, date, primary-source flag), where the reports agree and differ, and a ready-made citation. They contain Digest AI's own text and links only, not publishers' articles.
+
+- Story as Markdown: https://digestai.news/story/<slug>.md
+- Story as JSON: https://digestai.news/story/<slug>.json
+- Latest 100 stories (JSON index, links to each story's JSON): https://digestai.news/api/latest.json
+- Today's briefing (JSON): https://digestai.news/api/briefing.json
+- Newest 50 per category (JSON): https://digestai.news/api/category/<slug>.json (slugs: models, marketing, agents, research, business, policy, hardware, enterprise, robotics, society)
+- Documentation, fields and examples: https://digestai.news/api
+
+Static files rebuilt hourly, no key, CORS open (Access-Control-Allow-Origin: *).
+
+## Feeds
 
 - All stories (RSS): https://digestai.news/rss.xml
 - Google News sitemap (last 48 hours): https://digestai.news/news-sitemap.xml
 - Sitemap index: https://digestai.news/sitemap-index.xml
-- Per-category RSS and JSON feeds: https://digestai.news/feeds/
+- Per-category RSS: https://digestai.news/feeds/category/<slug>.xml
 - AI at Work RSS: https://digestai.news/work/rss.xml
 - Podcast (daily briefing): https://digestai.news/podcast.xml
 - Podcast (AI at Work, weekly): https://digestai.news/work/podcast.xml
 
 ## How to cite
 
-Cite the story page (https://digestai.news/story/<slug>) and the original outlets it links to; each story lists them with publication dates. Digests are written by Digest AI from those sources and marked as such; quoted figures and names are checked against the sources before publishing, and stories are corrected or withdrawn when a source retracts.
+Cite the story page (https://digestai.news/story/<slug>) and the original outlets it links to; each story lists them with publication dates. Suggested form: Digest AI, "<headline>", <date first published>, https://digestai.news/story/<slug> (each story's .json has it ready in cite.text). Digests are written by Digest AI from those sources and marked as such; quoted figures and names are checked against the sources before publishing, and stories are corrected or withdrawn when a source retracts. Reuse terms: https://digestai.news/terms#reuse

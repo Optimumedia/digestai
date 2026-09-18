@@ -1,0 +1,98 @@
+---
+/* /api: what the machine-readable files are, for AI assistants, search tools and anyone building on
+   Digest AI. The examples are real, drawn from this build and trimmed. */
+import Base from "../layouts/Base.astro";
+import Rail from "../components/Rail.astro";
+import { categories } from "../lib/data";
+import { SITE, storyJson, storyMarkdown, latestStories, storyItem, envelope, LICENSE } from "../lib/api";
+
+const sample = [...latestStories(100)].sort((a, b) => Number(Boolean(b.sourceNotes)) - Number(Boolean(a.sourceNotes)) || b.articleCount - a.articleCount)[0];
+const trimText = (s: string | null, n = 160) => (s && s.length > n ? s.slice(0, n - 1).replace(/\s\S*$/, "") + " …" : s);
+let storyExample = "";
+let mdExample = "";
+let latestExample = "";
+if (sample) {
+  const doc = storyJson(sample);
+  const trimmed = { ...doc, summary: trimText(doc.summary), whyItMatters: trimText(doc.whyItMatters, 120), keyPoints: doc.keyPoints.slice(0, 2), sources: doc.sources.slice(0, 2) };
+  storyExample = JSON.stringify(trimmed, null, 2);
+  const md = storyMarkdown({ ...doc, summary: trimText(doc.summary, 240), sources: doc.sources.slice(0, 2) });
+  mdExample = md.length > 1600 ? md.slice(0, 1600) + "\n…" : md;
+  latestExample = JSON.stringify({ ...envelope(), stories: [storyItem(sample), "…"] }, null, 2);
+}
+const exampleSlug = sample?.slug || "example-story";
+const categoryList = Object.keys(categories);
+---
+
+<Base title="API and machine-readable feeds" description="Every Digest AI story as JSON and Markdown, plus the latest stories, today's briefing and each category as small static JSON files. Free, no key, updated every hour.">
+  <div class="grid">
+    <div class="article api-page">
+      <header class="page-head">
+        <div class="eyebrow">For assistants and developers</div>
+        <h1>API and machine-readable feeds</h1>
+        <p>Every story on Digest AI is also published as JSON and as plain Markdown, with its canonical address, dates, sources and a ready-made citation. Static files, no key, no sign-up.</p>
+      </header>
+
+      <h2 id="endpoints">Endpoints</h2>
+      <ul>
+        <li><a href={`/story/${exampleSlug}.json`}><code>/story/&lt;slug&gt;.json</code></a> — one story, in full: our digest, key points, why it matters, category, names, dates, every source with its outlet and date, how the reports compare, the developing story it belongs to, and a citation. Add <code>.json</code> to any story address.</li>
+        <li><a href={`/story/${exampleSlug}.md`}><code>/story/&lt;slug&gt;.md</code></a> — the same story as Markdown, the easiest form for a language model to read and quote.</li>
+        <li><a href="/api/latest.json"><code>/api/latest.json</code></a> — the 100 newest stories by first publication, one light row each with a link to the story's JSON.</li>
+        <li><a href="/api/briefing.json"><code>/api/briefing.json</code></a> — today's briefing: the five stories that matter, with key points and why they matter, and the also-list.</li>
+        <li><code>/api/category/&lt;slug&gt;.json</code> — the 50 newest stories in one category: {categoryList.map((k, i) => <>{i > 0 && ", "}<a href={`/api/category/${k}.json`}>{k}</a></>)}.</li>
+      </ul>
+      <p>Older stories keep their JSON and Markdown after they leave the front pages; those files are marked <code>"archived": true</code> and carry the headline, digest, key points and sources. For feed readers there is <a href="/rss.xml">RSS</a> (and one feed per category at <code>/feeds/category/&lt;slug&gt;.xml</code>); <a href="/llms.txt">llms.txt</a> lists everything.</p>
+
+      <h2 id="fields">Story fields</h2>
+      <ul>
+        <li><code>url</code> — the canonical story page. Cite this address. <code>json</code> and <code>markdown</code> point to the other two forms.</li>
+        <li><code>headline</code>, <code>summary</code> (Markdown), <code>keyPoints</code>, <code>whyItMatters</code> — written by Digest AI's editorial model from the listed sources.</li>
+        <li><code>category</code> (slug, name, url) and <code>entities</code> (companies, models, people named in the story).</li>
+        <li><code>firstPublishedAt</code> — when the story first appeared on Digest AI. <code>updatedAt</code> — the newest publication time among the sources it lists, the same date the story page shows as updated. Both ISO 8601, UTC.</li>
+        <li><code>sources</code> — each outlet's name, the article title, its address, its publication date, its type (<code>primary</code>, <code>press</code>, <code>newsletter</code>, <code>community</code>) and a <code>primary</code> flag for a lab's, company's, court's or regulator's own document. <code>sourceCount</code> can be higher than the list when a story has many sources.</li>
+        <li><code>sourceNotes</code> — where the reports agree and where they differ, when we compared them; otherwise <code>null</code>.</li>
+        <li><code>thread</code> — the developing story this belongs to, with its address; <code>discussions</code> — Hacker News and Reddit threads.</li>
+        <li><code>cite</code> — a suggested citation (<code>text</code>) and its parts.</li>
+      </ul>
+      <p>The files carry our own writing and links only. Publishers' article text is not included: it belongs to them, so follow the source links to read it.</p>
+
+      <h2 id="cite">How to cite</h2>
+      <p>Link the story page and name Digest AI, for example:</p>
+      <pre><code>{sample ? storyJson(sample).cite.text : `Digest AI, "Headline", 18 September 2026, ${SITE}/story/<slug>`}</code></pre>
+      <p>When a claim comes from one of the outlets, cite that outlet too; every story lists them with dates. Digests are machine-written and can be wrong, so the sources are the record. Corrections: <a href="/about#corrections">about/corrections</a>.</p>
+
+      <h2 id="cadence">Updates, limits and access</h2>
+      <ul>
+        <li><strong>Every hour.</strong> The site and every file here are rebuilt about once an hour; each index file has a <code>generatedAt</code> time. Fetching more often than every 10 minutes gains nothing (the files are cached for 10 minutes).</li>
+        <li><strong>No key, no rate limit of our own.</strong> These are static files on GitHub Pages. Please be gentle: fetch the index files, then only the stories you need, and identify your client in the User-Agent.</li>
+        <li><strong>Cross-origin requests work.</strong> Every file is served with <code>Access-Control-Allow-Origin: *</code>, so a browser app can read them directly.</li>
+        <li><strong>Stable addresses.</strong> A story keeps its address, and so do its JSON and Markdown. When two stories are merged, the old page redirects to the story that now covers the event, and its JSON is no longer published.</li>
+        <li><strong>Terms.</strong> {LICENSE.replace(/ Terms: .*$/, "")} The <a href="/terms#reuse">terms</a> have the details.</li>
+      </ul>
+
+      {storyExample && (
+        <>
+          <h2 id="example-story">Example: a story as JSON</h2>
+          <p class="muted">From <a href={`/story/${exampleSlug}.json`}>{`/story/${exampleSlug}.json`}</a>, trimmed.</p>
+          <pre><code>{storyExample}</code></pre>
+          <h2 id="example-markdown">Example: the same story as Markdown</h2>
+          <pre><code>{mdExample}</code></pre>
+          <h2 id="example-latest">Example: /api/latest.json</h2>
+          <pre><code>{latestExample}</code></pre>
+        </>
+      )}
+
+      <h2>Questions</h2>
+      <p>Building something on Digest AI, or need a field we do not publish? Write to <a href="mailto:hello@digestai.news">hello@digestai.news</a>.</p>
+    </div>
+    <Rail />
+  </div>
+</Base>
+
+<style>
+  .api-page pre { font-size: 12.5px; line-height: 1.5; max-height: 32em; overflow-y: auto; border: 1px solid var(--line); }
+  /* Wrapped, not scrolled: long strings and URLs would otherwise push the box far past a phone's width. */
+  .api-page pre code { background: none; padding: 0; font-size: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .api-page li > a code { color: var(--accent); }
+  .api-page li { margin: 0.35em 0; }
+  .api-page li code, .api-page p code { overflow-wrap: anywhere; }
+</style>

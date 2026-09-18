@@ -94,6 +94,11 @@ const jsonLd = {
   articleId={shown.id}
   thin={!storyIndexable(story)}
 >
+  {/* The same story as data and as Markdown, for assistants that cite it (/api). */}
+  <Fragment slot="head">
+    <link rel="alternate" type="application/json" title="This story as JSON" href={`${site}/story/${story.slug}.json`} />
+    <link rel="alternate" type="text/markdown" title="This story as Markdown" href={`${site}/story/${story.slug}.md`} />
+  </Fragment>
   <div class="grid">
     <article>
       <Breadcrumbs items={[{ name: categories[story.category || ""] || "AI", href: `/category/${story.category}` }, { name: story.headline }]} />
