@@ -116,6 +116,7 @@ export interface Story {
   discussions: Discussion[];
   threadId: number | null;
   pulse: string | null;
+  sourceNotes?: { agree?: string; differ?: string[] } | null;
   firstPublishedAt: string | null;
   updatedAt: string | null;
   imageUrl: string | null;

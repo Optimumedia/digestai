@@ -367,6 +367,7 @@ def run() -> dict:
             "discussions": discussions,
             "threadId": s.thread_id,
             "pulse": s.pulse or None,
+            "sourceNotes": s.source_notes if isinstance(getattr(s, "source_notes", None), dict) else None,
             "firstPublishedAt": db.iso_z(s.first_published_at),
             "updatedAt": db.iso_z(s.updated_at),
             "imageUrl": lead.image_url or next((a["imageUrl"] for a in articles if a["imageUrl"]), None),

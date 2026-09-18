@@ -892,3 +892,11 @@ table.sortable th:hover { color: var(--ink); }
 .workskip li a.t { color: var(--ink-2); }
 .workstory { margin: 18px 0 8px; }
 .workstory .workcard { border-left-width: 4px; }
+
+/* ---------- Story: how the reports compare ---------- */
+.source-notes { border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 4px; padding: 14px 18px; margin: 20px 0; max-width: 68ch; background: var(--surface); }
+.source-notes b { display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin-bottom: 4px; font-weight: 500; }
+.source-notes p { margin: 0 0 10px; color: var(--ink); }
+.source-notes ul { margin: 0 0 10px; padding-left: 18px; }
+.source-notes li { margin-bottom: 4px; color: var(--ink); }
+.source-notes-foot { margin: 0 !important; font-size: 13px; color: var(--ink-3) !important; }

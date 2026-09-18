@@ -32,7 +32,7 @@ from types import SimpleNamespace
 
 from sqlalchemy import func, select, update
 
-from . import cache, config, db, enrich
+from . import cache, checks, config, db, enrich
 from .textutil import word_count
 
 log = logging.getLogger("digest.upgrade")
@@ -45,6 +45,8 @@ Write the story's digest from all of them together and return ONLY a JSON object
 - "summary_md": an original 150-300 word digest in 2-3 short paragraphs, plain Markdown, in your own words. The first paragraph is what the sources agree happened, with the figures and names they share. The second says where they differ, or what only one of them reports, and names that source ("Only The Information reports the round is oversubscribed"; "Reuters puts the figure at $3 billion, TechCrunch at $3.5 billion"). If they agree on everything, say that the reporting is consistent and add the context a busy reader needs. Do not copy sentences from the articles, and do not start with "The article".
 - "key_points": exactly 3 bullet strings, each max 25 words, the most important concrete facts. If the sources differ on a fact, one of the three says so.
 - "why_it_matters": max 60 words on the significance for the AI industry or the public.
+- "agree": one sentence, max 40 words: what every one of these articles reports.
+- "differ": a list of 0 to 3 short sentences, each naming the outlet and what it alone reports or where its figure or account differs from the others ("Reuters puts the round at $3 billion; TechCrunch says $3.5 billion"). An empty list when the reporting is consistent. Never invent a disagreement: differences of wording or emphasis do not count.
 - "entities": {{"companies": [...], "models": [...], "people": [...]}} with proper names actually mentioned, max 6 each.
 - "importance": integer 1-10. 8-9 = news a professional has to know today (a leading lab's launch, a deal above $1B, a law or ruling, a safety incident at a large provider). 5 = routine industry news. 3-4 = an incremental update, a benchmark run, a tutorial. Several outlets covering one event does not by itself make it important.
 
@@ -165,6 +167,35 @@ def _providers(conn) -> list[tuple[str, object]]:
         if enrich.spare(conn, name) > 0 and enrich.allowance(conn, name) > 0:
             out.append((f"{name}:{model}", fn))
     return out
+
+
+def source_notes(result: dict, rows: list, source_text: str) -> dict | None:
+    """The agree/differ block, or None. A "differ" line must name one of the outlets in the story and
+    every figure in it must be in the articles: a model asked for differences tends to find some."""
+    if not isinstance(result, dict):
+        return None
+    names = set()
+    for r in rows:
+        for n in (getattr(r, "source_name", None), getattr(r, "domain", None)):
+            n = (n or "").lower().removeprefix("www.")
+            if n:
+                names.add(n)
+                names.add(n.split(".")[0])
+    names = {n for n in names if len(n) >= 3}
+    differ = []
+    for line in enrich._as_list(result.get("differ")):
+        line = " ".join(str(line).split())[:240]
+        if len(line) < 25 or not any(n in line.lower() for n in names):
+            continue
+        if checks.unsupported_figures(line, source_text):
+            continue
+        differ.append(line)
+    agree = " ".join(str(result.get("agree") or "").split())[:300]
+    if checks.unsupported_figures(agree, source_text):
+        agree = ""
+    if not differ and not agree:
+        return None
+    return {"agree": agree, "differ": differ[:3]}
 
 
 def _clean_multi(result: dict, lead_title: str | None) -> dict:
@@ -297,6 +328,7 @@ def run() -> dict:
             # work-card blocks. They are written only where the stronger model found something: an
             # answer without them must never empty what the first summary found.
             extra = {k: clean[k] for k in ("model_release", "funding", "work_card") if clean.get(k)} if not multi else {}
+            notes = source_notes(result, rows, source_text) if multi else None
             with eng.begin() as conn:
                 conn.execute(update(db.articles).where(db.articles.c.id == lead_row.id)
                              .values(**values, **extra, enrich_model=mark(model_used, cand.sources)))
@@ -306,7 +338,7 @@ def run() -> dict:
                 # improved summary must never make an old story look new.
                 conn.execute(update(db.stories)
                              .where(db.stories.c.id == cand.story.id, db.stories.c.lead_article_id == lead_row.id)
-                             .values(**values))
+                             .values(**values, source_notes=notes))
             written.append(cand.story.id)
             written_articles.append(lead_row.id)
             stats["upgraded"] += 1

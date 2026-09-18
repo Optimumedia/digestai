@@ -83,6 +83,8 @@ stories = Table(
     Column("pinned", Boolean, nullable=False, default=False),
     Column("thread_id", Integer),
     Column("pulse", Text),  # what practitioners are saying, from the HN thread
+    # {"agree": sentence, "differ": [lines naming the outlet]} from the multi-source rewrite (upgrade.py)
+    Column("source_notes", JSON),
     Column("pulse_at", DateTime(timezone=True)),
     Column("pushed_at", DateTime(timezone=True)),  # browser push alert sent
     Column("first_published_at", DateTime(timezone=True), nullable=False),

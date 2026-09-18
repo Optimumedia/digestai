@@ -528,6 +528,26 @@ def test_upgrade_reads_kilobytes_not_megabytes():
         assert idle_kb < 40, idle_kb
 
 
+def test_source_notes_keep_only_real_named_differences():
+    from types import SimpleNamespace
+
+    from digest import upgrade
+
+    rows = [SimpleNamespace(source_name="Reuters", domain="reuters.com"), SimpleNamespace(source_name="TechCrunch", domain="techcrunch.com")]
+    text = "Reuters: Mistral raised $3 billion. TechCrunch: the round was $3.5 billion and oversubscribed."
+    result = {"agree": "Mistral raised new funding led by existing investors.",
+              "differ": ["Reuters puts the round at $3 billion; TechCrunch says $3.5 billion.",
+                         "Some outlets frame the deal more positively than others.",          # names no outlet
+                         "Bloomberg reports a valuation of $40 billion for the company.",     # not one of the sources, figure not in the text
+                         "TechCrunch alone reports the round was oversubscribed by a wide margin."]}
+    notes = upgrade.source_notes(result, rows, text)
+    assert notes["agree"].startswith("Mistral raised") and len(notes["differ"]) == 2
+    assert notes["differ"][0].startswith("Reuters puts") and notes["differ"][1].startswith("TechCrunch alone")
+    assert upgrade.source_notes({"agree": "", "differ": []}, rows, text) is None
+    assert upgrade.source_notes({"agree": "They raised $9 billion.", "differ": []}, rows, text) is None  # a figure no article has
+    assert upgrade.source_notes("nonsense", rows, text) is None
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

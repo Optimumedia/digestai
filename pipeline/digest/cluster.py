@@ -326,7 +326,7 @@ def run() -> dict:
                         cand["lead_vec"] = v
                         values.update(headline=new["headline"], summary_md=row.summary_md, key_points=row.key_points,
                                       why_it_matters=row.why_it_matters, category=row.category, entities=row.entities,
-                                      importance=row.importance, lead_article_id=row.id)
+                                      importance=row.importance, lead_article_id=row.id, source_notes=None)
                     stats["merged"] += 1
                 conn.execute(update(db.stories).where(db.stories.c.id == best_id).values(**values))
                 story_id = best_id

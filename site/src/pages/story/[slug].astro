@@ -131,6 +131,18 @@ const jsonLd = {
 
       {story.whyItMatters && <aside class="why"><b>Why it matters</b>{story.whyItMatters}</aside>}
 
+      {story.sourceNotes && (story.sourceNotes.differ?.length || story.sourceNotes.agree) && (
+        <aside class="source-notes" aria-label="How the reports compare">
+          {story.sourceNotes.agree && <p><b>The reports agree</b>{story.sourceNotes.agree}</p>}
+          {story.sourceNotes.differ && story.sourceNotes.differ.length > 0 && (
+            <>
+              <b>Where the reports differ</b>
+              <ul>{story.sourceNotes.differ.map((d) => <li>{d}</li>)}</ul>
+            </>
+          )}
+          <p class="source-notes-foot">Compared across {story.articleCount} sources when the digest was written.</p>
+        </aside>
+      )}
       {story.pulse && <aside class="pulse"><b>What practitioners are saying</b>{story.pulse}{discussions[0] && <a href={discussions[0].url} target="_blank" rel="noopener" data-source-link> Read the thread ↗</a>}</aside>}
 
       {thread && (earlier.length > 0 || laterEpisodes.length > 0) && (
