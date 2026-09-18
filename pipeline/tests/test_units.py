@@ -1280,6 +1280,53 @@ def test_the_two_episodes_share_one_time_budget():
         shutil.rmtree(work, ignore_errors=True)
 
 
+def test_hedge_check_reads_a_question_that_answers_itself():
+    """17 Sept: 18 "states as fact" flags, half of them titles that ask and then answer, or our
+    headline attributing the claim ("analysts see") in words the check did not know."""
+    from digest.enrich import headline_hedged, title_is_question
+
+    assert title_is_question("Is the AI boom a bubble?") and title_is_question('Is it over? "Yes"')
+    assert not title_is_question("Where Are AI Agents Trading? Data Shows Grok Leading Over ChatGPT")
+    assert not headline_hedged("Where Are AI Agents Trading? Data Shows Grok Leading Over ChatGPT",
+                               "Data Shows Grok Leading Over ChatGPT in Agentic Trading")
+    assert not headline_hedged("Feeling overwhelmed by the AI doom loop? Here's the essential reading list",
+                               "Essential AI Reading List to Navigate Hype and Panic")
+    assert not headline_hedged("Is the AI safety debate about safety or control?",
+                               "Executives debate whether AI safety concerns mask a push for control")
+    assert not headline_hedged("2 AI Stocks With Up to 136% Upside, According to Select Wall Street Analysts",
+                               "Wall Street Analysts See 136% Upside for Nvidia")
+    assert headline_hedged("Is the AI boom a bubble?", "The AI boom is a bubble")
+    assert headline_hedged("Meta Reportedly Plans 2027 Deployment Of New In-House AI Chips", "Meta Plans In-House AI Chip Deployment in 2027")
+    assert headline_hedged("Apple might make servers again to cash in on the AI rush", "Apple plans 2029 AI server launch")
+
+
+def test_enrich_clean_takes_list_markers_off_summaries_and_key_points():
+    from types import SimpleNamespace
+
+    from digest.enrich import _clean
+
+    row = SimpleNamespace(title="Meta shares rise")
+    out = _clean({"summary_md": "- Meta shares rose 10% after the Muse launch.\n\n- Analysts kept a Buy rating.",
+                  "key_points": ["- META stock surged 10%", "2. Meta One has 15 million users", "Analysts see more upside"]}, row, None)
+    assert out["summary_md"] == "Meta shares rose 10% after the Muse launch.\n\nAnalysts kept a Buy rating."
+    assert out["key_points"] == ["META stock surged 10%", "Meta One has 15 million users", "Analysts see more upside"]
+    assert _clean({"summary_md": "A 2-3 sentence digest - with a dash - stays."}, row, None)["summary_md"] == "A 2-3 sentence digest - with a dash - stays."
+
+
+def test_export_merges_topic_spellings():
+    """The rail listed "Nvidia 67" and "NVIDIA 57" side by side, two entries with one address."""
+    from digest.export import add_entity, entity_out
+
+    index: dict = {}
+    for sid, name in ((1, "Nvidia"), (2, "NVIDIA"), (3, "Nvidia"), (4, "Anthropic")):
+        add_entity(index, name, "companies", sid)
+    add_entity(index, "  ", "companies", 5)
+    assert set(index) == {"nvidia", "anthropic"}
+    out = entity_out(index["nvidia"])
+    assert out == {"name": "Nvidia", "kind": "companies", "storyIds": [1, 2, 3]}
+    assert entity_out({"name": "Solo", "kind": "people", "storyIds": [9]})["name"] == "Solo"
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

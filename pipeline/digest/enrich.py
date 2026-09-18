@@ -579,13 +579,22 @@ SOURCE_HEDGE = re.compile(
 # What counts as our headline keeping a hedge or an attribution: any of the above, or a named source.
 HEADLINE_HEDGE = re.compile(
     SOURCE_HEDGE.pattern[:-3] + r"|says?|said|tells?|told|report(?:s|ed)?|likely|would|expected to|plans? to|"
-    r"accus(?:es|ed)|warns?|argues?|opinion:?)\b", re.I)
+    r"accus(?:es|ed)|warns?|argues?|debates?|whether|sees?|predicts?|expects?|estimates?|forecasts?|believes?|opinion:?)\b", re.I)
 QUESTION = re.compile(r"\?")
+
+
+def title_is_question(title: str) -> bool:
+    """The title asks rather than states. "Where Are AI Agents Trading? Data Shows Grok Leading" asks
+    and then answers: the statement after the question mark is what the article claims."""
+    if not QUESTION.search(title):
+        return False
+    after = re.sub(r"[^\w\s]", " ", title[title.rfind("?") + 1:]).split()
+    return len(after) <= 2
 
 
 def title_hedges(title: str | None) -> bool:
     """The source's own title frames its claim as a question, a possibility or an allegation."""
-    return bool(title) and bool(QUESTION.search(title) or SOURCE_HEDGE.search(title))
+    return bool(title) and bool(title_is_question(title) or SOURCE_HEDGE.search(title))
 
 
 def headline_hedged(title: str | None, headline: str | None) -> bool:
@@ -595,6 +604,15 @@ def headline_hedged(title: str | None, headline: str | None) -> bool:
     if not title or not headline or title.strip() == headline.strip():
         return False
     return title_hedges(title) and not (QUESTION.search(headline) or HEADLINE_HEDGE.search(headline))
+
+
+# A list marker the model put in front of a paragraph or a key point ("- Meta shares rose 10%"):
+# the page shows it as text, so it comes off.
+_BULLET = re.compile(r"^[ \t]*(?:[-*•–]|\d{1,2}[.)])[ \t]+", re.M)
+
+
+def _unbullet(text: str) -> str:
+    return _BULLET.sub("", text).strip()
 
 
 def _as_list(value) -> list:
@@ -614,7 +632,7 @@ def _clean(result: dict, row, category_hint: str | None) -> dict:
     if category not in cats:
         category = category_hint if category_hint in cats else "models"
     headline = str(result.get("headline") or row.title).strip()[:160]
-    key_points = [str(k).strip() for k in _as_list(result.get("key_points")) if str(k).strip()][:3]
+    key_points = [_unbullet(str(k)) for k in _as_list(result.get("key_points")) if _unbullet(str(k))][:3]
     entities = result.get("entities") if isinstance(result.get("entities"), dict) else {}
     entities = {
         k: [str(v).strip() for v in _as_list(entities.get(k)) if str(v).strip()][:6]
@@ -665,7 +683,7 @@ def _clean(result: dict, row, category_hint: str | None) -> dict:
         # tool or carries no honest caveat, so no half-card can reach a page.
         "work_card": work.clean_card(result.get("work_card")),
         "headline": headline,
-        "summary_md": str(result.get("summary_md") or "").strip(),
+        "summary_md": _unbullet(str(result.get("summary_md") or "")),
         "key_points": key_points,
         "why_it_matters": str(result.get("why_it_matters") or "").strip()[:600],
         "category": category,
