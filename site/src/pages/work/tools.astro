@@ -4,7 +4,7 @@ import { WORK_MIN_ITEMS, formatDate, meta, topicInfo } from "../../lib/data";
 import { COST_LABELS, JOBS, JOB_LABELS, toolSlug, whoLine, work } from "../../lib/work";
 
 const rows = work.tools;
-const intro = topicInfo["page-work-tools"]?.description || "";
+const intro = topicInfo["page-work-directory"]?.description || "";
 const jobs = JOBS.map((j) => ({ ...j, count: rows.filter((r) => r.jobs.includes(j.key)).length })).filter((j) => j.count > 0);
 const free = rows.filter((r) => ["free", "free tier", "included"].includes(r.costKind || "")).length;
 const description = `${rows.length} AI tools for marketing, sales, support and running a small business, with what each one does, who it is for, what it costs and what changed last.`;
@@ -68,10 +68,10 @@ const jsonLd = {
                 <td>{r.maker || ""}</td>
                 <td>{r.whatItDoes}</td>
                 <td>{whoLine(r.whoFor)}</td>
-                <td>{r.cost && r.cost !== "unknown" ? r.cost : COST_LABELS[r.costKind || "unknown"]}</td>
+                <td>{r.cost && r.cost !== "unknown" && r.costKind !== "unknown" ? r.cost : COST_LABELS[r.costKind || "unknown"]}</td>
                 <td>{r.effort || ""}</td>
                 <td class="num">{formatDate(r.lastChange, { day: "numeric", month: "short", year: "numeric" })}</td>
-                <td>{r.link ? <a href={r.link} rel="noopener nofollow" target="_blank" data-source-link>Site ↗</a> : ""}</td>
+                <td>{r.link ? <a href={r.link} rel="noopener nofollow" target="_blank" data-source-link>Site ↗</a> : r.changes[0] ? <a class="muted" href={`/story/${r.changes[0].slug}`} title="The coverage names no official page">Coverage</a> : ""}</td>
               </tr>
             ))}
           </tbody>
@@ -86,7 +86,7 @@ const jsonLd = {
             <p>{r.whatItDoes}</p>
             <dl class="workfacts">
               <div><dt>Who for</dt><dd>{whoLine(r.whoFor)}</dd></div>
-              <div><dt>Cost</dt><dd>{r.cost && r.cost !== "unknown" ? r.cost : COST_LABELS[r.costKind || "unknown"]}</dd></div>
+              <div><dt>Cost</dt><dd>{r.cost && r.cost !== "unknown" && r.costKind !== "unknown" ? r.cost : COST_LABELS[r.costKind || "unknown"]}</dd></div>
               {r.effort && <div><dt>Effort</dt><dd>{r.effort}</dd></div>}
               <div><dt>Jobs</dt><dd>{r.jobs.length ? r.jobs.map((j, i) => { const job = JOBS.find((x) => x.key === j); return <>{i > 0 && ", "}{job ? <a href={`/work/${job.slug}`}>{job.label}</a> : JOB_LABELS[j] || j}</>; }) : "not classified"}</dd></div>
             </dl>

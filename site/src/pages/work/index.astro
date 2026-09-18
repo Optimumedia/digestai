@@ -4,24 +4,31 @@ import WorkCard from "../../components/WorkCard.astro";
 import ListenPlayer from "../../components/ListenPlayer.astro";
 import { WORK_MIN_ITEMS, formatDate, dateTime, meta, weekMonday } from "../../lib/data";
 import {
-  JOBS, SECTION_TAGLINE, briefingAlso, briefingItems, latestWorkEpisode, sectionStories, work, workBriefing,
+  COST_LABELS, JOBS, SECTION_TAGLINE, briefingAlso, briefingItems, count, latestWorkEpisode, sectionStories, work, workBriefing,
   workWeeks, weekStories,
 } from "../../lib/work";
+import { weekKey } from "../../lib/indexing.mjs";
 
 const thisWeek = workWeeks[0];
+// The newest week with items is not always the current one (a quiet Monday): say so, not "this week".
+const isCurrentWeek = thisWeek === weekKey(work.generatedAt);
 const episode = latestWorkEpisode;
 const episodeWeek = episode?.week ? weekMonday(episode.week) : null;
 const episodeRange = episodeWeek
   ? `${formatDate(episodeWeek.toISOString(), { day: "numeric", month: "short" })}–${formatDate(new Date(episodeWeek.getTime() + 6 * 864e5).toISOString(), { day: "numeric", month: "short" })}`
   : "";
-const week = thisWeek ? weekStories(thisWeek) : { changed: [], tryThis: [], skip: [], tools: 0 };
+const week = thisWeek ? weekStories(thisWeek) : { changed: [], tryThis: [], skip: [], tools: 0, tryCount: 0, skipCount: 0 };
 const briefed = new Set([...briefingItems, ...briefingAlso].map((s) => s.id));
 const rest = sectionStories.filter((s) => !briefed.has(s.id)).slice(0, 18);
 // The filter works on every card the page shows, and only offers a job that has cards behind it.
 const shown = [...briefingItems, ...rest];
 const jobs = JOBS.map((j) => ({ ...j, count: shown.filter((s) => s.workCard.jobs.includes(j.key)).length }))
   .filter((j) => j.count > 0);
-const free = sectionStories.filter((s) => ["free", "free tier", "included"].includes(s.workCard.costKind)).length;
+// Counted over the cards the filter counts, so "Everything 15" and "9 of 15" talk about the same cards.
+// "Today's five" only when there are five: a quiet day says how many there are.
+const briefHeading = briefingItems.length === 1 ? "Today's pick" : `Today's ${["", "", "two", "three", "four", "five"][briefingItems.length] || briefingItems.length}`;
+const free = shown.filter((s) => ["free", "free tier", "included"].includes(s.workCard.costKind)).length;
+const costText = (c: { cost: string; costKind: string }) => (c.cost && c.cost !== "unknown" && c.costKind !== "unknown" ? c.cost : COST_LABELS[c.costKind] || COST_LABELS.unknown);
 const description = briefingItems.length
   ? `${briefingItems.length} AI things a marketer or small business can use today: ${briefingItems.slice(0, 3).map((s) => s.workCard.tool).join(", ")}. What each one does, what it costs and the catch.`
   : SECTION_TAGLINE;
@@ -78,16 +85,17 @@ const jsonLd = [
 
   {week.changed.length > 0 && (
     <section class="work-lead" aria-labelledby="changed-h">
-      <h2 id="changed-h">What changed this week</h2>
+      <h2 id="changed-h">{isCurrentWeek ? "What changed this week" : "What changed last week"}</h2>
       <p class="work-lead-line">
-        {week.changed.length} {week.changed.length === 1 ? "thing" : "things"} worth knowing across {week.tools} {week.tools === 1 ? "tool" : "tools"}.
-        {week.tryThis.length > 0 && <> {week.tryThis.length} you can try now{week.skip.length > 0 && <>, {week.skip.length} to leave for later</>}.</>}
+        {count(week.changed.length, "thing")} worth knowing across {count(week.tools, "tool")}.
+        {week.tryCount > 0 && <> {week.tryCount} you can try now{week.skipCount > 0 && <>, {week.skipCount} to leave for later</>}.</>}
+        {week.tryCount === 0 && week.skipCount > 0 && <> {week.skipCount} to leave for later.</>}
       </p>
       <ul class="work-lead-list">
         {week.changed.slice(0, 5).map((s) => (
           <li>
             <a href={`/story/${s.slug}`}><b>{s.workCard.tool}</b> {s.workCard.whatItDoes}</a>
-            <span class="mono muted">{s.workCard.effort || "effort not stated"} · {s.workCard.cost}</span>
+            <span class="mono muted">{s.workCard.effort || "effort not stated"} · {costText(s.workCard)}</span>
           </li>
         ))}
       </ul>
@@ -101,7 +109,7 @@ const jsonLd = [
       {jobs.map((j) => (
         <button type="button" class="workjob" aria-pressed="false" data-job={j.key} title={j.blurb}>{j.label} <span class="mono">{j.count}</span></button>
       ))}
-      <span class="mono muted workjob-note">{free} of {sectionStories.length} cost nothing to start</span>
+      <span class="mono muted workjob-note">{free} of {shown.length} cost nothing to start</span>
     </div>
   )}
   {/* Each job also has its own page with everything for it and the tools that serve it. */}
@@ -113,7 +121,7 @@ const jsonLd = [
   {briefingItems.length > 0 && (
     <section aria-labelledby="brief-h">
       <div class="dayhead">
-        <h2 id="brief-h">Today's five</h2>
+        <h2 id="brief-h">{briefHeading}</h2>
         <span class="eyebrow">
           {formatDate(workBriefing.date + "T12:00:00Z", { day: "numeric", month: "long" })} · last {workBriefing.windowHours} hours · {workBriefing.stats.free} free
         </span>
@@ -129,7 +137,7 @@ const jsonLd = [
           {briefingAlso.map((s) => (
             <li>
               <a class="t" href={`/story/${s.slug}`}>{s.workCard.tool}: {s.workCard.whatItDoes}</a>
-              <span class="mono muted">{s.workCard.cost}</span>
+              <span class="mono muted">{costText(s.workCard)}</span>
             </li>
           ))}
         </ul>
@@ -150,12 +158,12 @@ const jsonLd = [
     <section aria-labelledby="weeks-h">
       <div class="dayhead"><h2 id="weeks-h">Earlier weeks</h2></div>
       <ul class="coverage">
-        {workWeeks.slice(0, 8).map((w) => {
+        {workWeeks.slice(1, 9).map((w) => {
           const data = weekStories(w);
           return (
             <li>
               <a class="t" href={`/work/week/${w}`}>Week {w}</a>
-              <span class="mono muted">{data.changed.length} items · {data.tools} tools</span>
+              <span class="mono muted">{count(data.changed.length, "item")} · {count(data.tools, "tool")}</span>
             </li>
           );
         })}

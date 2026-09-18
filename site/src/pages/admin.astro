@@ -125,6 +125,13 @@ const history: any[] = (admin?.history || []).map((r: any) => (r.visitors == nul
 const compareData = JSON.stringify({ generatedAt: admin?.generatedAt || null, history }).replace(/</g, "\\u003c");
 const periods = [["day", "Day"], ["week", "Week"], ["month", "Month"], ["year", "Year"], ["custom", "Custom"]];
 
+// ---- AI at Work (pipeline/digest/admin.py, work_summary): one line on the Today tab.
+const workHealth: any = admin?.work || null;
+const workDropped = Object.entries(workHealth?.dropped || {}) as [string, number][];
+const workDroppedText = workDropped.length
+  ? `${workDropped.map(([why, n]) => `${n} ${n === 1 ? "card" : "cards"} dropped as ${why === "developer" ? "developer-only" : why === "course" ? (n === 1 ? "a course or reseller listing" : "courses or reseller listings") : why}`).join(", ")}${workHealth?.droppedTools?.length ? ` (${workHealth.droppedTools.slice(0, 4).join(", ")})` : ""}`
+  : "0 cards dropped as developer-only";
+
 // ---- Home header and action list. Times and counts that age are computed in the browser.
 let held: any = null;
 try { held = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "src/data/held.json"), "utf-8")); } catch {}
@@ -329,6 +336,22 @@ const homeData = JSON.stringify({
                 <ol class="ranked">{topReaders.map((s: any) => <li><a href={`/story/${s.slug}`}>{s.headline}</a><span class="mono muted">{s.views} views{s.dwellAvg != null ? ` · ${s.dwellAvg}s` : ""}{s.clicks ? ` · ${s.clicks} clicks` : ""}</span></li>)}</ol>
               ) : <p class="muted">Appears once reader events arrive.</p>}
             </article>
+            {workHealth && (
+              <article class="card wide work-health" id="work-health">
+                <h2>AI at Work <span class="muted">week {workHealth.week}</span></h2>
+                <p class="work-health-line">
+                  {workHealth.cards === 0 ? "No practical items yet this week" : <>{plural(workHealth.cards, "item")} across {plural(workHealth.tools, "tool")} this week ({workHealth.try} to try, {workHealth.skip} to leave for later)</>}
+                  {" · "}{workHealth.recent} in the last {workHealth.windowHours} hours
+                  {" · "}{plural(workHealth.toolCount, "tool")} in the directory, {workHealth.noCost} without a stated cost, {workHealth.noLink} without an official link
+                  {" · "}{workDroppedText}
+                </p>
+                <p class="work-health-line muted">
+                  {workHealth.thinJobs.length ? <>Job pages below three items (not indexed): {workHealth.thinJobs.join(", ")}{workHealth.emptyJobs.length ? <>; empty: {workHealth.emptyJobs.join(", ")}</> : ""}.</> : "Every job page has three items or more."}
+                  {" "}Podcast: {workHealth.episode ? <>latest episode {workHealth.episode.week}, out {fmtDayShort(workHealth.episode.date)}{workHealth.episode.seconds ? `, ${Math.round(workHealth.episode.seconds / 60)} min` : ""}</> : "no episode yet"}{workHealth.audioReason && workHealth.audioReason !== "episode exists" ? <> (latest run: {workHealth.audioReason})</> : ""}.
+                  {" "}<a href="/work">Open /work</a> · <a href="/work/tools">Directory</a>
+                </p>
+              </article>
+            )}
             <article class="card wide">
               <h2>Published per day <span class="muted">14 days</span></h2>
               <Fragment set:html={columns(funnel, "day", [{ key: "published", label: "Published", color: C.s1 }])} />

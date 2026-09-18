@@ -25,6 +25,9 @@ export interface WorkCard {
   jobs: string[];
   /** Why this is not a this-week job (a waitlist, a beta, a developer), or null. */
   skip: string | null;
+  /** Who cannot use it, from the caveat: "not in the EEA, UK", "Business plan and above". Older
+      exports have no such field. */
+  limits?: string[];
   usefulness: number;
 }
 
@@ -52,6 +55,9 @@ export interface WorkWeek {
   try: number[];
   skip: number[];
   tools: number;
+  /** The week's own counts; `try` and `skip` are cut to what a page shows (8 and 6). */
+  tryCount?: number;
+  skipCount?: number;
 }
 
 export interface WorkData {
@@ -193,11 +199,20 @@ export const briefingAlso: WorkStory[] = workBriefing.alsoIds.map(storyFor).filt
 export const workCardFor = (story: Story): WorkCard | null => ((story as WorkStory).workCard ?? null);
 
 /** Section stories of an ISO week, as the playbook page lists them. */
-export function weekStories(week: string): { changed: WorkStory[]; tryThis: WorkStory[]; skip: WorkStory[]; tools: number } {
+export function weekStories(week: string): {
+  changed: WorkStory[]; tryThis: WorkStory[]; skip: WorkStory[]; tools: number; tryCount: number; skipCount: number;
+} {
   const w = work.weeks[week];
   const pick = (ids: number[] | undefined) => (ids || []).map(storyFor).filter(hasCard);
-  return { changed: pick(w?.changed), tryThis: pick(w?.try), skip: pick(w?.skip), tools: w?.tools || 0 };
+  const changed = pick(w?.changed);
+  // The try and skip lists are cut to what a page shows; the counts are the whole week's, taken from
+  // the cards themselves so an export without tryCount/skipCount still says the right number.
+  const skipCount = changed.filter((s) => s.workCard.skip).length;
+  return { changed, tryThis: pick(w?.try), skip: pick(w?.skip), tools: w?.tools || 0, tryCount: changed.length - skipCount, skipCount };
 }
+
+/** "1 item", "3 items". */
+export const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 export const workWeeks: string[] = Object.keys(work.weeks).sort((a, b) => (a < b ? 1 : -1));
 

@@ -19,6 +19,8 @@ const { story, card, level = "h3", linkStory = true, compact = false } = Astro.p
 const Heading = level === "p" ? "p" : level;
 const { names } = sourceNames(story, 2);
 const cost = COST_LABELS[card.costKind] || COST_LABELS.unknown;
+// Who cannot use it (a region, a plan), from the caveat (pipeline/digest/work.py, limits).
+const limits = card.limits || [];
 ---
 
 <article class:list={["workcard", { compact, "is-skip": Boolean(card.skip) }]} data-jobs={card.jobs.join(" ")} data-cost={card.costKind}>
@@ -34,7 +36,7 @@ const cost = COST_LABELS[card.costKind] || COST_LABELS.unknown;
 
   <dl class="workfacts">
     <div><dt>Who for</dt><dd>{whoLine(card.whoFor)}</dd></div>
-    <div><dt>Cost</dt><dd>{card.cost && card.cost !== "unknown" ? card.cost : cost}</dd></div>
+    <div><dt>Cost</dt><dd>{card.cost && card.cost !== "unknown" && card.costKind !== "unknown" ? card.cost : cost}</dd></div>
     {card.effort && <div><dt>Effort</dt><dd>{card.effort}</dd></div>}
   </dl>
 
@@ -46,6 +48,7 @@ const cost = COST_LABELS[card.costKind] || COST_LABELS.unknown;
   )}
 
   <p class="workwatch"><b>Watch out</b> {card.watchOut}</p>
+  {limits.length > 0 && <p class="worklimits"><b>Not for everyone</b> {limits.join(" · ")}</p>}
 
   <div class="workcard-foot">
     {card.link && <a class="work-btn" href={card.link} rel="noopener nofollow" target="_blank" data-source-link>Try it ↗</a>}

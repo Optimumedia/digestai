@@ -22,7 +22,8 @@ const newThisWeek = cards.filter((s) => weekIds.has(s.id));
 const weekTools = new Set(newThisWeek.map((s) => s.workCard.tool.toLowerCase())).size;
 const free = cards.filter((s) => ["free", "free tier", "included"].includes(s.workCard.costKind)).length;
 const latest = cards[0];
-const updated = latest?.updatedAt || latest?.firstPublishedAt || work.generatedAt;
+// The later of the newest card's two dates: an updatedAt older than firstPublishedAt would date the page too early.
+const updated = [latest?.updatedAt, latest?.firstPublishedAt].filter(Boolean).sort().pop() || work.generatedAt;
 const others = JOBS.filter((j) => j.key !== job.key);
 const plural = (n: number, w: string, ws = `${w}s`) => `${n} ${n === 1 ? w : ws}`;
 
@@ -55,7 +56,7 @@ const jsonLd = [
     })),
   },
 ];
-const cost = (c: string | null, kind: string | null) => (c && c !== "unknown" ? c : COST_LABELS[kind || "unknown"]);
+const cost = (c: string | null, kind: string | null) => (c && c !== "unknown" && kind !== "unknown" ? c : COST_LABELS[kind || "unknown"]);
 ---
 
 <Work title={title} description={description} current="job" jsonLd={jsonLd} thin={jobThin(job.key)}>
@@ -77,7 +78,7 @@ const cost = (c: string | null, kind: string | null) => (c && c !== "unknown" ? 
       <>
         <p class="work-lead-line">
           {plural(newThisWeek.length, "new item")} across {plural(weekTools, "tool")} this week.
-          {free > 0 && <> {free} of the {cards.length} on this page cost nothing to start.</>}
+          {free > 0 && (cards.length === 1 ? <> It costs nothing to start.</> : <> {free} of the {cards.length} on this page cost nothing to start.</>)}
         </p>
         <ul class="work-lead-list">
           {newThisWeek.slice(0, 5).map((s) => (

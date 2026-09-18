@@ -893,6 +893,9 @@ table.sortable th:hover { color: var(--ink); }
 .workuses li { margin: 3px 0; }
 .workwatch { background: var(--surface-2); border-radius: 4px; padding: 9px 12px; margin: 10px 0; font-size: 14.5px; color: var(--ink-2); }
 .workwatch b { display: block; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--hot); margin-bottom: 2px; font-weight: 500; }
+.worklimits { margin: -4px 0 10px; font-size: 13.5px; color: var(--ink-2); }
+.worklimits b { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3, var(--ink-2)); font-weight: 500; margin-right: 6px; }
+.work-health-line { margin: 6px 0 0; line-height: 1.55; }
 .workcard-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; }
 .work-btn { display: inline-block; font-size: 14px; font-weight: 600; padding: 6px 14px; border-radius: 4px; background: var(--accent); color: var(--accent-ink); }
 .work-btn:hover { color: var(--accent-ink); filter: brightness(1.08); }
