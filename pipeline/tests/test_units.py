@@ -1327,6 +1327,37 @@ def test_export_merges_topic_spellings():
     assert entity_out({"name": "Solo", "kind": "people", "storyIds": [9]})["name"] == "Solo"
 
 
+def test_briefing_leads_with_confirmed_stories():
+    from datetime import datetime, timedelta, timezone
+
+    from digest import export
+
+    now = datetime(2026, 9, 18, 12, 0, tzinfo=timezone.utc)
+    iso = lambda h: (now - timedelta(hours=h)).isoformat().replace("+00:00", "Z")  # noqa: E731
+
+    def story(i, score, domains, primary=False, pinned=False, category="models"):
+        return {"id": i, "score": score, "pinned": pinned, "category": category, "hasPrimary": primary, "firstPublishedAt": iso(2),
+                "articles": [{"publishedAt": iso(2), "domain": d} for d in domains], "articleCount": len(domains), "summaryMd": "w " * 40}
+
+    one, two = ["404media.co"], ["reuters.com", "theverge.com"]
+    # Four single-outlet stories outscore a widely covered one and a lab's own announcement.
+    stories = [story(1, 0.9, one), story(2, 0.8, one), story(3, 0.7, one), story(4, 0.6, one),
+               story(5, 0.5, two), story(6, 0.45, ["openai.com"], primary=True), story(7, 0.4, ["www.reuters.com", "reuters.com"])]
+    stories += [story(i, 0.3 - i * 0.001, one) for i in range(8, 20)]
+    top = export.build_briefing(stories, now)["storyIds"]
+    assert top[:2] == [5, 6], top  # confirmed first: two publishers, then the primary source
+    assert top[2:] == [1, 2, 3] and 7 not in top[:2]  # one publisher under two host names is still one
+    # A pin is the owner's call and stays on top; with nothing confirmed the order is by score.
+    assert export.build_briefing([story(1, 0.9, one, pinned=True)] + stories[1:], now)["storyIds"][0] == 1
+    assert export.build_briefing([story(i, 1 - i * 0.01, one) for i in range(1, 20)], now)["storyIds"] == [1, 2, 3, 4, 5]
+    # A confirmed story far down the list does not jump the queue.
+    far = [story(i, 1 - i * 0.01, one) for i in range(1, 15)] + [story(99, 0.01, two)]
+    assert 99 not in export.build_briefing(far, now)["storyIds"]
+    # The focus category keeps its reserved place.
+    focus = stories[:6] + [story(50, 0.2, one, category="marketing")] + stories[7:]
+    assert 50 in export.build_briefing(focus, now)["storyIds"]
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

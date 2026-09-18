@@ -17,6 +17,7 @@ log = logging.getLogger("digest.export")
 
 BRIEFING_SIZE = 5
 BRIEFING_ALSO = 8
+CONFIRMED_REACH = 5  # how far below the top five a confirmed story may be and still replace a single-outlet one
 
 
 def _coverage(articles: list[dict]) -> dict:
@@ -82,6 +83,13 @@ def build_briefing(stories: list[dict], now) -> dict:
         return sum(1 for a in s["articles"] if (a["publishedAt"] or "") >= cutoff) >= 2
 
     rank = lambda s: (not s["pinned"], -s["score"])  # noqa: E731
+
+    def confirmed(s: dict) -> bool:
+        """Reported by two or more publishers, or by the lab or company itself. A single outlet's
+        story can be in the briefing, but never above a confirmed one (a pin is the owner's call)."""
+        publishers = {hold.registrable(a.get("domain") or "") for a in s["articles"]} - {""}  # news.x.com and x.com are one
+        return bool(s["pinned"] or s.get("hasPrimary") or len(publishers) >= 2)
+
     for window in (24, 48, 96):
         cutoff = db.iso_z(now - timedelta(hours=window))
         fresh = sorted((s for s in stories if new_story(s, cutoff)), key=rank)
@@ -97,6 +105,19 @@ def build_briefing(stories: list[dict], now) -> dict:
         if pick and len(pool) >= BRIEFING_SIZE:
             pool = [s for s in pool if s is not pick]
             pool.insert(BRIEFING_SIZE - 1, pick)
+    # Confirmed stories lead. The five are the five best by score as before; inside them the confirmed
+    # ones come first, and a single-outlet story loses its place to a confirmed one ranked just below
+    # it (within CONFIRMED_REACH places), so the first thing a visitor reads is never one outlet's word
+    # while a story half the press is covering sits underneath.
+    reach = pool[: BRIEFING_SIZE + CONFIRMED_REACH]
+    solid = [s for s in reach if confirmed(s)]
+    if solid:
+        rest = [s for s in reach if not confirmed(s)]
+        head = (solid + rest)[:BRIEFING_SIZE]
+        if focus and any(s.get("category") == focus for s in pool[:BRIEFING_SIZE]) and not any(s.get("category") == focus for s in head):
+            keep = next(s for s in pool[:BRIEFING_SIZE] if s.get("category") == focus)
+            head = head[: BRIEFING_SIZE - 1] + [keep]  # the focus category keeps its place
+        pool = head + [s for s in pool if s not in head]
     top = pool[:BRIEFING_SIZE]
     also = pool[BRIEFING_SIZE : BRIEFING_SIZE + BRIEFING_ALSO]
     words = sum(word_count(s.get("summaryMd") or "") for s in top) + 25 * len(also)
