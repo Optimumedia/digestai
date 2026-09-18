@@ -111,9 +111,124 @@ def clean_card(value) -> dict | None:
     """The card as it is stored, or None when the article does not belong in the section.
 
     Dropped when the model says it does not fit, when it names no tool, when it cannot say in one
-    sentence what the thing does, or when it has no honest caveat. Everything else is clamped, so a
-    talkative or a sloppy answer cannot reach a page.
+    sentence what the thing does, or when it has no honest caveat; and, by rules rather than the
+    model's word, when it is a developer or infrastructure tool or a course (screen_card). Everything
+    else is clamped, so a talkative or a sloppy answer cannot reach a page.
     """
+    return screen_card(value)[0]
+
+
+# ---------------------------------------------------------------------------- rules-only screen
+#
+# The model's "fits" flag let developer tooling through: an inference gateway for GPU clusters, a
+# coding assistant, a runner for local models. None of them is something a marketer or a shop owner
+# can pick up this week, whatever the model says about "minutes" and "founders". These rules read
+# the card's own words (the tool, what it does, what to use it for) and never the caveat, which may
+# rightly mention an API or a region without the tool being for developers.
+
+DEV_WORDS = re.compile(
+    r"\b(?:gpus?|cuda|kubernetes|k8s|docker|containeri[sz]\w*|"
+    r"(?:gpu|compute|kubernetes|training|inference|hpc) clusters?|clusters? of gpus|"
+    r"sdks?|inference (?:gateway|endpoints?|server|serving|engine)|model serving|api endpoints?|"
+    r"api[- ]only|(?:only |available )?(?:via|through) (?:the |an |its )?api|developer (?:api|platform|preview)|"
+    r"for developers|clis?|command[- ]line|in (?:the|your) terminal|terminal (?:app|tool|commands?)|"
+    r"ides?|vs ?code|coding (?:assistant|agent|tool|model)s?|code (?:editor|assistant|completion|review|generation)|"
+    r"(?:write|writing|generate|generating|review|reviewing|debug|debugging) code|codebases?|(?:code|git) repositor(?:y|ies)|git(?:hub)? (?:history|repos?)|pull requests?|"
+    r"fine[- ]?tun\w*|local (?:llms?|models?)|run (?:llms?|models?) locally|ollama|llama\.cpp|lm studio|self[- ]host\w*|"
+    r"open[- ]weights?|vector (?:database|store)s?|embeddings|embedding models?|rag pipelines?|first[- ]token latency|tokens per second|"
+    r"agent (?:harness|framework|orchestration|sdk)\w*|agents? from any provider|multi[- ]?agent|agent[- ]to[- ]agent|mcp servers?|"
+    r"aws|amazon web services|sagemaker|(?:amazon |aws )bedrock|ec2|gcp|google cloud|vertex ai|azure|hyperpod)\b",
+    re.I)
+# A tool that wraps the same power in a screen a non-developer can use stays in.
+NO_CODE = re.compile(r"\b(?:no[- ]code|without (?:writing )?(?:any )?code|drag[- ]and[- ]drop|point[- ]and[- ]click|"
+                     r"visual (?:builder|editor)|non[- ]?(?:technical|developers?))\b", re.I)
+# Courses, certificates and deal-site bundles are sold to people who want to learn AI; they are not a
+# tool that does a job. A reseller or "wrapper" app that sells access to other companies' models is
+# the same kind of listing.
+COURSE_WORDS = re.compile(
+    r"\b(?:(?<!of )courses?|e-?degrees?|(?<!gift )certificat(?:e|es|ion|ions)|bootcamps?|masterclass(?:es)?|training bundle|"
+    r"(?:course|training|learning) (?:bundle|pack)|bundle of \w+ courses|lifetime (?:access|deal|subscription|licen[cs]e)|"
+    r"resell\w*|wrapper (?:app|for)|access to (?:multiple|several|all the|many|\d+\+?) (?:ai )?(?:models|chatbots|ais))\b",
+    re.I)
+
+
+def _dashes(text: str) -> str:
+    """The model writes non-breaking and other Unicode hyphens ("first‑token"); the rules match "-"."""
+    return re.sub(r"[‐-―−]", "-", text or "")
+
+
+def developer_only(card: dict) -> str | None:
+    """"developer" when the card is about developer or infrastructure tooling, "course" when it is a
+    course or a reseller listing, else None. The tool's name, what it does and what to use it for are
+    read; the caveat is not."""
+    text = _dashes(" ".join([card.get("tool") or "", card.get("what_it_does") or "", *(card.get("use_for") or [])]))
+    if COURSE_WORDS.search(text):
+        return "course"
+    if DEV_WORDS.search(text) and not NO_CODE.search(text):
+        return "developer"
+    return None
+
+
+# Makers the model is known to credit wrongly, with the domains their own pages live on. A "try it"
+# link elsewhere means the card credits the wrong company (a third party's course "by Claude AI"), so
+# the maker is taken from the link instead.
+MAKER_DOMAINS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
+    # key: (display name, names the model uses, domains)
+    "anthropic": ("Anthropic", ("anthropic", "claude", "claude ai"), ("anthropic.com", "claude.ai", "claude.com")),
+    "openai": ("OpenAI", ("openai", "open ai", "chatgpt"), ("openai.com", "chatgpt.com")),
+    "google": ("Google", ("google", "alphabet", "google deepmind", "deepmind", "gemini", "google workspace"),
+               ("google.com", "blog.google", "googleblog.com", "withgoogle.com", "youtube.com", "android.com")),
+    "microsoft": ("Microsoft", ("microsoft", "microsoft copilot", "copilot"),
+                  ("microsoft.com", "office.com", "microsoft365.com", "bing.com", "live.com", "linkedin.com")),
+    "meta": ("Meta", ("meta", "meta platforms", "facebook", "instagram", "whatsapp"),
+             ("meta.com", "meta.ai", "facebook.com", "fb.com", "instagram.com", "whatsapp.com", "threads.net")),
+    "canva": ("Canva", ("canva",), ("canva.com",)),
+    "hubspot": ("HubSpot", ("hubspot",), ("hubspot.com",)),
+    "shopify": ("Shopify", ("shopify",), ("shopify.com",)),
+    "adobe": ("Adobe", ("adobe",), ("adobe.com",)),
+}
+
+
+def _host(link: str | None) -> str:
+    m = re.match(r"https?://([^/:?#]+)", link or "", re.I)
+    return (m.group(1).lower().removeprefix("www.")) if m else ""
+
+
+def _on(host: str, domains) -> bool:
+    return any(host == d or host.endswith("." + d) for d in domains)
+
+
+def check_maker(card: dict) -> tuple[str | None, bool]:
+    """The maker to show, and whether it was corrected. Only makers on MAKER_DOMAINS are checked,
+    and only against a link the card gives: no link, no evidence either way."""
+    maker, host = card.get("maker"), _host(card.get("link"))
+    if not maker or not host:
+        return maker, False
+    name = re.sub(r"[^a-z0-9 ]+", " ", maker.lower())
+    name = re.sub(r"\b(?:inc|llc|ltd|corp|corporation|platforms inc|pbc)\b", " ", name)
+    name = re.sub(r"\s+", " ", name).strip()
+    claimed = next((k for k, (_d, names, _h) in MAKER_DOMAINS.items() if name in names), None)
+    if claimed is None or _on(host, MAKER_DOMAINS[claimed][2]):
+        return maker, False
+    other = next((display for display, _n, domains in MAKER_DOMAINS.values() if _on(host, domains)), None)
+    return other or host, True
+
+
+def screen_card(value) -> tuple[dict | None, str | None]:
+    """(card, None) for a card that belongs on the section; (None, why) for one the rules drop, with
+    why in "developer", "course"; (None, None) for one that never was a card. The reason is what the
+    export and the enrich step count, so the admin page can say how much the rules keep out."""
+    card = _clamp_card(value)
+    if card is None:
+        return None, None
+    reason = developer_only(card)
+    if reason:
+        return None, reason
+    card["maker"], _fixed = check_maker(card)
+    return card, None
+
+
+def _clamp_card(value) -> dict | None:
     if not isinstance(value, dict):
         return None
     if not value.get("fits"):
@@ -157,16 +272,36 @@ def clean_card(value) -> dict | None:
 
 
 def jobs_for(card: dict) -> list[str]:
-    """The jobs a card helps with: from who it is for, plus "make content" from what it does."""
+    """The jobs a card helps with: from who it is for, plus "make content" and "get customers" from
+    what it does.
+
+    "Marketer" is the model's default reader (and clean_card's), so on its own it no longer puts a
+    card under "Get customers": a meeting-notes app for "marketers, founders and operations" is not a
+    way to find customers. It does when the card's own words are about ads, search, campaigns or
+    reach, or when nothing else would place the card at all.
+    """
+    text = " ".join([card.get("what_it_does") or "", *(card.get("use_for") or [])])
     jobs: list[str] = []
     for w in card.get("who_for") or []:
+        if w == "marketer":
+            continue
         for job in WHO_JOBS.get(w, []):
             if job not in jobs:
                 jobs.append(job)
-    text = " ".join([card.get("what_it_does") or "", *(card.get("use_for") or [])])
     if CONTENT_WORDS.search(text) and "content" not in jobs:
         jobs.append("content")
+    if CUSTOMER_WORDS.search(text) or ("marketer" in (card.get("who_for") or []) and not jobs):
+        jobs.append("customers")
     return [j for j in JOBS if j in jobs]
+
+
+# What "Get customers" means in a card's own words: advertising, search, campaigns and reach.
+CUSTOMER_WORDS = re.compile(
+    r"\b(?:ads?|advert\w*|campaigns?|seo|search (?:ranking|rankings|visibility|traffic|results)|ai search|"
+    r"ai overviews?|google ads|meta ads|audiences?|email marketing|marketing emails?|newsletters?|social media|"
+    r"social posts?|promot\w*|brand (?:awareness|visibility)|visibility|new customers|find customers|"
+    r"reach (?:more |new )?(?:customers|buyers|people)|website traffic|traffic to|shopping ads|product listings?|"
+    r"merchant center|marketing)\b", re.I)
 
 
 def skip_reason(card: dict) -> str | None:
@@ -176,6 +311,13 @@ def skip_reason(card: dict) -> str | None:
     match = NOT_YET.search(card.get("watch_out") or "")
     if match:
         word = match.group(0).lower()
+        if (word.startswith("not ") or word.startswith("limited to")) and limits(card):
+            # "Not available in the EEA" or "limited to Business plans": most readers can use it
+            # now, so it stays a thing to try and the card names who is left out (limits).
+            return None
+        if "enterprise" in word and any(re.match(r"(?!enterprise)\w+ (?:and|or) enterprise", x, re.I) for x in limits(card)):
+            # "Business and Enterprise plans": a small team on a Business plan has it.
+            return None
         if "wait" in word:
             return "waitlist only"
         if "us-only" in word or "us only" in word:
@@ -186,6 +328,47 @@ def skip_reason(card: dict) -> str | None:
             return "being withdrawn"
         return "not open to everyone yet"
     return None
+
+
+# Who cannot use it, when the caveat says so: a region it is not available in, or the plan it needs.
+# These are not reasons to skip the tool (most readers can use it), so the card stays where it is and
+# says plainly who is left out.
+REGIONS = (
+    ("EEA", r"eea|european economic area"), ("EU", r"\beu\b|european union"), ("Europe", r"\beurope\b"),
+    ("UK", r"\buk\b|united kingdom|britain"), ("Switzerland", r"switzerland"), ("Japan", r"japan"),
+    ("China", r"china"), ("Canada", r"canada"), ("Australia", r"australia"), ("India", r"\bindia\b"),
+)
+UNAVAILABLE = re.compile(r"\b(?:unavailable|not (?:yet )?(?:available|supported|offered|launched)|excluded|excluding|except|"
+                         r"outside (?:of )?the|blocked|not in)\b", re.I)
+PLAN = re.compile(
+    r"\b((?:(?:business|enterprise|pro|premium|plus|team|teams|max|ultra|standard|starter|advanced|paid|education)"
+    r"(?:,? (?:and|or) (?:business|enterprise|pro|premium|plus|team|teams|max|ultra|standard|advanced|education))?)"
+    r" (?:plans?|tiers?|editions?|subscriptions?|subscribers|accounts|customers))"
+    r"(?: (?:and (?:above|up|higher)|or (?:higher|above)|only))?", re.I)
+PLAN_QUALIFIER = re.compile(r"\b(?:only|requires?|required|and (?:above|up|higher)|or (?:higher|above)|available (?:on|to|for)|"
+                            r"limited to|restricted to|need(?:s)? (?:a|an|the))\b", re.I)
+
+
+def limits(card: dict) -> list[str]:
+    """Plain labels for who cannot use it, read from the caveat: ["not in the EEA, UK",
+    "Business and Enterprise plans only"]. Empty when the caveat names no region or plan limit."""
+    watch = _dashes(card.get("watch_out") or "")
+    out: list[str] = []
+    if UNAVAILABLE.search(watch):
+        places = [name for name, rx in REGIONS if re.search(rx, watch, re.I)]
+        if "EEA" in places and "EU" in places:
+            places.remove("EU")
+        if places:
+            out.append("not in " + ("the " if places[0] in ("EEA", "EU", "UK") else "") + ", ".join(places[:4]))
+    elif re.search(r"\b(?:us|u\.s\.|united states)[- ]only\b|only (?:in|for|to) (?:the )?(?:us|u\.s\.|united states)\b", watch, re.I):
+        out.append("United States only")
+    plan = PLAN.search(watch)
+    if plan and PLAN_QUALIFIER.search(watch):
+        label = plan.group(1)
+        label = label[0].upper() + label[1:]
+        tail = plan.group(0)[len(plan.group(1)):].strip()
+        out.append(f"{label} {tail}" if tail and tail != "only" else f"{label} only")
+    return out
 
 
 EFFORT_POINTS = {"minutes": 1.0, "an afternoon": 0.6, "needs a developer": 0.0}
@@ -233,6 +416,7 @@ def card_out(card: dict, story: dict | None = None) -> dict:
         "link": card.get("link"),
         "jobs": jobs_for(card),
         "skip": skip_reason(card),
+        "limits": limits(card),
         "usefulness": usefulness(card, story),
     }
 
@@ -269,8 +453,17 @@ def tool_key(tool: str, maker: str | None) -> str:
     """Same tool, same key: "Gemini in Google Ads" and "Google Ads (Gemini)" are not the same tool,
     but "Canva Magic Studio" (Canva) and "Magic Studio" (Canva Inc.) are."""
     org = org_key(maker)
-    words = [w for w in _plain(tool or "").split() if w and w != org]
+    # Word order, filler and plurals do not make a different tool: "Notebooks in Gemini" and
+    # "Gemini Notebook" (both Google) are one row.
+    words = sorted({_singular(w) for w in _plain(tool or "").split() if w and w != org and w not in TOOL_FILLER})
     return ("".join(words).replace(".", "") or org) + "|" + org
+
+
+TOOL_FILLER = {"in", "for", "the", "a", "an", "of", "on", "with", "by", "and", "app", "feature", "features", "new"}
+
+
+def _singular(word: str) -> str:
+    return word[:-1] if len(word) > 3 and word.endswith("s") and not word.endswith("ss") else word
 
 
 def build_tools(stories: list[dict]) -> list[dict]:
@@ -357,6 +550,8 @@ def weeks(stories: list[dict]) -> dict[str, dict]:
         bucket["try"].sort(key=lambda s: -(s["workCard"]["usefulness"]))
         bucket["skip"].sort(key=lambda s: -(s["workCard"]["usefulness"]))
         bucket["tools"] = len({tool_key(s["workCard"]["tool"], s["workCard"].get("maker")) for s in bucket["changed"]})
+        # The lists below are cut to what a page shows; the counts are the week's own.
+        bucket["tryCount"], bucket["skipCount"] = len(bucket["try"]), len(bucket["skip"])
         bucket["changed"] = [s["id"] for s in bucket["changed"]]
         bucket["try"] = [s["id"] for s in bucket["try"][:8]]
         bucket["skip"] = [s["id"] for s in bucket["skip"][:6]]
@@ -392,6 +587,16 @@ def build_briefing(stories: list[dict], now) -> dict:
         if len(wider) > len(fresh):
             fresh, window = wider, 48
     fresh.sort(key=lambda s: (-(s["workCard"]["usefulness"]), s.get("firstPublishedAt") or ""))
+    # One card per tool: two stories about the same product the same day (a rollout and a feature
+    # of it) read as a duplicate side by side. The more useful one stays.
+    seen: set[str] = set()
+    unique = []
+    for s in fresh:
+        key = tool_key(s["workCard"]["tool"], s["workCard"].get("maker"))
+        if key not in seen:
+            seen.add(key)
+            unique.append(s)
+    fresh = unique
     top = fresh[:BRIEFING_SIZE]
     also = fresh[BRIEFING_SIZE : BRIEFING_SIZE + BRIEFING_ALSO]
     tools = {tool_key(s["workCard"]["tool"], s["workCard"].get("maker")) for s in top + also}

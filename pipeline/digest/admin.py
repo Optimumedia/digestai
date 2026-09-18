@@ -470,6 +470,10 @@ def run() -> dict:
                                  "No action needed unless it repeats.", detail=history_error))
         actions += search_cards(_read_json("gsc.json"), step_rows, now)
         actions += site_search_cards(out["engagement"]["searches7"])
+        # AI at Work (/work): its health from the files the export and audio steps just wrote; no read.
+        out["work"] = work_summary(_read_json("work.json"), _read_json("work-briefing.json"),
+                                   _read_json("work-episodes.json"), step_rows, now)
+        actions += work_health_cards(out["work"], now)
 
         # ---- the database against the free plan: its size, and how much the pipeline reads.
         try:
@@ -550,6 +554,74 @@ def _card(cid: str, level: str, what: str, why: str, todo: str, at=None, detail:
 def _plain(card: dict) -> str:
     at = card.get("at")
     return card["what"].replace("{at}", f"{at[11:16]} UTC" if at else "an earlier time")
+
+
+def work_summary(work: dict | None, briefing: dict | None, episodes: list | None, rows: list[dict], now) -> dict | None:
+    """AI at Work in numbers for the Today tab: this week's cards and tools, the jobs with too little
+    behind them for their page to be indexed, the directory's gaps (no cost, no official link), what
+    the rules kept out, and where the weekly episode stands. Built from work.json, work-briefing.json,
+    work-episodes.json and the audio step's own stats: no database read."""
+    if not work:
+        return None
+    from . import work as work_rules  # the section's own rules: week keys, job names, thresholds
+
+    week = work_rules.week_key(now.isoformat())
+    bucket = (work.get("weeks") or {}).get(week) or {}
+    tools = work.get("tools") or []
+    jobs = work.get("jobs") or {}
+    # A job page is indexed from three items (site/src/lib/indexing.mjs, JOB_MIN_ITEMS).
+    thin = [work_rules.JOBS[j] for j in work_rules.JOBS if len(jobs.get(j) or []) < 3]
+    empty = [work_rules.JOBS[j] for j in work_rules.JOBS if not jobs.get(j)]
+    audio = next((r["stats"].get("work") for r in rows if r["step"] == "audio" and isinstance(r["stats"].get("work"), dict)), None)
+    latest = (episodes or [None])[0] if episodes else None
+    last_week = work_rules.week_key((now - timedelta(days=7)).isoformat())
+    last_bucket = (work.get("weeks") or {}).get(last_week) or {}
+    return {
+        "week": week,
+        "cards": len(bucket.get("changed") or []),
+        "tools": bucket.get("tools") or 0,
+        "try": bucket.get("tryCount", len(bucket.get("try") or [])),
+        "skip": bucket.get("skipCount", len(bucket.get("skip") or [])),
+        "total": len(work.get("storyIds") or []),
+        "toolCount": len(tools),
+        "noCost": sum(1 for t in tools if (t.get("costKind") or "unknown") == "unknown"),
+        "noLink": sum(1 for t in tools if not t.get("link")),
+        "thinJobs": thin,
+        "emptyJobs": empty,
+        "recent": (briefing or {}).get("stats", {}).get("items", 0),
+        "windowHours": (briefing or {}).get("windowHours", 24),
+        "dropped": {why: d.get("count", 0) for why, d in (work.get("dropped") or {}).items()},
+        "droppedTools": sorted({t for d in (work.get("dropped") or {}).values() for t in d.get("tools") or []})[:8],
+        "episode": {"week": latest.get("week"), "date": latest.get("date"), "seconds": latest.get("seconds")} if latest else None,
+        "lastWeek": last_week,
+        "lastWeekItems": last_bucket.get("tryCount", len(last_bucket.get("try") or [])),
+        "lastWeekEpisode": any(e.get("week") == last_week for e in episodes or []),
+        "audioReason": (audio or {}).get("reason") or None,
+        "minItems": config.WORK_AUDIO_MIN_ITEMS,
+    }
+
+
+def work_health_cards(w: dict | None, now) -> list[dict]:
+    """Two things about AI at Work worth a card, and only these: the section has stopped getting new
+    items, or last week's episode is late. The rest is a line on the Today tab, not a to-do."""
+    if not w:
+        return []
+    out = []
+    if w["recent"] == 0 and w["windowHours"] >= 48:
+        out.append(_card("work:quiet", "warning", "AI at Work has had no new item for two days.",
+                         "The section's front page, its job pages and the AI at Work block on the home page stop changing, "
+                         "and it is one of the site's three focus areas.",
+                         "Open the latest run's enrich step: \"work_cards\" is how many practical cards the summaries found, "
+                         "\"work_dropped_developer\" how many the rules kept out. Zero of both means the marketing feeds were quiet.",
+                         action={"kind": "link", "url": "/work", "label": "Open AI at Work"}))
+    # From Tuesday: Monday's runs had every chance to read last week, if last week had enough to read.
+    if (now.weekday() >= 1 and not w["lastWeekEpisode"] and w["lastWeekItems"] >= w["minItems"]
+            and config.WORK_AUDIO):
+        out.append(_card("work:episode", "info", f"The AI at Work episode for {w['lastWeek']} has not been published.",
+                         "Podcast subscribers get nothing this week, and the playbook page has no player.",
+                         "No action needed if it appears after the next runs; the audio step retries all week.",
+                         detail=f"Audio step: {w['audioReason']}" if w.get("audioReason") else None))
+    return out
 
 
 def _read_json(name: str):

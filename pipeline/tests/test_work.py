@@ -93,6 +93,157 @@ def test_what_to_skip_this_week_is_stated_honestly():
     assert work.skip_reason(work.clean_card(card(watch_out="It is in beta and changes weekly."))) == "not open to everyone yet"
 
 
+# Cards as the model wrote them for the live site on 18 September 2026 (Unicode hyphens included).
+LIVE_DEVELOPER = {
+    "SageMaker HyperPod Inference Gateway": card(
+        tool="SageMaker HyperPod Inference Gateway", maker="Amazon", who_for=["founder", "ops", "support"],
+        what_it_does="Routes LLM inference requests to the most suitable GPU pod using real‑time metrics.",
+        use_for=["reduce first‑token latency", "increase GPU utilization", "enable multi‑model routing"],
+        cost="included in a tool you already have", link=None,
+        watch_out="Only works on SageMaker HyperPod clusters in AWS; not usable on other Kubernetes environments."),
+    "ZCode": card(tool="ZCode", maker="Z.ai", who_for=["founder", "ops"], link=None,
+                  what_it_does="Desktop AI coding assistant that runs GLM models",
+                  use_for=["Refactor a project", "Explain unfamiliar files", "Roll back a change"],
+                  watch_out="Disabling the checkpoints directory breaks the rollback feature."),
+    "OpenCode": card(tool="OpenCode", maker="OpenCode", who_for=["founder"], cost="free", link=None,
+                     what_it_does="Runs local LLMs via Ollama, LM Studio, and llama.cpp with a single command.",
+                     use_for=["Try models offline", "Keep data on your machine", "Compare models"],
+                     watch_out="Lacks built‑in permission controls; users must sandbox for security."),
+    "Fulcra Multiplayer": card(
+        tool="Fulcra Multiplayer", maker="Fulcra Dynamics", who_for=["marketer", "founder", "ops"],
+        what_it_does="Enables agents from any provider to coordinate tasks using shared user‑owned context.",
+        use_for=["schedule meetings across different agents", "coordinate project tasks with shared context",
+                 "manage household chores via AI assistants"],
+        watch_out="Requires each participant to have a compatible agent and grant permission."),
+}
+LIVE_KEEP = {
+    "Canva": card(),
+    "Gmail": card(tool="Gmail", maker="Google", who_for=["marketer", "sales", "support"],
+                  what_it_does="Provides AI‑generated concise summaries for email search queries.",
+                  use_for=["quickly find client email details", "summarize project threads", "extract key dates from messages"],
+                  cost="included in a tool you already have", link="https://workspace.google.com/products/gmail/",
+                  watch_out="Only works for English‑language accounts on paid plans; unavailable in EEA, UK, Switzerland, Japan."),
+    "Gemini for Google Workspace": card(
+        tool="Gemini for Google Workspace", maker="Google", who_for=["marketer", "sales", "founder"],
+        what_it_does="Lets Gemini AI access data from Asana, HubSpot, Salesforce and other apps inside Workspace.",
+        use_for=["pull CRM data into Docs", "generate email drafts from Mailchimp lists", "create financial reports from QuickBooks"],
+        cost="included in a tool you already have", link="https://workspace.google.com/blog/",
+        watch_out="Admins must enable connectors; unavailable if Gemini is disabled or in unsupported editions."),
+    "HubSpot Breeze": card(tool="Breeze Copilot", maker="HubSpot", who_for=["sales", "marketer"],
+                           what_it_does="Drafts follow-up emails and scores leads inside the HubSpot CRM.",
+                           use_for=["Follow up after a demo", "Rank this week's leads", "Summarise a deal"],
+                           link="https://www.hubspot.com/products/artificial-intelligence",
+                           watch_out="Lead scoring needs a paid Sales Hub seat."),
+    "Shopify Magic": card(tool="Shopify Magic", maker="Shopify", who_for=["ecommerce"],
+                          what_it_does="Writes product descriptions in bulk for a store's catalogue.",
+                          use_for=["Describe 50 products at once", "Rewrite old listings", "Draft a sale email"],
+                          cost="included in a tool you already have", link="https://www.shopify.com/magic",
+                          watch_out="Descriptions are drafts and need a human edit before publishing."),
+    "Notion AI Skills": card(tool="Notion AI Skills", maker="Notion", who_for=["marketer", "founder", "ops"],
+                             what_it_does="Provides a shared library of reusable AI instructions that teams can run in Notion agents.",
+                             use_for=["automate monthly report generation", "standardize document critiques", "connect data into prompts"],
+                             watch_out="Only available on Business and Enterprise plans; smaller plans cannot use the skill library yet."),
+    # The same power as a developer tool, but with a screen for everyone: it stays.
+    "No-code builder": card(tool="Zapier Agents", maker="Zapier", who_for=["ops"],
+                            what_it_does="Builds AI agents with a no-code visual builder, no API work needed.",
+                            use_for=["Route new leads", "Answer form replies", "Update the CRM"]),
+}
+E_DEGREE = card(tool="Claude AI Professional E-Degree", maker="Claude AI", who_for=["marketer", "founder", "ops"],
+                what_it_does="Teaches how to use Claude for task automation via prompts, agents, and integrations.",
+                use_for=["Automate email handling in Gmail", "Build AI‑powered website workflows",
+                         "Create virtual assistant tasks with Chrome"],
+                cost="paid from $19.99", effort="an afternoon", link=None,
+                watch_out="Only works with Claude AI and MCP connectors; not compatible with other AI platforms.")
+
+
+def test_developer_and_infrastructure_tools_are_kept_out_by_rules():
+    for name, raw in LIVE_DEVELOPER.items():
+        assert raw["fits"], "the model said these fit"
+        assert work.clean_card(raw) is None, f"{name} is a developer tool"
+        assert work.screen_card(raw) == (None, "developer"), name
+    for name, raw in LIVE_KEEP.items():
+        kept, why = work.screen_card(raw)
+        assert kept is not None and why is None, f"{name} is for everyone"
+    # A caveat that mentions an API does not make the tool a developer tool.
+    assert work.clean_card(card(watch_out="The API costs extra; the app itself is free.")) is not None
+    # A card that never was one is not counted as dropped.
+    assert work.screen_card(card(watch_out="")) == (None, None)
+    assert work.screen_card(None) == (None, None)
+
+
+def test_courses_and_reseller_listings_are_not_tools():
+    assert work.screen_card(E_DEGREE) == (None, "course"), "a third party's course, credited to 'Claude AI'"
+    assert work.screen_card(card(tool="ChatGPT Mastery Bundle", what_it_does="Six online courses on prompting for $29.99.",
+                                 use_for=["Learn prompts"]))[1] == "course"
+    assert work.screen_card(card(tool="1min.AI", maker="1min.AI", what_it_does="Gives lifetime access to multiple AI models in one app.",
+                                 use_for=["Chat with GPT and Claude"]))[1] == "course"
+    assert work.clean_card(card(what_it_does="Writes captions and, of course, the hashtags that go with them.",
+                                use_for=["Caption a post"])) is not None, "'of course' is not a course"
+    assert work.clean_card(card(use_for=["Sell gift certificates", "Write captions", "Plan posts"])) is not None
+
+
+def test_a_maker_that_does_not_match_its_link_is_taken_from_the_link():
+    assert work.clean_card(card(maker="Canva Pty Ltd"))["maker"] == "Canva Pty Ltd", "the link is Canva's own"
+    assert work.clean_card(card(tool="Claude for Sheets", maker="Claude AI",
+                                link="https://www.stacksocial.com/sales/claude-pro"))["maker"] == "stacksocial.com"
+    assert work.clean_card(card(tool="Gemini in HubSpot", maker="Google",
+                                link="https://www.hubspot.com/gemini"))["maker"] == "HubSpot", "a known maker's own domain"
+    assert work.clean_card(card(tool="Claude", maker="Anthropic", link="https://claude.ai/download"))["maker"] == "Anthropic"
+    assert work.clean_card(card(tool="Gmail", maker="Google", link="https://workspace.google.com/x"))["maker"] == "Google"
+    assert work.clean_card(card(tool="Muse", maker="Meta Platforms, Inc.", link="https://www.meta.ai/muse"))["maker"] == "Meta Platforms, Inc."
+    assert work.clean_card(card(tool="Hedy", maker="Hedy AI", link="https://hedy.bot"))["maker"] == "Hedy AI", "unknown makers are not checked"
+    assert work.clean_card(card(maker="Google", link=None))["maker"] == "Google", "no link, no evidence"
+
+
+def test_who_cannot_use_it_is_said_without_dropping_the_card():
+    gmail = work.clean_card(LIVE_KEEP["Gmail"])
+    assert work.limits(gmail) == ["not in the EEA, UK, Switzerland, Japan", "Paid plans only"]
+    assert work.skip_reason(gmail) is None, "most readers can use it this week"
+    notion = work.clean_card(LIVE_KEEP["Notion AI Skills"])
+    assert work.limits(notion) == ["Business and Enterprise plans only"]
+    assert work.skip_reason(notion) is None, "a Business plan is a small team's plan"
+    assert work.skip_reason(work.clean_card(card(watch_out="Only on enterprise plans."))) == "enterprise plans only"
+    assert work.limits(work.clean_card(card(watch_out="UK not supported at launch."))) == ["not in the UK"]
+    assert work.limits(work.clean_card(card(watch_out="Available on the Business plan and above."))) == ["Business plan and above"]
+    eea = work.clean_card(card(watch_out="Not available in the European Economic Area for now."))
+    assert work.limits(eea) == ["not in the EEA"] and work.skip_reason(eea) is None
+    assert work.limits(work.clean_card(card())) == []
+    assert work.card_out(gmail)["limits"] == work.limits(gmail)
+    # A waitlist is still a reason to wait.
+    assert work.skip_reason(work.clean_card(card(watch_out="Behind a waitlist, not available in the UK."))) == "waitlist only"
+
+
+def test_marketer_alone_does_not_mean_get_customers():
+    hedy = work.clean_card(card(tool="Hedy", maker="Hedy AI", who_for=["founder", "marketer", "ops"],
+                                what_it_does="Generates meeting summaries, detailed notes and live suggestions during calls.",
+                                use_for=["Create post-meeting summary", "Generate detailed meeting notes", "Get live suggestions"]))
+    assert work.jobs_for(hedy) == ["business"]
+    merchant = work.clean_card(card(tool="Merchant Center", maker="Google", who_for=["marketer", "founder"],
+                                    what_it_does="Adds FAQs and substitutes to AI-driven product recommendations.",
+                                    use_for=["Boost product visibility in AI search results", "Richer product data", "Prepare for checkout"]))
+    assert "customers" in work.jobs_for(merchant)
+    only_marketer = work.clean_card(card(who_for=["marketer"], what_it_does="Summarises long reports into short briefs.",
+                                         use_for=["Summarise a report"]))
+    assert work.jobs_for(only_marketer) == ["customers"], "a marketer's card that fits nowhere else still has a home"
+
+
+def test_the_same_tool_under_two_spellings_is_one_row_and_one_briefing_card():
+    assert work.tool_key("Notebooks in Gemini", "Google") == work.tool_key("Gemini Notebook", "Google")
+    assert work.tool_key("Gemini desktop app", "Google") != work.tool_key("Gemini Notebook", "Google")
+    a = with_card(1, {1: work.clean_card(card(tool="Notebooks in Gemini", maker="Google", link="https://gemini.google.com/"))})
+    b = with_card(2, {2: work.clean_card(card(tool="Gemini Notebook", maker="Google", link=None))})
+    c = with_card(3, {3: work.clean_card(card(tool="Other Thing", maker="Other"))})
+    out = work.build_briefing([a, b, c], NOW)
+    assert sorted(out["storyIds"]) == [1, 3] and not out["alsoIds"], "the more useful of the two notebook stories stays"
+    assert len(work.build_tools([a, b, c])) == 2
+
+
+def test_the_week_counts_are_the_weeks_own_not_the_cut_lists():
+    stories = [with_card(i, {i: work.clean_card(card(tool=f"Tool {i}"))}) for i in range(1, 12)]
+    week = next(iter(work.weeks(stories).values()))
+    assert len(week["try"]) == 8 and week["tryCount"] == 11 and week["skipCount"] == 0
+
+
 def test_usefulness_ranks_what_a_small_team_can_do_not_how_big_the_news_is():
     easy = work.clean_card(card())
     hard = work.clean_card(card(cost="paid from $500 a month", effort="needs a developer", link=None, maker=None,
@@ -237,6 +388,8 @@ def test_the_export_writes_the_section_files_and_rides_the_existing_reads():
                                                use_for=["Route new leads"], cost="paid from $20 a month",
                                                effort="needs a developer"))))
             conn.execute(update(db.articles).where(db.articles.c.id == 7).values(work_card={"fits": True, "tool": "Half"}))
+            # Stored before the rules existed: the export keeps it out and counts it.
+            conn.execute(update(db.articles).where(db.articles.c.id == 9).values(work_card=LIVE_DEVELOPER["ZCode"]))
         config.SITE_DATA_DIR = tmp / "site"
         stats = export.run()
         site = config.SITE_DATA_DIR
@@ -252,10 +405,44 @@ def test_the_export_writes_the_section_files_and_rides_the_existing_reads():
     assert stats["workTools"] == len(work_json["tools"]) == 2
     assert set(work_json["jobs"]) == set(work.JOBS)
     assert work_json["weeks"], "the playbook pages need at least one week"
+    assert work_json["dropped"] == {"developer": {"count": 1, "tools": ["ZCode"]}}
+    assert stats["workDropped"] == {"developer": 1}
+    assert not any(t["tool"] == "ZCode" for t in work_json["tools"]), "the directory rebuild leaves it out"
     assert brief["storyIds"] and len(brief["storyIds"]) <= work.BRIEFING_SIZE
     # The section rides the reads the export already does: no new mirror or detail store.
     assert "work_card" in [c.name for c in cache.ARTICLE_TEXT_COLUMNS]
     assert cache.ARTICLE_TEXT.names.count("work_card") == 1
+
+
+# ---------------------------------------------------------------------------- the admin page
+
+def test_the_admin_health_line_is_built_from_the_exported_files():
+    from digest import admin
+
+    now = datetime(2026, 9, 22, 9, 0, tzinfo=timezone.utc)  # Tuesday of 2026-W39
+    work_json = {
+        "storyIds": [1, 2, 3, 4],
+        "tools": [{"costKind": "free", "link": "https://a"}, {"costKind": "unknown", "link": None}],
+        "weeks": {"2026-W39": {"changed": [1], "try": [1], "skip": [], "tools": 1, "tryCount": 1, "skipCount": 0},
+                  "2026-W38": {"changed": [2, 3, 4], "try": [2, 3, 4], "skip": [], "tools": 3, "tryCount": 3, "skipCount": 0}},
+        "jobs": {"customers": [1, 2, 3], "content": [1], "sell": [], "support": [], "business": [2, 3, 4]},
+        "dropped": {"developer": {"count": 4, "tools": ["OpenCode", "ZCode"]}},
+    }
+    rows = [{"step": "audio", "stats": {"work": {"reason": "no time left this run"}}},
+            {"step": "audio", "stats": {"work": {"reason": "older"}}}]
+    w = admin.work_summary(work_json, {"windowHours": 24, "stats": {"items": 1}}, [], rows, now)
+    assert (w["week"], w["cards"], w["tools"], w["try"], w["skip"]) == ("2026-W39", 1, 1, 1, 0)
+    assert w["noCost"] == 1 and w["noLink"] == 1 and w["toolCount"] == 2
+    assert w["thinJobs"] == ["Make content", "Sell", "Support customers"] and w["emptyJobs"] == ["Sell", "Support customers"]
+    assert w["dropped"] == {"developer": 4} and w["droppedTools"] == ["OpenCode", "ZCode"]
+    assert w["audioReason"] == "no time left this run", "the newest run's audio step"
+    cards = admin.work_health_cards(w, now)
+    assert [c["id"] for c in cards] == ["work:episode"], "last week had three items and no episode by Tuesday"
+    assert "Audio step: no time left this run" in cards[0]["detail"]
+    # A published episode, and a quiet section: the episode card goes, the quiet card comes.
+    w = admin.work_summary(work_json, {"windowHours": 48, "stats": {"items": 0}}, [{"week": "2026-W38", "date": "2026-09-21"}], rows, now)
+    assert [c["id"] for c in admin.work_health_cards(w, now)] == ["work:quiet"]
+    assert admin.work_summary(None, None, None, rows, now) is None and admin.work_health_cards(None, now) == []
 
 
 # ---------------------------------------------------------------------------- the weekly episode

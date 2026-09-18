@@ -3,7 +3,8 @@ import Work from "../../../layouts/Work.astro";
 import WorkCard from "../../../components/WorkCard.astro";
 import ListenPlayer from "../../../components/ListenPlayer.astro";
 import { WORK_MIN_ITEMS, formatDate, meta, weekMonday } from "../../../lib/data";
-import { weekStories, workEpisodeFor, workWeeks } from "../../../lib/work";
+import { weekStories, work, workEpisodeFor, workWeeks } from "../../../lib/work";
+import { weekKey } from "../../../lib/indexing.mjs";
 
 export function getStaticPaths() {
   return workWeeks.map((week) => ({ params: { week } }));
@@ -15,6 +16,8 @@ const monday = weekMonday(week!);
 const sunday = new Date(monday.getTime() + 6 * 864e5);
 const range = `${formatDate(monday.toISOString(), { day: "numeric", month: "short" })} to ${formatDate(sunday.toISOString(), { day: "numeric", month: "long", year: "numeric" })}`;
 const idx = workWeeks.indexOf(week!);
+// A past week's page is read long after that week, where "this week" would be wrong.
+const current = week === weekKey(work.generatedAt);
 const episode = workEpisodeFor(week!);
 const leadTools = [...new Set(changed.map((s) => s.workCard.tool))].slice(0, 3);
 const description = changed.length
@@ -35,7 +38,7 @@ const jsonLd = {
 <Work title={`AI at Work playbook, ${range}`} description={description} current="week" jsonLd={jsonLd} thin={changed.length < WORK_MIN_ITEMS}>
   <header class="page-head work-head">
     <div class="eyebrow">Playbook · week {week}</div>
-    <h1>What to do about AI this week</h1>
+    <h1>{current ? "What to do about AI this week" : "What to do about AI that week"}</h1>
     <p>
       {changed.length} practical {changed.length === 1 ? "item" : "items"} across {tools} {tools === 1 ? "tool" : "tools"}, {range}.
       The things worth an hour of your time, and the things that can wait — with the reason they can wait.
@@ -73,7 +76,7 @@ const jsonLd = {
   {tryThis.length > 0 && (
     <section aria-labelledby="try-h">
       <div class="dayhead"><h2 id="try-h">What to try</h2><span class="eyebrow">most useful first</span></div>
-      <p class="muted work-note">Open to everyone, and nothing here needs a developer.</p>
+      <p class="muted work-note">No waitlist and no developer needed. Where a country or a plan is left out, the card says so.</p>
       <div class="workgrid">
         {tryThis.map((s) => <WorkCard story={s} card={s.workCard} level="h3" />)}
       </div>
