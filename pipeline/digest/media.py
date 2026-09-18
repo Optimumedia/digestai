@@ -39,6 +39,9 @@ RECOVER_RELEASES = 300           # weekly releases looked at when the manifest i
 MAX_UPLOADS_PER_RUN = 200
 MAX_UPLOAD_MB_PER_RUN = 60
 UPLOAD_TIME_BUDGET_SECONDS = 240
+UPLOAD_RETRIES = 2               # more tries for one asset after a server-side (5xx) answer
+RETRY_PAUSE_SECONDS = 2.0
+MAX_UPLOAD_FAILURES_PER_RUN = 3  # assets GitHub refused before the run stops trying
 API = "https://api.github.com"
 UPLOADS = "https://uploads.github.com"
 CONTENT_TYPES = {".png": "image/png", ".webp": "image/webp", ".jpg": "image/jpeg", ".mp3": "audio/mpeg", ".json": "application/json"}
@@ -191,6 +194,10 @@ def mark_skipped(name: str, reason: str) -> None:
 
 # ---------------------------------------------------------------------------- the store
 
+class UploadError(RuntimeError):
+    """The store answered, but would not take this one asset."""
+
+
 class Store:
     """The GitHub releases API for one repository. `session` is any object with get/post/delete
     returning responses with status_code, json() and content (tests pass a fake)."""
@@ -226,15 +233,22 @@ class Store:
         return entry
 
     def upload(self, release_id: int, name: str, data: bytes) -> int | bool:
-        """The new asset's id, or True when it was already there. Raises otherwise."""
+        """The new asset's id, or True when it was already there. GitHub's upload service answers
+        500 ("Error creating asset temp dir") now and then: a 5xx is tried again after a pause,
+        and an asset still refused raises UploadError so the caller can go on with the others."""
         ctype = CONTENT_TYPES.get(Path(name).suffix.lower(), "application/octet-stream")
-        r = self._call("post", f"{UPLOADS}/repos/{self.repo}/releases/{release_id}/assets", params={"name": name},
-                       data=data, headers={"Content-Type": ctype}, timeout=120)
-        if r.status_code == 201:
-            return (r.json() or {}).get("id") or True
-        if r.status_code == 422 and "already_exists" in str(r.text):
-            return True
-        raise RuntimeError(f"upload {name}: HTTP {r.status_code} {str(r.text)[:120]}")
+        for attempt in range(UPLOAD_RETRIES + 1):
+            r = self._call("post", f"{UPLOADS}/repos/{self.repo}/releases/{release_id}/assets", params={"name": name},
+                           data=data, headers={"Content-Type": ctype}, timeout=120)
+            if r.status_code == 201:
+                return (r.json() or {}).get("id") or True
+            if r.status_code == 422 and "already_exists" in str(r.text):
+                return True
+            if r.status_code < 500 or attempt == UPLOAD_RETRIES:
+                break
+            log.info("upload %s: HTTP %s, trying again", name, r.status_code)
+            time.sleep(RETRY_PAUSE_SECONDS)
+        raise UploadError(f"upload {name}: HTTP {r.status_code} {str(r.text)[:120]}")
 
     def assets(self, release_id: int, pages: int = 3) -> list[dict]:
         out = []
@@ -428,7 +442,18 @@ def run(session=None, now: datetime | None = None) -> dict:
                 if rel is None:
                     rel = store.release(tag, f"Media {tag[6:]}", "Share images, thumbnails and spoken briefings for digestai.news, "
                                         "uploaded by the pipeline (pipeline/digest/media.py). Not a software release.")
-                if store.upload(rel["id"], p.name, data):
+                try:
+                    taken = store.upload(rel["id"], p.name, data)
+                except UploadError as exc:
+                    # One asset refused: it stays pending for the next run, the others still go up.
+                    # A run where nothing goes up is a store that is down, whatever it answers.
+                    log.warning("media store: %s", str(exc)[:200])
+                    stats["failed"] = stats.get("failed", 0) + 1
+                    stats["error"] = str(exc)[:160]
+                    if stats["failed"] >= MAX_UPLOAD_FAILURES_PER_RUN:
+                        break
+                    continue
+                if taken:
                     manifest()["assets"][p.name] = [tag, len(data), now.isoformat()]
                     manifest()["lastUploadAt"] = now.isoformat()
                     stats["uploaded"] += 1
@@ -438,6 +463,8 @@ def run(session=None, now: datetime | None = None) -> dict:
                     p.unlink(missing_ok=True)
             if stats["uploaded"]:
                 upload_index(store, tag, now)
+            elif stats.get("failed", 0) >= MAX_UPLOAD_FAILURES_PER_RUN:
+                stats["store"] = "unreachable"
             if publish_archive(store, now):
                 stats["archive"] = "published"
         except Exception as exc:  # noqa: BLE001 - the store being down must not stop the site

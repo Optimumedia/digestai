@@ -49,6 +49,7 @@ class FakeGitHub:
         self.uploads = 0
         self.uploaded_bytes = 0
         self.log: list[str] = []
+        self.refuse: dict[str, int] = {}  # asset name -> how many more times the upload answers 500
 
     def _id(self) -> int:
         self.next_id += 1
@@ -86,6 +87,9 @@ class FakeGitHub:
         if url.endswith("/assets"):
             rid = int(url.split("/releases/")[1].split("/")[0])
             name = params["name"]
+            if self.refuse.get(name):
+                self.refuse[name] -= 1
+                return Resp(500, {"message": "Error creating asset temp dir"})
             if any(a["name"] == name and a["release_id"] == rid for a in self.assets.values()):
                 return Resp(422, {"errors": [{"code": "already_exists"}]}, text='{"errors":[{"code":"already_exists"}]}')
             tag = next(t for t, r in self.releases.items() if r["id"] == rid)
@@ -555,6 +559,31 @@ def test_watchdog_opens_one_issue_updates_it_closes_it_and_keeps_the_schedule_al
     assert watchdog.run(off, "o/r", now)["reenabled"] == ["pipeline.yml", "watchdog.yml"]
     monday = datetime(2026, 9, 21, 4, 37, tzinfo=timezone.utc)
     assert watchdog.run(FakeActions("2026-09-21T04:10:00Z"), "o/r", monday)["reenabled"] == ["pipeline.yml", "watchdog.yml"]
+
+
+def test_media_retries_a_flaky_upload_and_skips_an_asset_github_keeps_refusing():
+    """17 Sept: one asset answered "HTTP 500 Error creating asset temp dir" every run, and the whole
+    upload loop stopped at it, so 84 files sat waiting behind one."""
+    with sandbox():
+        gh = FakeGitHub()
+        gh.refuse = {"og-a.png": 1, "og-b.png": 99}
+        saved = media.RETRY_PAUSE_SECONDS
+        media.RETRY_PAUSE_SECONDS = 0
+        try:
+            for name in ("og-a.png", "og-b.png", "og-c.png"):
+                media.queue(name, b"x" * 10)
+            st = media.run(session=gh, now=NOW)
+            assert st["uploaded"] == 2 and st["pending"] == 1 and st["store"] == "ok" and st["failed"] == 1, st
+            assert "HTTP 500" in st["error"] and (media.fallback_dir() / "og-b.png").exists()
+            assert media.url("og-a.png").startswith("https://github.com/") and media.url("og-b.png").endswith("/media/og-b.png")
+            # The store answers but takes nothing: that is a store that is down, and the dashboard says so.
+            gh.refuse = {"og-b.png": 99, "og-d.png": 99, "og-e.png": 99, "og-f.png": 99}
+            for name in ("og-d.png", "og-e.png", "og-f.png"):
+                media.queue(name, b"y" * 10)
+            st = media.run(session=gh, now=NOW)
+            assert st["store"] == "unreachable" and st["uploaded"] == 0 and st["pending"] == 4 and st["failed"] == 3, st
+        finally:
+            media.RETRY_PAUSE_SECONDS = saved
 
 
 if __name__ == "__main__":
