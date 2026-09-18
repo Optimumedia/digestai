@@ -20,6 +20,17 @@ BRIEFING_ALSO = 8
 CONFIRMED_REACH = 5  # how far below the top five a confirmed story may be and still replace a single-outlet one
 
 
+def _work_dropped(dropped: dict[str, dict[str, int]], carded: set[int]) -> dict[str, dict]:
+    """Cards the rules kept out of AI at Work, per reason: how many stories lost their only card, and
+    up to eight of the tools. A story still carded through another of its articles does not count."""
+    out = {}
+    for why, tools in dropped.items():
+        kept = {name: sid for name, sid in tools.items() if sid not in carded}
+        if kept:
+            out[why] = {"count": len(set(kept.values())), "tools": sorted(kept)[:8]}
+    return out
+
+
 def _coverage(articles: list[dict]) -> dict:
     cov = {"primary": 0, "press": 0, "newsletter": 0, "community": 0}
     for a in articles:
@@ -283,6 +294,7 @@ def run() -> dict:
     stories_out: list[dict] = []
     entity_index: dict[str, dict] = {}
     work_cards: dict[int, dict] = {}  # article id -> the stored card (work.py), for the story's card
+    work_dropped: dict[str, dict[str, int]] = {}  # why -> tool name -> story id: cards the rules keep out
     for s in story_rows:
         members = by_story.get(s.id, [])
         if not members:
@@ -294,9 +306,12 @@ def run() -> dict:
             community = (src.get("type") or "press") == "community" or src.get("discovered")
             # Cleaned again on the way out: a row written by an older version of the rules, or by
             # hand, can never put a half-card on a page.
-            card = work_rules.clean_card(m.work_card)
+            card, dropped = work_rules.screen_card(m.work_card)
             if card:
                 work_cards[m.id] = card
+            elif dropped:
+                # Kept out by the rules (a developer tool, a course): counted for the admin page.
+                work_dropped.setdefault(dropped, {})[str((m.work_card or {}).get("tool") or "?")[:80]] = s.id
             work_card = work_rules.card_out(card) if card else None
             # Community feeds point at other publishers: credit the publisher, keep the community as "via".
             articles.append({
@@ -400,6 +415,10 @@ def run() -> dict:
         "tools": work_rules.build_tools(section),
         "weeks": work_rules.weeks(section),
         "jobs": {job: [s["id"] for s in section if job in (s["workCard"]["jobs"] or [])] for job in work_rules.JOBS},
+        # What the rules kept out of the section (work.screen_card), for the admin page's health line:
+        # {"developer": {"count": stories, "tools": [names]}, "course": {...}}.
+        # A story that still has a card from another of its articles is not counted.
+        "dropped": _work_dropped(work_dropped, {s["id"] for s in section}),
     }
     exported = {st["id"]: st["slug"] for st in stories_out}
     redirects = story_redirects(story_index, merged_titles, exported)
@@ -488,6 +507,7 @@ def run() -> dict:
     }), encoding="utf-8")
     return {"stories": len(stories_out), "entities": len(entities_out), "briefing": len(briefing["storyIds"]),
             "work": len(section), "workTools": len(work_out["tools"]), "workBriefing": len(work_briefing["storyIds"]),
+            "workDropped": {why: d["count"] for why, d in work_out["dropped"].items()},
             "threads": len(threads_out), "models": len(trackers["models"]), "funding": len(trackers["funding"]),
             "fundingDropped": funding_dropped, "hedged": sum(1 for s in stories_out if s["hedged"]),
             "redirects": len(redirects), "moderation": moderation, "archive": archived, "dir": str(out_dir)}

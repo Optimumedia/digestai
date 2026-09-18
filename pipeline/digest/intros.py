@@ -21,6 +21,7 @@ from .work import week_key
 log = logging.getLogger("digest.intros")
 
 MAX_PER_RUN = 3
+WORK_TOOLS_INTRO = "page-work-directory"
 MIN_WEEK_STORIES = 5
 WEEK_PROMPT = """You write the opening paragraph of a weekly recap page on an AI news site.
 Week: {range}
@@ -35,7 +36,7 @@ Page: {page}
 Rows (newest first):
 {rows}
 
-Return ONLY JSON: {{"description": "<3 sentences, 50-80 words: what the table shows overall and the two or three most notable recent entries. Neutral, factual, present tense, no hype, no 'this page'>"}}"""
+Return ONLY JSON: {{"description": "<3 sentences, 50-80 words: what the table shows overall and the two or three most notable recent entries. Never say how many rows or entries there are: the table grows every day and the number would go stale. Neutral, factual, present tense, no hype, no 'this page'>"}}"""
 
 
 def week_range(key: str) -> str:
@@ -74,7 +75,10 @@ def _jobs(stories: list[dict], trackers: dict, work: dict | None = None) -> list
         rows = "\n".join(
             f"- {t['tool']} by {t.get('maker') or 'unknown maker'}: {t.get('whatItDoes') or ''} ({t.get('cost') or 'cost unknown'}, {t.get('effort') or 'effort unknown'})"
             for t in tools[:15])
-        jobs.append({"slug": "page-work-tools", "name": "AI tools for marketing and small business", "count": len(tools),
+        # A new slug for the directory's intro: the first one ("page-work-tools") stated a row count and
+        # named developer tools the section's rules now keep out, and would only refresh at a third
+        # more tools. The site reads this slug only (pages/work/tools.astro).
+        jobs.append({"slug": WORK_TOOLS_INTRO, "name": "AI tools for marketing and small business", "count": len(tools),
                      "prompt": TRACKER_PROMPT.format(
                          page="AI tools for marketing and small business: every tool the desk covered that a marketer, "
                               "a small-business owner or a small team can use, with what it does, who it is for and what it costs",
