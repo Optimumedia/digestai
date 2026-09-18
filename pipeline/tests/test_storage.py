@@ -247,18 +247,21 @@ def test_images_step_renders_compact_cards_keeps_a_week_on_pages_and_stamps_topi
         (config.SITE_DATA_DIR / "entities.json").write_text(json.dumps([{"name": "Acme", "kind": "companies", "storyIds": [1, 2, 3]}]))
         st = images.run(fetch=lambda u: _png(), now=NOW)
         assert st["rendered"] == 5 and st["pages"] == 3 and st["cards"] == 1, st
-        assert sorted(p.name for p in images.OUT.glob("s-*.png")) == ["s-1.png", "s-2.png", "s-3.png"]
+        assert sorted(p.name for p in images.OUT.glob("s-?.png")) == ["s-1.png", "s-2.png", "s-3.png"]
+        # Recent stories also get the 16:9, 4:3 and 1:1 cards (Google Discover), on Pages only.
+        assert st["variants"] == 9 and len(list(images.OUT.glob("s-*-*.png"))) == 9, st
+        assert not list(media.pending_dir().glob("*x*.png"))
         assert not list(images.OUT.glob("old-*"))
         card = images.OUT / "s-1.png"
         assert card.stat().st_size < 45_000, card.stat().st_size
         with Image.open(card) as img:
             assert img.size == (1200, 630)
         st = images.run(fetch=lambda u: _png(), now=NOW)
-        assert st["rendered"] == 0 and st["pages"] == 0 and st["cards"] == 0, st
+        assert st["rendered"] == 0 and st["pages"] == 0 and st["cards"] == 0 and st["variants"] == 0, st
         # A week later the cards leave Pages; the store copies stay.
         media.run(session=FakeGitHub(), now=NOW)
         st = images.run(fetch=lambda u: _png(), now=NOW + timedelta(days=8))
-        assert st["pruned"] == 3 and not list(images.OUT.glob("s-*.png")) and media.uploaded("og-s-1.png")
+        assert st["pruned"] == 12 and not list(images.OUT.glob("s-*.png")) and media.uploaded("og-s-1.png")
 
 
 # ---------------------------------------------------------------------------- audio
