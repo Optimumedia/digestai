@@ -41,7 +41,7 @@ MULTI_PROMPT = """You are the news editor of Digest AI, a site that covers artif
 Below are {n} articles from different sources about the same event, the first one from the source we lead with.
 Write the story's digest from all of them together and return ONLY a JSON object with these fields:
 
-- "headline": a clear, specific headline for the story as a whole, max 90 characters, no source name, no clickbait. Keep the hedging the sources use: if what happened is only reported, alleged or possible, the headline must say so ("reportedly", "according to", "may"). If the sources disagree about the central fact, the headline states the part they agree on.
+- "headline": a plain, specific news headline for the story as a whole, under 90 characters: subject, verb, object - name the company or person and the thing (product, model, deal, ruling), with the key figure if the sources agree on one. No source name, no hype words (revolutionizes, game-changer, unleashes), no teasers ("here's why", "you won't believe", "everything you need to know"), no exclamation marks, no words in capitals, at most one colon, and a question mark only when the sources themselves ask the question. Keep the hedging the sources use: if what happened is only reported, alleged or possible, the headline must say so ("reportedly", "according to", "may"). If the sources disagree about the central fact, the headline states the part they agree on.
 - "summary_md": an original 150-300 word digest in 2-3 short paragraphs, plain Markdown, in your own words. The first paragraph is what the sources agree happened, with the figures and names they share. The second says where they differ, or what only one of them reports, and names that source ("Only The Information reports the round is oversubscribed"; "Reuters puts the figure at $3 billion, TechCrunch at $3.5 billion"). If they agree on everything, say that the reporting is consistent and add the context a busy reader needs. Do not copy sentences from the articles, and do not start with "The article".
 - "key_points": exactly 3 bullet strings, each max 25 words, the most important concrete facts. If the sources differ on a fact, one of the three says so.
 - "why_it_matters": max 60 words on the significance for the AI industry or the public.
@@ -211,8 +211,9 @@ def _clean_multi(result: dict, lead_title: str | None) -> dict:
         importance = max(1, min(10, int(result.get("importance", 5))))
     except (TypeError, ValueError):
         importance = 5
+    headline, _ = checks.discipline_headline(str(result.get("headline") or lead_title or "").strip()[:160], lead_title)
     return {
-        "headline": str(result.get("headline") or lead_title or "").strip()[:160],
+        "headline": headline,
         "summary_md": str(result.get("summary_md") or "").strip(),
         "key_points": points,
         "why_it_matters": str(result.get("why_it_matters") or "").strip()[:600],

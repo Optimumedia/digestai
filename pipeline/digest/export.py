@@ -9,7 +9,7 @@ from pathlib import Path
 import yaml
 from sqlalchemy import select, update
 
-from . import archive, cache, config, db, funding as funding_rules, hold, trackers as tracker_rules, work as work_rules
+from . import archive, cache, checks, config, db, funding as funding_rules, hold, trackers as tracker_rules, work as work_rules
 from .enrich import headline_hedged
 from .textutil import word_count
 
@@ -309,7 +309,7 @@ def run() -> dict:
                 "sourceKey": src.get("key"),
                 "sourceType": _source_type(src, m.domain),
                 "title": m.title,
-                "headline": m.headline,
+                "headline": checks.discipline_headline(m.headline, m.title)[0] if m.headline else m.headline,
                 "author": m.author,
                 "publishedAt": db.iso_z(m.published_at) or db.iso_z(m.fetched_at),
                 "description": m.description,
@@ -347,10 +347,12 @@ def run() -> dict:
             (a["discussion"] for a in articles if a["discussion"]),
             key=lambda d: -(d["points"] or 0),
         )
+        # The headline rules (checks.py) again on the way out, for headlines stored before them.
+        story_headline = checks.discipline_headline(s.headline, lead.title)[0] if s.headline else s.headline
         story = {
             "id": s.id,
             "slug": s.slug,
-            "headline": s.headline,
+            "headline": story_headline,
             "summaryMd": s.summary_md,
             "keyPoints": s.key_points or [],
             "whyItMatters": s.why_it_matters,
@@ -374,7 +376,7 @@ def run() -> dict:
             "ogImage": f"/og/{s.slug}.png",
             "leadArticleId": lead.id,
             # The story headline states as fact what the lead article's own title only suggests.
-            "hedged": headline_hedged(lead.title, s.headline),
+            "hedged": headline_hedged(lead.title, story_headline),
             "articles": articles,
         }
         # AI at Work (/work): one card per story, scored with the story's own context. The section

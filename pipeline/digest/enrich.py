@@ -19,7 +19,7 @@ log = logging.getLogger("digest.enrich")
 SCHEMA = """You are the news editor of Digest AI, a site that covers artificial intelligence.
 Read the article below and return ONLY a JSON object with these fields:
 
-- "headline": a clear, specific headline, max 90 characters, no source name, no clickbait. Keep the source's hedging: if the article says may, could, might, reportedly, allegedly or according to, or asks a question, the headline must keep that hedge (for example "Anthropic may be monitoring AI critics, report says"). Never state as fact what the source frames as a question, a possibility, an allegation or an opinion. If the piece is an opinion column or an essay, start the headline with "Opinion:".
+- "headline": a plain, specific news headline under 90 characters: subject, verb, object - name the company or person and the thing (product, model, deal, ruling), with the key figure if there is one, e.g. "Google adds Gemini 4 to Chrome for US users". No source name, no hype words (revolutionizes, game-changer, unleashes), no teasers ("here's why", "you won't believe", "everything you need to know"), no exclamation marks, no words in capitals, at most one colon, and a question mark only when the article itself asks the question. Keep the source's hedging: if the article says may, could, might, reportedly, allegedly or according to, or asks a question, the headline must keep that hedge (for example "Anthropic may be monitoring AI critics, report says"). Never state as fact what the source frames as a question, a possibility, an allegation or an opinion. If the piece is an opinion column or an essay, start the headline with "Opinion:".
 - "summary_md": an original 150-300 word digest in 2-3 short paragraphs, plain Markdown, written in your own words. State what happened, who is involved, the key numbers, and context a busy reader needs. Keep the article's hedging and attribution (who claims what, and what is unconfirmed), and say when it is an opinion piece. Do not copy sentences from the article. Do not start with "The article".
 - "key_points": exactly 3 bullet strings, each max 25 words, the most important concrete facts.
 - "why_it_matters": max 60 words on the significance for the AI industry or the public.
@@ -631,6 +631,9 @@ def _clean(result: dict, row, category_hint: str | None) -> dict:
     if category not in cats:
         category = category_hint if category_hint in cats else "models"
     headline = str(result.get("headline") or row.title).strip()[:160]
+    # Hype words, clickbait frames and shouting come out (checks.py, rules only); a rewrite that
+    # would break the headline falls back to the source's title, then to the answer as written.
+    headline, headline_rules = checks.discipline_headline(headline, getattr(row, "title", None))
     key_points = [_unbullet(str(k)) for k in _as_list(result.get("key_points")) if _unbullet(str(k))][:3]
     entities = result.get("entities") if isinstance(result.get("entities"), dict) else {}
     entities = {
@@ -693,6 +696,8 @@ def _clean(result: dict, row, category_hint: str | None) -> dict:
         # The source hedged and the model did not: counted in the run's stats and flagged again at
         # export time from the stored title and headline (no column needed), where quality.py lists it.
         "hedged": headline_hedged(getattr(row, "title", None), headline),
+        # What the headline rules changed, for the run's stats (not stored).
+        "headline_rules": headline_rules,
     }
 
 
@@ -879,6 +884,9 @@ def run() -> dict:
             stats["enriched"] += 1
             if clean["work_card"]:
                 stats["work_cards"] = stats.get("work_cards", 0) + 1
+            if clean.get("headline_rules"):
+                stats["headline_rules"] = stats.get("headline_rules", 0) + 1
+                log.info("headline rules on #%s (%s): %r", row.id, ", ".join(clean["headline_rules"]), clean["headline"][:90])
             if clean["hedged"]:
                 stats["hedged"] = stats.get("hedged", 0) + 1
                 log.info("headline drops the source's hedge on #%s: %r -> %r", row.id, (row.title or "")[:80], clean["headline"][:80])
