@@ -12,7 +12,7 @@ import requests
 from sqlalchemy import func, select, update
 
 from . import checks, config, db, work
-from .textutil import first_sentences, keywords, word_count
+from .textutil import first_sentences, keywords
 
 log = logging.getLogger("digest.enrich")
 
@@ -208,6 +208,11 @@ def record_usage(eng, provider: str, n: int = 1, exhausted: bool = False) -> Non
             conn.execute(insert(db.llm_usage).values(day=_today(), provider=provider, requests=n, exhausted=exhausted))
 
 
+def _minutes_left_today() -> int:
+    now = db.utcnow()
+    return 24 * 60 - (now.hour * 60 + now.minute)
+
+
 def allowance(conn, provider: str) -> int:
     """Requests this run may spend: the day's remaining budget spread over the runs still to come.
 
@@ -221,9 +226,7 @@ def allowance(conn, provider: str) -> int:
     if exhausted:
         return 0
     remaining = max(0, budget - used)
-    now = db.utcnow()
-    minutes_left = 24 * 60 - (now.hour * 60 + now.minute)
-    runs_left = max(1, -(-minutes_left * config.RUNS_PER_DAY // (24 * 60)))  # ceil
+    runs_left = max(1, -(-_minutes_left_today() * config.RUNS_PER_DAY // (24 * 60)))  # ceil
     return max(0, min(config.MAX_ENRICH_PER_RUN, -(-remaining // runs_left)))
 
 
@@ -239,9 +242,7 @@ def spare(conn, provider: str) -> int:
     used, exhausted = usage_today(conn, provider)
     if exhausted:
         return 0
-    now = db.utcnow()
-    minutes_left = 24 * 60 - (now.hour * 60 + now.minute)
-    return int(max(0, budget - used) - budget * (minutes_left / (24 * 60)))
+    return int(max(0, budget - used) - budget * (_minutes_left_today() / (24 * 60)))
 
 
 # ----------------------------------------------------------------- queue order
@@ -269,13 +270,11 @@ LISTICLE_PENALTY = 0.4
 
 
 def _is_primary_row(row) -> bool:
-    from .export import PRIMARY_DOMAINS
-
     # arXiv is a primary source for a paper, and GitHub for a repository, but neither is the
     # announcement a story is built on, and both arrive by the hundred; they are scored through
     # their community signal instead.
     domain = (getattr(row, "domain", "") or "").lower()
-    return (domain in PRIMARY_DOMAINS or getattr(row, "source_type", None) == "primary") and domain not in NOT_ANNOUNCEMENT
+    return (domain in config.PRIMARY_DOMAINS or getattr(row, "source_type", None) == "primary") and domain not in NOT_ANNOUNCEMENT
 
 
 def front_page_words(conn) -> set[str]:

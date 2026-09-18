@@ -188,7 +188,11 @@ def run() -> dict:
         with eng.begin() as conn:
             conn.execute(update(db.topics).where(db.topics.c.id == t.id).values(description=desc, described_at_count=t.story_count, updated_at=now))
         stats["described" if by_model else "templated"] += 1
+    return export_topics(eng, stats)
 
+
+def export_topics(eng, stats: dict) -> dict:
+    """Rewrite topics.json with every described row (topics, and the pages intros.py writes)."""
     with eng.connect() as conn:
         rows = cache.described_topics(conn)
     (config.SITE_DATA_DIR / "topics.json").write_text(

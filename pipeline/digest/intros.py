@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, insert, select, update
 
-from . import cache, config, db, enrich
+from . import config, db, enrich
+from .topics import export_topics
+from .work import week_key
 
 log = logging.getLogger("digest.intros")
 
@@ -34,12 +36,6 @@ Rows (newest first):
 {rows}
 
 Return ONLY JSON: {{"description": "<3 sentences, 50-80 words: what the table shows overall and the two or three most notable recent entries. Neutral, factual, present tense, no hype, no 'this page'>"}}"""
-
-
-def week_key(iso: str | None) -> str:
-    d = datetime.fromisoformat(iso.replace("Z", "+00:00")) if iso else datetime.now(timezone.utc)
-    y, w, _ = d.isocalendar()
-    return f"{y}-W{w:02d}"
 
 
 def week_range(key: str) -> str:
@@ -122,7 +118,7 @@ def run() -> dict:
 
     provider = "groq" if config.GROQ_API_KEY else "gemini" if config.GEMINI_API_KEY else None
     if not provider:
-        return _export(eng, stats)
+        return export_topics(eng, stats)
     with eng.connect() as conn:
         budget = min(MAX_PER_RUN, enrich.allowance(conn, provider))
     this_week = f"week-{week_key(None).lower()}"
@@ -149,13 +145,4 @@ def run() -> dict:
         with eng.begin() as conn:
             conn.execute(update(db.topics).where(db.topics.c.id == t.id).values(description=desc, described_at_count=j["count"], updated_at=now))
         stats["written"] += 1
-    return _export(eng, stats)
-
-
-def _export(eng, stats: dict) -> dict:
-    """Rewrite topics.json with every described row (topics and pages)."""
-    with eng.connect() as conn:
-        rows = cache.described_topics(conn)
-    (config.SITE_DATA_DIR / "topics.json").write_text(
-        json.dumps({r.slug: {"name": r.name, "kind": r.kind, "description": r.description} for r in rows}, ensure_ascii=False), encoding="utf-8")
-    return stats
+    return export_topics(eng, stats)

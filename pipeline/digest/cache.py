@@ -160,11 +160,16 @@ def forget(conn) -> None:
 # ---------------------------------------------------------------------------- mirror
 
 class Mirror(_Store):
-    def __init__(self, name: str, table, columns: list, scope, keep):
+    def __init__(self, name: str, table, columns: list, scope, keeper):
+        """scope(now): the SQL condition of the window; keeper(now): a predicate over a row, saying
+        whether it is still inside the window (the same rule, evaluated on the copy)."""
         super().__init__(name)
-        self.table, self.columns, self.scope, self.keep = table, columns, scope, keep
+        self.table, self.columns, self.scope, self.keeper = table, columns, scope, keeper
         self.names = [c.key if getattr(c, "key", None) else c.name for c in columns]
         self.Row = namedtuple(f"{name.title()}Row", self.names)
+
+    def keep(self, row, now) -> bool:
+        return self.keeper(now)(row)
 
     def empty(self) -> dict:
         return {"wm": None, "full_at": 0.0, "cols": self.names, "rows": {}}
@@ -179,13 +184,16 @@ class Mirror(_Store):
         return {"wm": st["wm"], "full_at": st["full_at"], "cols": self.names,
                 "rows": [[_enc(v) for v in r] for r in st["rows"].values()]}
 
+    def _read_window(self, conn, now) -> dict[int, tuple]:
+        return {r[0]: self.Row(*r) for r in conn.execute(select(*self.columns).where(self.scope(now))).all()}
+
     def rows(self, conn) -> dict[int, tuple]:
         """Rows in the window, as they are in the database now."""
         st = self.state(conn)
         now = db.utcnow()
         rows: dict[int, tuple] = st["rows"]
         if not db.change_tracking_ready(conn):
-            rows = {r[0]: self.Row(*r) for r in conn.execute(select(*self.columns).where(self.scope(now))).all()}
+            rows = self._read_window(conn, now)
             st.update(wm=None, rows=rows)
             return dict(rows)
         wm = db.watermark(conn)
@@ -197,7 +205,7 @@ class Mirror(_Store):
             st = self.state(conn)
             rows = st["rows"]
         if st["wm"] is None or stale:
-            rows = {r[0]: self.Row(*r) for r in conn.execute(select(*self.columns).where(self.scope(now))).all()}
+            rows = self._read_window(conn, now)
             st["full_at"] = time.time()
         else:
             for r in conn.execute(select(*self.columns).where(self.table.c.rev >= st["wm"])).all():
@@ -205,7 +213,8 @@ class Mirror(_Store):
             for (rid,) in conn.execute(select(db.deleted_rows.c.row_id).where(
                     db.deleted_rows.c.table_name == self.table.name, db.deleted_rows.c.rev >= st["wm"])).all():
                 rows.pop(rid, None)
-        rows = {k: r for k, r in rows.items() if self.keep(r, now)}
+        keep = self.keeper(now)
+        rows = {k: r for k, r in rows.items() if keep(r)}
         st.update(wm=wm, rows=rows, _dirty=True)
         return dict(rows)
 
@@ -225,6 +234,23 @@ def _sig(*cols):
 
 _a, _s, _t = db.articles.c, db.stories.c, db.threads.c
 
+
+# The keep rules mirror the scope conditions below. Each is a factory: the cut-off dates are worked
+# out once per call, not once per row (the article copy holds ~10,000 rows and is read many times a run).
+def _keep_articles(now):
+    recent, horizon = now - timedelta(days=RECENT_ARTICLE_DAYS), now - timedelta(days=horizon_days())
+
+    def keep(r) -> bool:
+        created = db.as_utc(r.created_at) or now
+        return created >= recent or (r.status in ("published", "overflow") and created >= horizon)
+    return keep
+
+
+def _keep_updated(now):
+    horizon = now - timedelta(days=horizon_days())
+    return lambda r: (db.as_utc(r.updated_at) or now) >= horizon
+
+
 ARTICLE_TEXT_COLUMNS = [_a.slug, _a.url, _a.title, _a.raw_title, _a.headline, _a.author, _a.fetched_at, _a.description,
                         _a.image_url, _a.summary_md, _a.key_points, _a.why_it_matters, _a.entities, _a.model_release,
                         _a.funding, _a.work_card, _a.discussion_url]
@@ -242,8 +268,7 @@ ARTICLES = Mirror(
     # "overflow": a member of a full story, counted as coverage but not shown (cluster.py).
     scope=lambda now: or_(_a.created_at >= now - timedelta(days=RECENT_ARTICLE_DAYS),
                           and_(_a.status.in_(["published", "overflow"]), _a.created_at >= now - timedelta(days=horizon_days()))),
-    keep=lambda r, now: (db.as_utc(r.created_at) or now) >= now - timedelta(days=RECENT_ARTICLE_DAYS)
-    or (r.status in ("published", "overflow") and (db.as_utc(r.created_at) or now) >= now - timedelta(days=horizon_days())),
+    keeper=_keep_articles,
 )
 
 STORIES = Mirror(
@@ -252,7 +277,7 @@ STORIES = Mirror(
      _s.category, _s.first_published_at, _s.updated_at, _s.pushed_at, _len(_s.pulse).label("len_pulse"),
      _len(_s.embedding).label("len_embedding"), _sig(*STORY_TEXT_COLUMNS).label("sig")],
     scope=lambda now: _s.updated_at >= now - timedelta(days=horizon_days()),
-    keep=lambda r, now: (db.as_utc(r.updated_at) or now) >= now - timedelta(days=horizon_days()),
+    keeper=_keep_updated,
 )
 
 
@@ -263,7 +288,7 @@ THREADS = Mirror(
     [_t.id, _t.status, _t.story_count, _t.named_count, _t.first_at, _t.updated_at,
      _len(_t.embedding).label("len_embedding"), _sig(*THREAD_TEXT_COLUMNS).label("sig")],
     scope=lambda now: _t.updated_at >= now - timedelta(days=horizon_days()),
-    keep=lambda r, now: (db.as_utc(r.updated_at) or now) >= now - timedelta(days=horizon_days()),
+    keeper=_keep_updated,
 )
 
 

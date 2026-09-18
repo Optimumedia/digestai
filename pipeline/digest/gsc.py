@@ -12,6 +12,7 @@ from datetime import date, timedelta
 import requests
 
 from . import config, db
+from .history import day_range
 
 log = logging.getLogger("digest.gsc")
 
@@ -32,14 +33,6 @@ LIST_ROWS = 1000  # queries or pages asked for per 28-day window; the file keeps
 TOP_ROWS = 50
 DAY_QUERY_ROWS = 10000  # date x query rows: plenty for a young site, bounded for a big one
 SPARK_QUERIES = 15  # queries that carry their daily positions in gsc.json
-
-
-def _days(first: str, last: str) -> list[str]:
-    d, stop, out = date.fromisoformat(first), date.fromisoformat(last), []
-    while d <= stop:
-        out.append(d.isoformat())
-        d += timedelta(days=1)
-    return out
 
 
 def weighted_position(rows) -> float | None:
@@ -72,7 +65,7 @@ def build(by_day: list, by_day_query: list, queries: list, prev_queries: list, p
     got = {r["keys"][0]: r for r in by_day}
     first = min(got) if got else start
     history, per_day = [], []
-    for d in _days(min(first, start), end):
+    for d in day_range(min(first, start), end):
         r = got.get(d)
         imp = int(r["impressions"]) if r else 0
         row = {"day": d, "clicks": int(r["clicks"]) if r else 0, "impressions": imp,

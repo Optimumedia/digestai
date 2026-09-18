@@ -18,7 +18,7 @@ This module holds three things, all pure functions so they can be tested without
 from __future__ import annotations
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from .trackers import _plain, org_key
 
@@ -55,7 +55,6 @@ CONTENT_WORDS = re.compile(
     r"\b(content|copy(?:writing)?|writ(?:e|es|ing)|draft(?:s|ing)?|blog|article|newsletter|caption|"
     r"headline|script|video|image|photo|design|graphic|slide|podcast|voice ?over|social (?:post|media)|"
     r"seo|transcri(?:be|pt)|translat)\w*", re.I)
-COST_KINDS = ("free", "free tier", "included", "paid", "unknown")
 # Wording in a caveat that means "not for everyone yet": the weekly playbook lists these as things
 # to skip for now rather than things to try.
 NOT_YET = re.compile(
@@ -335,8 +334,6 @@ def build_tools(stories: list[dict]) -> list[dict]:
 
 def week_key(iso: str | None) -> str:
     """ISO week key like 2026-W38, the same one intros.py and the site use."""
-    from datetime import datetime, timezone
-
     d = datetime.fromisoformat(iso.replace("Z", "+00:00")) if iso else datetime.now(timezone.utc)
     y, w, _ = d.isocalendar()
     return f"{y}-W{w:02d}"

@@ -108,7 +108,8 @@ def run() -> dict:
     with eng.begin() as conn:
         # Stories, their embeddings and entities come from the runner's copy (cache.py): this once read
         # every thread's embedding and one story per thread on every run, megabytes each time.
-        window = [s for s in cache.stories(conn).values() if (db.as_utc(s.first_published_at) or since) >= since]
+        mirror = cache.stories(conn)
+        window = [s for s in mirror.values() if (db.as_utc(s.first_published_at) or since) >= since]
         stories = sorted((s for s in window if s.thread_id is None and s.status == "published" and s.len_embedding >= 0),
                          key=lambda s: (db.as_utc(s.first_published_at), s.id))
         if not stories:
@@ -128,7 +129,7 @@ def run() -> dict:
         # The latest episode's own vector: a thread's centroid drifts as it grows, so the "very
         # close" test is made against the most recent episode rather than the average.
         latest: dict[int, object] = {}
-        for s in cache.stories(conn).values():
+        for s in mirror.values():
             if s.thread_id in vecs and s.len_embedding >= 0:
                 cur = latest.get(s.thread_id)
                 if cur is None or (db.as_utc(s.first_published_at), s.id) > (db.as_utc(cur.first_published_at), cur.id):

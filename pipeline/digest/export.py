@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 import logging
 from datetime import timedelta
+from pathlib import Path
 
+import yaml
 from sqlalchemy import select, update
 
 from . import archive, cache, config, db, funding as funding_rules, hold, trackers as tracker_rules, work as work_rules
@@ -17,11 +19,6 @@ BRIEFING_SIZE = 5
 BRIEFING_ALSO = 8
 
 
-def _iso(dt):
-    dt = db.as_utc(dt)
-    return dt.isoformat().replace("+00:00", "Z") if dt else None
-
-
 def _coverage(articles: list[dict]) -> dict:
     cov = {"primary": 0, "press": 0, "newsletter": 0, "community": 0}
     for a in articles:
@@ -32,7 +29,7 @@ def _coverage(articles: list[dict]) -> dict:
 def _source_type(src: dict, domain: str | None) -> str:
     """Community feeds point at other publishers, so their finds count as press; a primary source is
     one the story is *about* (the lab's own post counts even when it arrived via HN)."""
-    if domain in PRIMARY_DOMAINS:
+    if domain in config.PRIMARY_DOMAINS:
         return "primary"
     stype = src.get("type") or "press"
     return "press" if stype == "community" or src.get("discovered") else stype
@@ -86,7 +83,7 @@ def build_briefing(stories: list[dict], now) -> dict:
 
     rank = lambda s: (not s["pinned"], -s["score"])  # noqa: E731
     for window in (24, 48, 96):
-        cutoff = _iso(now - timedelta(hours=window))
+        cutoff = db.iso_z(now - timedelta(hours=window))
         fresh = sorted((s for s in stories if new_story(s, cutoff)), key=rank)
         if len(fresh) >= BRIEFING_SIZE + BRIEFING_ALSO or window == 96:
             break
@@ -105,7 +102,7 @@ def build_briefing(stories: list[dict], now) -> dict:
     words = sum(word_count(s.get("summaryMd") or "") for s in top) + 25 * len(also)
     return {
         "date": now.date().isoformat(),
-        "generatedAt": _iso(now),
+        "generatedAt": db.iso_z(now),
         "windowHours": window,
         "storyIds": [s["id"] for s in top],
         "alsoIds": [s["id"] for s in also],
@@ -118,10 +115,6 @@ def build_briefing(stories: list[dict], now) -> dict:
 
 
 def load_moderation() -> dict:
-    from pathlib import Path
-
-    import yaml
-
     path = Path(__file__).with_name("moderation.yaml")
     if not path.exists():
         return {}
@@ -130,8 +123,6 @@ def load_moderation() -> dict:
 
 def apply_moderation(eng, rules: dict | None = None) -> dict:
     """moderation.yaml is the unpublish button when there is no database console."""
-    from sqlalchemy import update
-
     rules = load_moderation() if rules is None else rules
     if not rules:
         return {}
@@ -181,19 +172,21 @@ def _full_text(conn, story_rows, art_rows) -> dict[int, str]:
     return cache.article_bodies(conn, pick)
 
 
-def load_rows(conn, since) -> tuple[list, list, dict[int, str], list]:
+def load_rows(conn, since, stories: dict | None = None, articles: dict | None = None) -> tuple[list, list, dict[int, str], list]:
     """Published stories updated since `since` (newest first) and their published articles (newest
     first), as one object per row with the columns the export uses, plus the text each story page
     shows, plus the overflow members (coverage of a full story, cluster.py: counted, never shown,
     so their text is not read). Read through the runner's copy (cache.py): only rows written since
     the previous run come from the database, so a run with a few new stories reads kilobytes, not
-    megabytes."""
-    story_mirror = [s for s in cache.stories(conn).values()
+    megabytes. `stories` and `articles` are the mirrors when the caller already holds them."""
+    stories = cache.stories(conn) if stories is None else stories
+    articles = cache.articles(conn) if articles is None else articles
+    story_mirror = [s for s in stories.values()
                     if s.status == "published" and (db.as_utc(s.updated_at) or since) >= since]
     # Postgres order for "updated_at desc": newest first; ties by id so the order is stable.
     story_mirror.sort(key=lambda s: (db.as_utc(s.updated_at).timestamp(), s.id), reverse=True)
     ids = {s.id for s in story_mirror}
-    members = [a for a in cache.articles(conn).values() if a.status in ("published", "overflow") and a.story_id in ids]
+    members = [a for a in articles.values() if a.status in ("published", "overflow") and a.story_id in ids]
     art_mirror = [a for a in members if a.status == "published"]
     # "published_at desc" as Postgres sorts it: articles without a date first, then newest first.
     art_mirror.sort(key=lambda a: (a.published_at is None, db.as_utc(a.published_at).timestamp() if a.published_at else 0, a.id),
@@ -218,7 +211,7 @@ def run() -> dict:
     # or an `approve` entry arrives) before the query below, which exports only "published" ones.
     if config.HOLD_RISKY_CLAIMS:
         held, moderation["hold"] = hold.review(eng, since, [s for s in rules.get("approve") or [] if s])
-        moderation["hold"].update(hold.write_review(out_dir, held, _iso(now)))
+        moderation["hold"].update(hold.write_review(out_dir, held, db.iso_z(now)))
     else:
         # Hold switched off: publish anything still held and drop the review files, so the admin page
         # shows no review card.
@@ -239,13 +232,14 @@ def run() -> dict:
         }
         # Supabase's free plan counts every byte read (5 GB a month): embeddings are never exported,
         # article text is read only for the one article per story the page shows, and rows the
-        # runner already has are not read again (load_rows).
-        story_rows, art_rows, full_text, overflow_rows = load_rows(conn, since)
+        # runner already has are not read again (load_rows). The two mirrors are read once here and
+        # handed on: nothing below writes to them, so a second read would only repeat the queries.
+        story_index, article_index = cache.stories(conn), cache.articles(conn)
+        story_rows, art_rows, full_text, overflow_rows = load_rows(conn, since, story_index, article_index)
         sent = {n.date: {"publicUrl": n.public_url, "subject": n.subject}
                 for n in conn.execute(select(db.newsletters.c.date, db.newsletters.c.public_url, db.newsletters.c.subject)).all()}
         # Stories folded into another one keep their address as a redirect (merge.py); their slugs
         # are read once and kept. Pairs that may be one event go to the dashboard (quality.py).
-        story_index = cache.stories(conn)
         merged_titles = cache.story_titles(conn, [s for s in story_index.values() if s.status == "merged" and s.redirect_to])
         suspects = list(cache.SUSPECTS.get(conn).get("pairs") or [])
         # Only threads a story points at can get a page, so only those are read.
@@ -255,7 +249,8 @@ def run() -> dict:
         t_text = cache.thread_text(conn, thread_meta)
         thread_rows = [cache.merged(t, t_text.get(t.id)) for t in thread_meta if t.id in t_text]
         # Stories that just aged out of the window keep a small page (archive.py).
-        archived = archive.update(conn, now, since, sources, [s.strip() for s in rules.get("unpublish") or [] if s])
+        archived = archive.update(conn, now, since, sources, [s.strip() for s in rules.get("unpublish") or [] if s],
+                                  stories=story_index, articles=article_index)
 
     by_story: dict[int, list] = {}
     for a in art_rows:
@@ -295,7 +290,7 @@ def run() -> dict:
                 "title": m.title,
                 "headline": m.headline,
                 "author": m.author,
-                "publishedAt": _iso(m.published_at) or _iso(m.fetched_at),
+                "publishedAt": db.iso_z(m.published_at) or db.iso_z(m.fetched_at),
                 "description": m.description,
                 "contentMd": full_text.get(m.id),
                 "wordCount": m.word_count,
@@ -351,8 +346,8 @@ def run() -> dict:
             "discussions": discussions,
             "threadId": s.thread_id,
             "pulse": s.pulse or None,
-            "firstPublishedAt": _iso(s.first_published_at),
-            "updatedAt": _iso(s.updated_at),
+            "firstPublishedAt": db.iso_z(s.first_published_at),
+            "updatedAt": db.iso_z(s.updated_at),
             "imageUrl": lead.image_url or next((a["imageUrl"] for a in articles if a["imageUrl"]), None),
             "ogImage": f"/og/{s.slug}.png",
             "leadArticleId": lead.id,
@@ -376,7 +371,7 @@ def run() -> dict:
     section = work_rules.section_stories(stories_out)
     work_briefing = work_rules.build_briefing(stories_out, now)
     work_out = {
-        "generatedAt": _iso(now),
+        "generatedAt": db.iso_z(now),
         "storyIds": [s["id"] for s in sorted(section, key=lambda s: s.get("firstPublishedAt") or "", reverse=True)],
         "tools": work_rules.build_tools(section),
         "weeks": work_rules.weeks(section),
@@ -461,7 +456,7 @@ def run() -> dict:
     (out_dir / "sources.json").write_text(
         json.dumps([v for v in sources.values() if v["enabled"] and not v["discovered"]], ensure_ascii=False), encoding="utf-8")
     (out_dir / "meta.json").write_text(json.dumps({
-        "generatedAt": _iso(now),
+        "generatedAt": db.iso_z(now),
         "siteUrl": config.SITE_URL,
         "categories": config.CATEGORIES,
         "storyCount": len(stories_out),
@@ -472,14 +467,3 @@ def run() -> dict:
             "threads": len(threads_out), "models": len(trackers["models"]), "funding": len(trackers["funding"]),
             "fundingDropped": funding_dropped, "hedged": sum(1 for s in stories_out if s["hedged"]),
             "redirects": len(redirects), "moderation": moderation, "archive": archived, "dir": str(out_dir)}
-
-
-# Domains whose posts are the primary source of a story regardless of which feed found them.
-PRIMARY_DOMAINS = {
-    "openai.com", "anthropic.com", "claude.com", "deepmind.google", "blog.google", "research.google",
-    "ai.meta.com", "about.fb.com", "blogs.nvidia.com", "nvidia.com", "huggingface.co", "mistral.ai",
-    "microsoft.com", "blogs.microsoft.com", "azure.microsoft.com", "aws.amazon.com", "machinelearning.apple.com",
-    "x.ai", "cohere.com", "stability.ai", "arxiv.org", "github.com", "deepseek.com", "qwenlm.github.io",
-    "ai.google.dev", "cloud.google.com", "apple.com", "meta.com", "perplexity.ai", "cursor.com",
-    "europa.eu", "whitehouse.gov", "gov.uk", "nist.gov", "ftc.gov", "sec.gov",
-}

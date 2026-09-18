@@ -5,7 +5,6 @@ site serves; it is derived from the site name so nothing needs to be configured.
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 from datetime import timedelta
 

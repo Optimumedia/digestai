@@ -208,7 +208,7 @@ def review(eng, since, approve: list[str]) -> tuple[list[dict], dict]:
                 "headline": r.headline,
                 "source": publisher_domain(lead.url, lead.domain) if (community or src is None) else src.name,
                 "url": normalize_url(lead.url) if lead.url else lead.url,
-                "firstPublishedAt": _iso(r.first_published_at),
+                "firstPublishedAt": db.iso_z(r.first_published_at),
                 "reason": reason,
             })
             if r.status != HELD:
@@ -226,11 +226,6 @@ def review(eng, since, approve: list[str]) -> tuple[list[dict], dict]:
     if to_hold:
         log.info("held %d new single-source stories for review", len(to_hold))
     return held, stats
-
-
-def _iso(dt):
-    dt = db.as_utc(dt)
-    return dt.isoformat().replace("+00:00", "Z") if dt else None
 
 
 # ---------------------------------------------------------------- private review file

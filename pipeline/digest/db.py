@@ -1,8 +1,15 @@
 """Database schema and session helpers. Works on SQLite (local) and Postgres (Supabase)."""
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
+import logging
+import re
 from datetime import datetime, timezone
+from urllib.parse import quote, unquote
 
+import numpy as np
 from sqlalchemy import (
     func,
     UniqueConstraint,
@@ -19,11 +26,15 @@ from sqlalchemy import (
     Table,
     Text,
     create_engine,
+    event,
+    inspect,
     text,
 )
 from sqlalchemy.engine import Engine
 
 from . import config
+
+log = logging.getLogger("digest.db")
 
 metadata = MetaData()
 
@@ -342,8 +353,6 @@ def pgresult_bytes(res) -> int:
 
 
 def install_read_meter(eng: Engine) -> None:
-    from sqlalchemy import event
-
     if eng.dialect.name == "sqlite":
         # sqlite3 hands every fetched row to row_factory: count it there and return it unchanged.
         @event.listens_for(eng, "connect")
@@ -381,9 +390,7 @@ def engine() -> Engine:
 
 
 def _schema_key(eng: Engine) -> str:
-    import hashlib
-
-    parts = [eng.url.render_as_string(hide_password=False), CHANGE_TRACKING_VERSION]
+    parts =[eng.url.render_as_string(hide_password=False), CHANGE_TRACKING_VERSION]
     for table in metadata.sorted_tables:
         parts += [f"{table.name}.{c.name}:{c.type!r}" for c in table.columns]
     return hashlib.sha256("|".join(parts).encode()).hexdigest()
@@ -454,8 +461,6 @@ _tracking_ready: dict[str, bool] = {}
 def install_change_tracking(eng: Engine) -> bool:
     """Create the revision triggers where missing. False when they could not be created (the cache
     then reads everything, as before)."""
-    import logging
-
     try:
         if eng.dialect.name == "sqlite":
             with eng.begin() as conn:
@@ -486,7 +491,7 @@ def install_change_tracking(eng: Engine) -> bool:
         else:
             return False
     except Exception as exc:  # noqa: BLE001 - without tracking the cache falls back to full reads
-        logging.getLogger("digest.db").warning("could not install change tracking: %s", str(exc)[:160])
+        log.warning("could not install change tracking: %s", str(exc)[:160])
         _tracking_ready.pop(_engine_key(eng), None)
         return False
     _tracking_ready.pop(_engine_key(eng), None)
@@ -556,27 +561,17 @@ VEC_PREFIX = "f16:"
 
 
 def pack_vec(values) -> str:
-    import base64
-
-    import numpy as np
-
     arr = np.asarray(values, dtype=np.float32).astype("<f2")
     return VEC_PREFIX + base64.b64encode(arr.tobytes()).decode("ascii")
 
 
 def unpack_vec(value):
     """A stored embedding (packed string, JSON list, or JSON text of a list) as float32, or None."""
-    import base64
-
-    import numpy as np
-
     if value is None:
         return None
     if isinstance(value, str):
         if value.startswith(VEC_PREFIX):
             return np.frombuffer(base64.b64decode(value[len(VEC_PREFIX):]), dtype="<f2").astype(np.float32)
-        import json
-
         try:
             value = json.loads(value)
         except ValueError:
@@ -611,9 +606,6 @@ def database_size(conn) -> dict:
 def _normalize_url(url: str) -> str:
     """Use the psycopg driver and percent-encode a raw password (spaces, &, @, # ...) so a
     connection string pasted straight from a dashboard works unchanged."""
-    import re
-    from urllib.parse import quote, unquote
-
     if url.startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://"):]
     m = re.match(r"^(postgresql)(\+\w+)?://([^:/@]+):(.*)@([^@]+)$", url, re.DOTALL)
@@ -690,18 +682,14 @@ def _harden_postgres(eng: Engine) -> None:
             conn.execute(text('GRANT INSERT ON push_subscriptions TO anon'))
             conn.execute(text('GRANT USAGE, SELECT ON SEQUENCE push_subscriptions_id_seq TO anon'))
     except Exception as exc:  # noqa: BLE001 - roles may not exist outside Supabase
-        import logging
-
-        logging.getLogger("digest.db").warning("could not harden tables: %s", str(exc)[:120])
+        log.warning("could not harden tables: %s", str(exc)[:120])
     # The insert guard on events (also in supabase/schema.sql). Kept here so a change reaches the
     # database on the next run; replacing a function takes no table lock.
     try:
         with eng.begin() as conn:
             conn.execute(text(EVENTS_GUARD_SQL))
     except Exception as exc:  # noqa: BLE001
-        import logging
-
-        logging.getLogger("digest.db").warning("could not update the events guard: %s", str(exc)[:120])
+        log.warning("could not update the events guard: %s", str(exc)[:120])
     # The insert policy: which event types the site may send. Replacing a policy locks the table
     # briefly, so give up fast and try again next run rather than wait behind a busy pipeline.
     try:
@@ -710,9 +698,7 @@ def _harden_postgres(eng: Engine) -> None:
             for stmt in EVENTS_POLICY_SQL:
                 conn.execute(text(stmt))
     except Exception as exc:  # noqa: BLE001
-        import logging
-
-        logging.getLogger("digest.db").warning("could not update the events policy: %s", str(exc)[:120])
+        log.warning("could not update the events policy: %s", str(exc)[:120])
 
 
 def _migrate(eng: Engine) -> None:
@@ -721,8 +707,6 @@ def _migrate(eng: Engine) -> None:
     create_all only creates missing tables; a persisted database needs the new columns added
     in place. ADD COLUMN works on both SQLite and Postgres.
     """
-    from sqlalchemy import inspect
-
     insp = inspect(eng)
     with eng.begin() as conn:
         for table in metadata.sorted_tables:
@@ -748,6 +732,12 @@ def as_utc(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def iso_z(value: datetime | None) -> str | None:
+    """A timestamp as the site's JSON carries it: UTC, ISO 8601, with a Z. None stays None."""
+    value = as_utc(value)
+    return value.isoformat().replace("+00:00", "Z") if value else None
 
 
 def to_signed64(value: int) -> int:

@@ -16,7 +16,7 @@ from dateutil import parser as dateparser
 from sqlalchemy import insert, select, update
 
 from . import cache, config, db
-from .textutil import SKIP_DOMAINS, clean_title, domain_of, is_skipped_domain, normalize_url, simhash, title_year, word_count  # noqa: F401
+from .textutil import clean_title, domain_of, is_skipped_domain, normalize_url, simhash, title_year, word_count
 
 log = logging.getLogger("digest.fetch")
 
@@ -57,9 +57,20 @@ def should_merge_discussion(disc: tuple | None, existing: dict) -> bool:
     return (disc[2] or 0) > (existing.get("points") or 0)
 
 
+_SOURCES_YAML: dict | None = None
+
+
+def sources_yaml() -> dict:
+    """sources.yaml, parsed once per process."""
+    global _SOURCES_YAML
+    if _SOURCES_YAML is None:
+        _SOURCES_YAML = yaml.safe_load(SOURCES_FILE.read_text(encoding="utf-8"))
+    return _SOURCES_YAML
+
+
 def sync_sources(conn) -> None:
     """Upsert the curated sources.yaml into the sources table (keeps runtime columns)."""
-    cfg = yaml.safe_load(SOURCES_FILE.read_text(encoding="utf-8"))
+    cfg = sources_yaml()
     type_of = {key: t for t, keys in (cfg.get("types") or {}).items() for key in keys}
     existing = {row.key: row for row in conn.execute(select(db.sources)).all()}
     seen = set()
@@ -99,16 +110,9 @@ def sync_sources(conn) -> None:
     cap_discovered_sources(conn)
 
 
-_SOURCE_CFG: dict[str, dict] | None = None
-
-
 def _source_cfg(key: str) -> dict:
     """Per-source options that only live in sources.yaml (max_items, agent)."""
-    global _SOURCE_CFG
-    if _SOURCE_CFG is None:
-        cfg = yaml.safe_load(SOURCES_FILE.read_text(encoding="utf-8"))
-        _SOURCE_CFG = {item["key"]: item for item in cfg["sources"]}
-    return _SOURCE_CFG.get(key, {})
+    return next((item for item in sources_yaml()["sources"] if item["key"] == key), {})
 
 
 AI_WORDS = re.compile(r"\b(?:AI|A\.I\.|artificial intelligence|generative|GenAI|ChatGPT|GPT|Gemini|Claude|Copilot|"

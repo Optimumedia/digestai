@@ -143,11 +143,9 @@ def train_and_predict(conn) -> dict:
         return stats
     story_size: dict[int, int] = {}
     story_primary: dict[int, bool] = {}
-    from .export import PRIMARY_DOMAINS
-
     for a in arts:
         story_size[a.story_id] = story_size.get(a.story_id, 0) + 1
-        if a.domain in PRIMARY_DOMAINS:
+        if a.domain in config.PRIMARY_DOMAINS:
             story_primary[a.story_id] = True
 
     # Target: reader engagement rate when we have it, otherwise external popularity.
@@ -277,10 +275,10 @@ def update_source_weights(conn) -> None:
     overall = sum(means.values()) / len(means)
     if overall <= 0:
         return
-    for sid, avg in means.items():
-        rel = min(2.0, avg / overall)
-        conn.execute(update(db.sources).where(db.sources.c.id == sid)
-                     .values(engagement_ema=db.sources.c.engagement_ema * 0.7 + rel * 0.3))
+    # One batched statement for every source, not a round trip each.
+    conn.execute(update(db.sources).where(db.sources.c.id == bindparam("sid"))
+                 .values(engagement_ema=db.sources.c.engagement_ema * 0.7 + bindparam("rel") * 0.3),
+                 [{"sid": sid, "rel": min(2.0, avg / overall)} for sid, avg in means.items()])
 
 
 def is_discovery_term(term: str) -> bool:
