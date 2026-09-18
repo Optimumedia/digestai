@@ -68,6 +68,11 @@ jobs:
       GEMINI_DAILY_BUDGET: ${{ vars.GEMINI_DAILY_BUDGET || '54' }}
       MAX_ENRICH_PER_RUN: ${{ vars.MAX_ENRICH_PER_RUN || '20' }}
       GH_TOKEN: ${{ github.token }}
+      # The morning note (pipeline/digest/morning.py): written on the first run from this hour UTC and
+      # opened as a "morning-note" issue (issues: write above). MORNING_NOTE_MENTION is a GitHub
+      # username to @mention in it, which notifies that person even without watching the repository.
+      MORNING_NOTE_HOUR_UTC: ${{ vars.MORNING_NOTE_HOUR_UTC || '5' }}
+      MORNING_NOTE_MENTION: ${{ vars.MORNING_NOTE_MENTION }}
       # Passphrase that encrypts the nightly database backup (SETUP.md, "Database backup").
       BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
       # Optional: a healthchecks.io ping URL, pinged at the end of every run.

@@ -528,7 +528,7 @@ STEP_WORDS = {
     "export": "preparing the stories for the site", "push": "sending browser alerts", "topics": "updating topic pages",
     "intros": "writing topic introductions", "images": "making share pictures", "audio": "recording the audio briefing",
     "social": "posting to social media", "newsletter": "sending the newsletter", "gsc": "reading Google Search data",
-    "admin": "updating this dashboard", "notify": "raising alerts", "indexnow": "notifying search engines",
+    "admin": "updating this dashboard", "morning": "writing the morning note", "notify": "raising alerts", "indexnow": "notifying search engines",
 }
 
 
