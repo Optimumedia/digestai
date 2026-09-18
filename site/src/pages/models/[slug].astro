@@ -1,0 +1,130 @@
+---
+/* One page per tracked model (/models/<slug>): what it is, who makes it, how you get it, the licence
+   and context window when the coverage stated them, and every story about it. This is the model's
+   only indexable address: the topic hub under the same slug redirects here (topic/[slug].astro).
+   A model with nothing but its launch story and no spec is built but noindex (indexing.mjs). */
+import Base from "../../layouts/Base.astro";
+import StoryRow from "../../components/StoryRow.astro";
+import Rail from "../../components/Rail.astro";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
+import { modelPageList, modelPageIndexable, modelsByLab, storyFor, topicInfo, hubHref, formatDate, dateTime, meta, type ModelPage, type Story } from "../../lib/data";
+
+export function getStaticPaths() {
+  return modelPageList.map((page) => ({ params: { slug: page.slug }, props: { page } }));
+}
+
+const { page } = Astro.props as { page: ModelPage };
+const { slug, name, rows } = page;
+const fact = rows[0];
+const list: Story[] = [...page.storyIds]
+  .map(storyFor)
+  .filter((s): s is Story => Boolean(s))
+  .sort((a, b) => Date.parse(b.firstPublishedAt || b.updatedAt || "0") - Date.parse(a.firstPublishedAt || a.updatedAt || "0"));
+const firstSeen = rows.map((r) => r.date).filter(Boolean).sort()[0] || list[list.length - 1]?.firstPublishedAt || null;
+// Specs can come from any of the model's rows: the newest row wins, older ones fill the gaps.
+const pick = <K extends "license" | "context" | "link" | "lab">(k: K) => rows.find((r) => r[k])?.[k] || null;
+const lab = pick("lab");
+const license = pick("license");
+const context = pick("context");
+const link = pick("link");
+const availabilityKey = rows.find((r) => r.availability && r.availability !== "unknown")?.availability || null;
+const updated = [...list.map((s) => s.updatedAt), ...rows.map((r) => r.date)].filter(Boolean).sort().pop() || meta.generatedAt;
+const siblings = modelsByLab(lab, name).filter((m) => m.name !== name);
+
+const kinds: Record<string, string> = { llm: "language model", multimodal: "multimodal model", image: "image model", video: "video model", audio: "audio model", code: "coding model", embedding: "embedding model", robotics: "robotics model", other: "AI model" };
+const availability: Record<string, string> = { api: "through an API", open_weights: "as open weights you can download and run", consumer: "in a consumer app", research: "as a research release" };
+const availabilityShort: Record<string, string> = { api: "API", open_weights: "Open weights", consumer: "Consumer app", research: "Research release" };
+const kind = kinds[fact.kind] || "AI model";
+const intro = topicInfo[slug]?.description || "";
+const templated = /^\d+ stor(y|ies) since /.test(intro);
+const plural = (n: number, w: string, ws = `${w}s`) => `${n} ${n === 1 ? w : ws}`;
+
+// The plain-English summary is built from the tracker's own fields, so it only says what is known.
+const lede = [
+  `${name} is ${/^[aeiou]/i.test(kind) ? "an" : "a"} ${kind}${lab ? ` from ${lab}` : ""}${firstSeen ? `, first covered on ${formatDate(firstSeen)}` : ""}.`,
+  availabilityKey && availability[availabilityKey] ? `It is available ${availability[availabilityKey]}${license ? ` under the ${license} licence` : ""}.` : license ? `It is released under the ${license} licence.` : "",
+  context ? `Its context window is ${context}.` : "",
+].filter(Boolean).join(" ");
+const specWords = [context && "context window", license && "licence"].filter(Boolean) as string[];
+const title = `${name}: release${specWords.length ? `, ${specWords.join(", ")}` : ""} and news`;
+const description = `${lede} ${plural(list.length, "story", "stories")} with sources on Digest AI.`.slice(0, 300);
+const ogImage = page.hubStories >= 3 ? `${meta.siteUrl}/og/topic-${slug}.png` : undefined;
+const follow = JSON.stringify({ kind: "topic", slug, name });
+const url = `${meta.siteUrl}/models/${slug}`;
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  name: title,
+  description,
+  url,
+  dateModified: updated,
+  isPartOf: { "@type": "WebSite", name: "Digest AI", url: meta.siteUrl },
+  about: { "@type": "Thing", name, ...(link ? { sameAs: link } : {}) },
+  mainEntity: {
+    "@type": "ItemList",
+    name: `News about ${name}`,
+    numberOfItems: list.length,
+    itemListElement: list.slice(0, 50).map((s, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      item: {
+        "@type": "NewsArticle",
+        headline: s.headline,
+        url: `${meta.siteUrl}/story/${s.slug}`,
+        datePublished: s.firstPublishedAt,
+        dateModified: s.updatedAt,
+      },
+    })),
+  },
+};
+const labHref = hubHref(lab);
+---
+
+<Base title={title} description={description} image={ogImage} jsonLd={jsonLd} thin={!modelPageIndexable(page)}>
+  <div class="grid">
+    <div>
+      <Breadcrumbs items={[{ name: "Models", href: "/models" }, { name }]} />
+      <header class="page-head">
+        <div class="eyebrow">Model · {kind}</div>
+        <div class="head-row">
+          <h1>{name}</h1>
+          <button class="follow" data-follow={follow} aria-pressed="false">Follow</button>
+        </div>
+        {intro && !templated && <p class="intro">{intro}</p>}
+        <p>{lede}</p>
+        <p class="mono muted">Last updated <time datetime={updated} data-static>{dateTime(updated)}</time></p>
+      </header>
+
+      <section class="factbox" aria-labelledby="specs-h">
+        <h2 id="specs-h">At a glance</h2>
+        <dl>
+          <div><dt>Made by</dt><dd>{lab ? (labHref ? <a href={labHref}>{lab}</a> : lab) : "Not stated"}</dd></div>
+          <div><dt>Type</dt><dd>{kind.charAt(0).toUpperCase() + kind.slice(1)}</dd></div>
+          <div><dt>Availability</dt><dd>{availabilityKey ? availabilityShort[availabilityKey] || availabilityKey : "Not stated"}</dd></div>
+          <div><dt>Licence</dt><dd>{license || "Not stated"}</dd></div>
+          <div><dt>Context window</dt><dd>{context || "Not stated"}</dd></div>
+          <div><dt>First seen</dt><dd>{firstSeen ? formatDate(firstSeen) : "Not stated"}</dd></div>
+          {link && <div><dt>Official page</dt><dd><a href={link} rel="noopener nofollow" target="_blank">{link.replace(/^https?:\/\//, "").slice(0, 50)} ↗</a></dd></div>}
+          {fact.storySlug && <div><dt>Launch story</dt><dd><a href={`/story/${fact.storySlug}`}>{fact.storyHeadline}</a></dd></div>}
+        </dl>
+        <p class="muted">
+          Taken from the coverage, not from our own testing; "not stated" means none of the reports we read gave it.
+          {rows.length > 1 && ` Tracked ${rows.length} times (new versions or re-launches); the newest is shown.`}
+          {" "}<a href="/models">All tracked models →</a>
+        </p>
+      </section>
+
+      <div class="dayhead"><h2>{plural(list.length, "story", "stories")} about {name}</h2></div>
+      <ol class="river">{list.map((s) => <StoryRow story={s} />)}</ol>
+
+      {siblings.length > 0 && (
+        <section style="margin-top: 28px">
+          <div class="eyebrow" style="margin-bottom: 8px">Other models from {lab}</div>
+          <div class="taglist">{siblings.map((m) => { const href = hubHref(m.name); return href ? <a href={href}>{m.name}</a> : <span>{m.name}</span>; })}</div>
+        </section>
+      )}
+    </div>
+    <Rail />
+  </div>
+</Base>

@@ -2,7 +2,7 @@
 import Base from "../../layouts/Base.astro";
 import Rail from "../../components/Rail.astro";
 import Coverage from "../../components/Coverage.astro";
-import { threads, threadStories, categories, plain, formatDate, entitySlug, meta, topicSlugs, shareImage } from "../../lib/data";
+import { threads, threadStories, categories, plain, formatDate, meta, hubHref, shareImage } from "../../lib/data";
 
 export function getStaticPaths() {
   return threads.map((thread) => ({ params: { slug: thread.slug }, props: { thread } }));
@@ -45,7 +45,7 @@ const follow = JSON.stringify({ kind: "thread", slug: thread.slug, name: thread.
       {entityList.length > 0 && (
         <section style="margin-top: 28px">
           <div class="eyebrow" style="margin-bottom: 8px">Who and what</div>
-          <div class="taglist">{entityList.map((n) => topicSlugs.has(entitySlug(n)) ? <a href={`/topic/${entitySlug(n)}`}>{n}</a> : <span>{n}</span>)}</div>
+          <div class="taglist">{entityList.map((n) => { const href = hubHref(n); return href ? <a href={href}>{n}</a> : <span>{n}</span>; })}</div>
         </section>
       )}
     </div>

@@ -104,6 +104,10 @@ const jsonLd = [
       <span class="mono muted workjob-note">{free} of {sectionStories.length} cost nothing to start</span>
     </div>
   )}
+  {/* Each job also has its own page with everything for it and the tools that serve it. */}
+  <p class="workjob-pages" data-jobpages>
+    One page per job: {JOBS.map((j, i) => <>{i > 0 && " · "}<a href={`/work/${j.slug}`} data-job-page={j.key}>{j.label}</a></>)}
+  </p>
   <p class="muted work-empty" data-workempty hidden>Nothing on this page does that job. The <a href="/work/tools">tool directory</a> goes back further.</p>
 
   {briefingItems.length > 0 && (
@@ -181,6 +185,8 @@ const jsonLd = [
       }
       const empty = document.querySelector("[data-workempty]");
       if (empty) empty.hidden = left > 0;
+      // Point at the chosen job's own page, which has every item for it, not just this page's.
+      for (const a of document.querySelectorAll("[data-job-page]")) a.toggleAttribute("data-active", a.dataset.jobPage === job);
     });
   })();
 </script>

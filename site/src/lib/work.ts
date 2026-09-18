@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { stories, storyFor, type Episode, type Story } from "./data";
+import { JOB_SLUGS, jobCounts, jobIndexable } from "./indexing.mjs";
 
 export interface WorkCard {
   tool: string;
@@ -83,14 +84,48 @@ function readJson<T>(name: string, fallback: T): T {
 export const SECTION_NAME = "AI at Work";
 export const SECTION_TAGLINE = "Practical AI for marketing, customers and running a small business.";
 
-/** The five jobs the section sorts by, in the order the filters show them. */
-export const JOBS: { key: string; label: string; blurb: string }[] = [
-  { key: "customers", label: "Get customers", blurb: "Ads, SEO, email and everything that brings people in." },
-  { key: "content", label: "Make content", blurb: "Writing, images, video and the work of publishing them." },
-  { key: "sell", label: "Sell", blurb: "Leads, follow-ups, checkout and the online shop." },
-  { key: "support", label: "Support customers", blurb: "Answering people faster without answering worse." },
-  { key: "business", label: "Run the business", blurb: "Admin, books, scheduling and the jobs nobody wants." },
+/** The five jobs the section sorts by, in the order the filters show them. Each has its own page at
+    /work/<slug> (pages/work/[job].astro); the slugs live in indexing.mjs so the sitemap agrees. */
+export interface Job {
+  key: string;
+  slug: string;
+  label: string;
+  blurb: string;
+  /** The phrase after "AI tools to" / "AI tools for" in the page title and heading. */
+  task: string;
+  /** What the job covers, in a sentence, for the page's introduction. */
+  covers: string;
+}
+export const JOBS: Job[] = [
+  {
+    key: "customers", slug: JOB_SLUGS.customers, label: "Get customers", task: "to get customers",
+    blurb: "Ads, SEO, email and everything that brings people in.",
+    covers: "Advertising, search, email, social and the other ways people find a business and decide to try it.",
+  },
+  {
+    key: "content", slug: JOB_SLUGS.content, label: "Make content", task: "to make content",
+    blurb: "Writing, images, video and the work of publishing them.",
+    covers: "Writing, images, video, audio, translation and the work of getting them published.",
+  },
+  {
+    key: "sell", slug: JOB_SLUGS.sell, label: "Sell", task: "to sell more",
+    blurb: "Leads, follow-ups, checkout and the online shop.",
+    covers: "Leads, follow-ups, quotes, checkout and the online shop: the steps between interest and a sale.",
+  },
+  {
+    key: "support", slug: JOB_SLUGS.support, label: "Support customers", task: "for customer support",
+    blurb: "Answering people faster without answering worse.",
+    covers: "Answering customers' questions by chat, email and phone, faster and without answering worse.",
+  },
+  {
+    key: "business", slug: JOB_SLUGS.business, label: "Run the business", task: "to run a small business",
+    blurb: "Admin, books, scheduling and the jobs nobody wants.",
+    covers: "Admin, bookkeeping, scheduling, documents, hiring and the other jobs that keep a small business running.",
+  },
 ];
+export const jobBySlug = (slug: string): Job | undefined => JOBS.find((j) => j.slug === slug);
+/** Cards and tools per job, counted the way indexing.mjs decides whether a job page is thin. */
+export const jobThin = (key: string): boolean => !jobIndexable(jobCounts(stories)[key]);
 export const JOB_LABELS: Record<string, string> = Object.fromEntries(JOBS.map((j) => [j.key, j.label]));
 
 export const WHO_LABELS: Record<string, string> = {

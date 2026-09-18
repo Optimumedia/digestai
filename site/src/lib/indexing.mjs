@@ -58,8 +58,70 @@ export function topicStoryIds(stories, entities) {
   return topics;
 }
 
-/** Every page path that carries noindex and is left out of the sitemaps, from the exported data. */
-export function noindexPaths(stories, entities) {
+/* ---- AI at Work job pages (/work/<job>) ----
+   The five jobs the section filters by, each with its own address. The keys are the ones
+   pipeline/digest/work.py writes into every card's "jobs" list; the slugs are what people type. */
+export const JOB_MIN_ITEMS = 3;
+export const JOB_SLUGS = {
+  customers: "get-customers",
+  content: "make-content",
+  sell: "sell",
+  support: "support",
+  business: "run-the-business",
+};
+
+/** Cards and distinct tools per job key, counted over the stories that carry a practical card. */
+export function jobCounts(stories) {
+  const out = {};
+  for (const key of Object.keys(JOB_SLUGS)) {
+    const cards = stories.filter((s) => s.workCard && (s.workCard.jobs || []).includes(key));
+    const tools = new Set(cards.map((s) => `${s.workCard.tool}|${s.workCard.maker || ""}`.toLowerCase()));
+    out[key] = { cards: cards.length, tools: tools.size };
+  }
+  return out;
+}
+
+/** A job page is thin until it has three cards or three tools behind it. */
+export function jobIndexable(counts) {
+  return Math.max(counts?.cards || 0, counts?.tools || 0) >= JOB_MIN_ITEMS;
+}
+
+/* ---- Model pages (/models/<slug>) ----
+   One page per tracked model, under the same slug its topic hub would have (entitySlug of the name),
+   so a model has exactly one address: when a topic hub exists under that slug it becomes a redirect
+   to the model page (the model page lists the same stories, plus the tracker's own). */
+
+/** Tracked models by slug: their tracker rows (newest first) and the ids of every story about them. */
+export function modelPages(stories, entities, models) {
+  const idBySlug = new Map(stories.map((s) => [s.slug, s.id]));
+  const topics = topicStoryIds(stories, entities);
+  const pages = new Map();
+  for (const m of models || []) {
+    const slug = entitySlug(m.name || "");
+    if (!slug) continue;
+    const hub = topics.get(slug);
+    const page = pages.get(slug) || { slug, name: m.name, rows: [], storyIds: new Set(hub || []), hubStories: hub ? hub.size : 0 };
+    page.rows.push(m);
+    const id = idBySlug.get(m.storySlug);
+    if (id !== undefined) page.storyIds.add(id);
+    pages.set(slug, page);
+  }
+  for (const page of pages.values()) {
+    page.rows.sort((a, b) => ((a.date || "") < (b.date || "") ? 1 : -1));
+    page.name = page.rows[0].name;
+  }
+  return pages;
+}
+
+/** A model page is thin when all it has is its launch story and no spec (licence, context window). */
+export function modelIndexable(page) {
+  const specs = page.rows.some((r) => r.license || r.context);
+  return page.storyIds.size >= 2 || specs;
+}
+
+/** Every page path that carries noindex and is left out of the sitemaps, from the exported data.
+    `models` is trackers.json's model list; without it no model pages are counted. */
+export function noindexPaths(stories, entities, models = []) {
   const out = new Set();
   for (const s of stories) if (!storyIndexable(s)) out.add(`/story/${s.slug}`);
   for (const [slug, ids] of topicStoryIds(stories, entities)) if (ids.size < TOPIC_MIN_STORIES) out.add(`/topic/${slug}`);
@@ -86,6 +148,13 @@ export function noindexPaths(stories, entities) {
   if (work.length < WORK_MIN_ITEMS) out.add("/work");
   if (new Set(work.map((s) => `${s.workCard.tool}|${s.workCard.maker || ""}`.toLowerCase())).size < WORK_MIN_ITEMS) {
     out.add("/work/tools");
+  }
+  const jobs = jobCounts(work);
+  for (const [key, slug] of Object.entries(JOB_SLUGS)) if (!jobIndexable(jobs[key])) out.add(`/work/${slug}`);
+  // Models: a thin model page is noindex; a topic hub under a tracked model's slug is a redirect page.
+  for (const page of modelPages(stories, entities, models).values()) {
+    if (!modelIndexable(page)) out.add(`/models/${page.slug}`);
+    out.add(`/topic/${page.slug}`);
   }
   return out;
 }

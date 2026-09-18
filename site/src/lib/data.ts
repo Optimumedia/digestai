@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { marked } from "marked";
-import { published, entitySlug, dateKey, weekKey, storyIndexable, noindexPaths, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES, WORK_MIN_ITEMS } from "./indexing.mjs";
+import { published, entitySlug, dateKey, weekKey, storyIndexable, noindexPaths, modelPages, modelIndexable, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES, WORK_MIN_ITEMS } from "./indexing.mjs";
 
 // Indexing rules live in indexing.mjs so the sitemap in astro.config.mjs applies the same ones.
 export { entitySlug, dateKey, weekKey, storyIndexable, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES, WORK_MIN_ITEMS };
@@ -183,8 +183,6 @@ export const categories: Record<string, string> = meta.categories || DEFAULT_CAT
 
 export const stories: Story[] = published(readJson<Story[]>("stories.json", []));
 export const entities: Entity[] = readJson<Entity[]>("entities.json", []);
-/** Paths built but kept out of the index and the sitemaps (thin hubs, single-source briefs, quiet days). */
-export const noindex: Set<string> = noindexPaths(stories, entities);
 export const sources: { key: string; name: string; url: string; kind: string; type: string }[] = readJson("sources.json", []);
 export interface Episode {
   date: string;
@@ -213,6 +211,8 @@ export const newsletters: Record<string, { publicUrl: string | null; subject: st
 export const threads: Thread[] = readJson<Thread[]>("threads.json", []);
 export const topicInfo: Record<string, { name: string; kind: string; description: string }> = readJson("topics.json", {});
 export const trackers: { models: ModelRelease[]; funding: Funding[] } = readJson("trackers.json", { models: [], funding: [] });
+/** Paths built but kept out of the index and the sitemaps (thin hubs, single-source briefs, quiet days). */
+export const noindex: Set<string> = noindexPaths(stories, entities, trackers.models);
 
 /* ---- media store (pipeline/digest/media.py) ----
    media.json maps a story slug to where its share image and thumbnail are: a site path ("/og/…",
@@ -367,6 +367,46 @@ export function topicPages(): { slug: string; entity: Entity }[] {
 
 /** Slugs that actually have a topic page; tags for anything else render as plain text. */
 export const topicSlugs: Set<string> = new Set(topicPages().map((t) => t.slug));
+
+/* ---- model pages (/models/<slug>) ----
+   One page per tracked model. Its slug is the one a topic hub on the same name would have, and that
+   hub, when it exists, is a redirect here: the model page is the model's only indexable address. */
+export interface ModelPage {
+  slug: string;
+  name: string;
+  /** Tracker rows for this model, newest first (a model can be tracked more than once). */
+  rows: ModelRelease[];
+  storyIds: Set<number>;
+  /** Stories on the topic hub under the same slug (0 when there is none); the share card needs 3. */
+  hubStories: number;
+}
+const modelPageMap: Map<string, ModelPage> = modelPages(stories, entities, trackers.models);
+export const modelPageList: ModelPage[] = [...modelPageMap.values()];
+export const modelPageFor = (slug: string): ModelPage | undefined => modelPageMap.get(slug);
+export const modelPageIndexable = (page: ModelPage): boolean => modelIndexable(page);
+
+/** Where a name tag links: the model page for a tracked model, else its topic hub, else nowhere. */
+export function hubHref(name: string | null | undefined): string | null {
+  const slug = entitySlug(name || "");
+  if (!slug) return null;
+  if (modelPageMap.has(slug)) return `/models/${slug}`;
+  return topicSlugs.has(slug) ? `/topic/${slug}` : null;
+}
+
+/** Tracked models among a story's entities (for the "Model page" line on a story). */
+export function trackedModelsIn(story: Story): ModelPage[] {
+  const seen = new Set<string>();
+  const out: ModelPage[] = [];
+  const names = Object.values(story.entities || {}).flat();
+  for (const n of names) {
+    const page = modelPageMap.get(entitySlug(n));
+    if (page && !seen.has(page.slug)) { seen.add(page.slug); out.push(page); }
+  }
+  for (const page of modelPageList) {
+    if (!seen.has(page.slug) && page.rows.some((r) => r.storySlug === story.slug)) { seen.add(page.slug); out.push(page); }
+  }
+  return out;
+}
 
 export function storiesByDay(): Map<string, Story[]> {
   const map = new Map<string, Story[]>();

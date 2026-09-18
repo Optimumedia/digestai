@@ -6,7 +6,7 @@ import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import StoryRedirect from "../../components/StoryRedirect.astro";
 import WorkCard from "../../components/WorkCard.astro";
 import { toolFor, toolSlug, workCardFor } from "../../lib/work";
-import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, dateTime, shortDate, readingMinutes, related, entitySlug, meta, threadFor, threadStories, topicSlugs, storiesInCategory, storyIndexable, storyForSlug, storyRedirects, shareImage } from "../../lib/data";
+import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, dateTime, shortDate, readingMinutes, related, meta, threadFor, threadStories, hubHref, trackedModelsIn, storiesInCategory, storyIndexable, storyForSlug, storyRedirects, shareImage } from "../../lib/data";
 
 export function getStaticPaths() {
   return [
@@ -25,6 +25,8 @@ const description = plain(story.summaryMd || story.keyPoints.join(" "), 160);
 const site = meta.siteUrl;
 const entityList = Object.entries(story.entities || {}).flatMap(([kind, names]) => names.map((n) => ({ kind, n })));
 const rel = related(story, 5);
+// Tracked models this story is about: one small line to each model's own page.
+const modelLinks = trackedModelsIn(story).slice(0, 3);
 const relIds = new Set(rel.map((s) => s.id));
 const moreInCategory = storiesInCategory(story.category || "").filter((s) => s.id !== story.id && !relIds.has(s.id)).slice(0, 5);
 const discussions = story.discussions || [];
@@ -131,6 +133,10 @@ const jsonLd = {
 
       {story.whyItMatters && <aside class="why"><b>Why it matters</b>{story.whyItMatters}</aside>}
 
+      {modelLinks.length > 0 && (
+        <p class="model-line">{modelLinks.map((m, i) => <>{i > 0 && " · "}Model page: <a href={`/models/${m.slug}`}>{m.name} →</a></>)}</p>
+      )}
+
       {story.sourceNotes && (story.sourceNotes.differ?.length || story.sourceNotes.agree) && (
         <aside class="source-notes" aria-label="How the reports compare">
           {story.sourceNotes.agree && <p><b>The reports agree</b>{story.sourceNotes.agree}</p>}
@@ -214,7 +220,7 @@ const jsonLd = {
       {entityList.length > 0 && (
         <section style="margin-top: 28px">
           <div class="eyebrow" style="margin-bottom: 8px">Topics · follow one to build your own front page</div>
-          <div class="taglist">{entityList.map(({ n }) => topicSlugs.has(entitySlug(n)) ? <a href={`/topic/${entitySlug(n)}`}>{n}</a> : <span>{n}</span>)}</div>
+          <div class="taglist">{entityList.map(({ n }) => { const href = hubHref(n); return href ? <a href={href}>{n}</a> : <span>{n}</span>; })}</div>
         </section>
       )}
 

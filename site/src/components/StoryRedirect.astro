@@ -1,13 +1,18 @@
 ---
 // The old address of a story merged into another one (pipeline/digest/merge.py). Readers and search
 // engines are sent on to the story that now covers the event; the canonical link names it.
+// Also used for a topic hub whose subject is a tracked model: that hub sends readers to the model
+// page (/models/<slug>), which lists the same stories and is the model's one indexable address.
 interface Props {
   to: string;
   headline: string;
   site: string;
+  /** The full target path; defaults to the story at `to`. */
+  href?: string;
+  /** What the fallback line says before the link. */
+  lead?: string;
 }
-const { to, headline, site } = Astro.props;
-const href = `/story/${to}`;
+const { to, headline, site, href = `/story/${to}`, lead = "This story is now part of" } = Astro.props;
 const canonical = `${site.replace(/\/$/, "")}${href}`;
 ---
 
@@ -23,6 +28,6 @@ const canonical = `${site.replace(/\/$/, "")}${href}`;
     <script is:inline define:vars={{ href }}>location.replace(href + location.search + location.hash);</script>
   </head>
   <body data-pagefind-ignore="all">
-    <p>This story is now part of <a href={href}>{headline}</a>.</p>
+    <p>{lead} <a href={href}>{headline}</a>.</p>
   </body>
 </html>

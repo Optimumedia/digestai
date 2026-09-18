@@ -7,18 +7,63 @@ import { briefing, briefingStories, briefingAlso, newsletters, renderMarkdown, c
 
 const episode = episodes.find((e) => e.date === briefing.date) || episodes[0];
 const pretty = formatDate(briefing.date + "T00:00:00Z", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-const description = `${briefing.stats.stories} AI stories from ${briefing.stats.articles} articles in a ${briefing.stats.minutes} minute read: ${briefingStories.map((s) => s.headline).slice(0, 3).join("; ")}`;
+// /today owns the search "AI news today" (the home page's title carries the brand instead). The URL
+// never changes; the title, H1 and description carry the phrase and the day.
+const count = briefingStories.length;
+const words = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+const dayMonth = formatDate(briefing.date + "T00:00:00Z", { day: "numeric", month: "long" });
+const title = count
+  ? `AI news today: the ${words[count] || count} ${count === 1 ? "story" : "stories"} that matter, ${dayMonth}`
+  : `AI news today, ${dayMonth}`;
+const heads = briefingStories.map((s) => s.headline).slice(0, 3).join("; ");
+const description = `AI news today, ${dayMonth}: ${briefing.stats.stories} stories from ${briefing.stats.articles} articles in a ${briefing.stats.minutes} minute read${heads ? `. ${heads}` : "."}`.slice(0, 300);
+const updated = briefing.generatedAt || meta.generatedAt;
+const updatedTime = new Date(updated).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
 const archive = Object.entries(newsletters).filter(([, n]) => n.publicUrl).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 7);
 const kitForm = import.meta.env.PUBLIC_KIT_FORM_URL || "";
+const url = `${meta.siteUrl}/today`;
+const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: title,
+    description,
+    url,
+    dateModified: updated,
+    isPartOf: { "@type": "WebSite", name: "Digest AI", url: meta.siteUrl },
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: `AI news today, ${pretty}`,
+    numberOfItems: briefingStories.length + briefingAlso.length,
+    itemListElement: [...briefingStories, ...briefingAlso].map((s, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      item: {
+        "@type": "NewsArticle",
+        headline: s.headline,
+        url: `${meta.siteUrl}/story/${s.slug}`,
+        datePublished: s.firstPublishedAt,
+        dateModified: s.updatedAt,
+        publisher: { "@type": "Organization", name: "Digest AI", url: meta.siteUrl },
+      },
+    })),
+  },
+];
 ---
 
-<Base title={`Today's briefing, ${pretty}`} description={description} canonical={`${meta.siteUrl}/today`}>
+<Base title={title} description={description} canonical={url} jsonLd={jsonLd}>
   <div class="grid">
     <div>
       <header class="page-head">
         <div class="eyebrow">Daily briefing · {pretty}</div>
-        <h1>The AI stories that matter today</h1>
-        <p>{briefing.stats.stories} stories from {briefing.stats.articles} articles, the five below in about {briefing.stats.minutes} minutes. Same as the email, on the web.</p>
+        <h1>AI news today</h1>
+        <p>
+          {count > 0 ? <>The {words[count] || count} AI {count === 1 ? "story" : "stories"} that matter today, </> : <>Today's AI news, </>}
+          picked from {briefing.stats.stories} stories and {briefing.stats.articles} articles; about {briefing.stats.minutes} minutes to read. Same as the email, on the web.
+        </p>
+        <p class="updated-line">Updated <time datetime={updated} data-static>{updatedTime} UTC</time>, {formatDate(updated, { day: "numeric", month: "long" })}</p>
       </header>
 
       {episode && (

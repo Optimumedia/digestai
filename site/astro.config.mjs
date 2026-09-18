@@ -2,7 +2,7 @@ import { defineConfig } from "astro/config";
 import sitemap from "@astrojs/sitemap";
 import fs from "node:fs";
 import path from "node:path";
-import { published, noindexPaths } from "./src/lib/indexing.mjs";
+import { published, noindexPaths, modelPages, JOB_SLUGS } from "./src/lib/indexing.mjs";
 import { isRedirectPage, loadRedirects } from "./src/lib/redirects.mjs";
 
 // Old addresses of merged stories are redirect pages: never listed for search engines.
@@ -27,7 +27,21 @@ try {
   const stories = published(read("stories.json"));
   for (const s of stories) { lastmod.set(`/story/${s.slug}`, s.updatedAt); liveStories.add(`/story/${s.slug}`); }
   for (const t of read("threads.json")) lastmod.set(`/thread/${t.slug}`, t.updatedAt);
-  noindex = noindexPaths(stories, read("entities.json"));
+  let models = [];
+  try { models = read("trackers.json").models || []; } catch {}
+  const entities = read("entities.json");
+  noindex = noindexPaths(stories, entities, models);
+  // Model pages and job pages change when a story on them does.
+  const updatedById = new Map(stories.map((s) => [s.id, s.updatedAt || ""]));
+  const newest = (values) => values.filter(Boolean).sort().pop();
+  for (const page of modelPages(stories, entities, models).values()) {
+    const mod = newest([...page.storyIds].map((id) => updatedById.get(id)));
+    if (mod) lastmod.set(`/models/${page.slug}`, mod);
+  }
+  for (const [key, slug] of Object.entries(JOB_SLUGS)) {
+    const mod = newest(stories.filter((s) => s.workCard?.jobs?.includes(key)).map((s) => s.updatedAt));
+    if (mod) lastmod.set(`/work/${slug}`, mod);
+  }
 } catch {}
 
 /* Addresses from the previous site that still get search impressions. Astro writes each as a page
@@ -70,6 +84,8 @@ export default defineConfig({
         if (p === "" || p === "/today") { item.changefreq = "hourly"; item.priority = 1.0; }
         else if (p === "/work") { item.changefreq = "hourly"; item.priority = 0.9; }
         else if (p === "/work/tools") { item.changefreq = "daily"; item.priority = 0.8; }
+        else if (Object.values(JOB_SLUGS).some((slug) => p === `/work/${slug}`)) { item.changefreq = "daily"; item.priority = 0.7; }
+        else if (p.startsWith("/models/")) { item.changefreq = "daily"; item.priority = 0.6; }
         else if (p.startsWith("/work/week/")) { item.changefreq = "weekly"; item.priority = 0.5; }
         else if (archivedPaths.has(p) && !liveStories.has(p)) { item.changefreq = "yearly"; item.priority = 0.2; }
         else if (p.startsWith("/story/")) { item.changefreq = "daily"; item.priority = 0.8; }

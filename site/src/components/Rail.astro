@@ -1,5 +1,5 @@
 ---
-import { byScore, byRecency, entities, entitySlug, categories, threads, trackers, shortDate } from "../lib/data";
+import { byScore, byRecency, entities, entitySlug, hubHref, categories, threads, trackers, shortDate } from "../lib/data";
 import SocialLinks from "./SocialLinks.astro";
 
 interface Props { exclude?: number }
@@ -74,7 +74,7 @@ const kitForm = import.meta.env.PUBLIC_KIT_FORM_URL || "";
     <section>
       <h2>Topics</h2>
       <div class="taglist">
-        {topics.map((e) => <a href={`/topic/${entitySlug(e.name)}`}>{e.name} <span class="muted">{e.storyIds.length}</span></a>)}
+        {topics.map((e) => <a href={hubHref(e.name) || `/topic/${entitySlug(e.name)}`}>{e.name} <span class="muted">{e.storyIds.length}</span></a>)}
       </div>
     </section>
   )}

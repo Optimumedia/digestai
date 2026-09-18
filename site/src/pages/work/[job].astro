@@ -1,0 +1,141 @@
+---
+/* One page per job in AI at Work (/work/get-customers, /work/make-content, /work/sell, /work/support,
+   /work/run-the-business): the task-shaped address a small business searches for. The cards and the
+   tools are the same ones /work and /work/tools show, filtered to the job; the page is noindex until
+   the job has three cards or three tools behind it (indexing.mjs, jobIndexable). */
+import Work from "../../layouts/Work.astro";
+import WorkCard from "../../components/WorkCard.astro";
+import { dateTime, formatDate, meta } from "../../lib/data";
+import { COST_LABELS, JOBS, jobThin, sectionStories, toolSlug, work, workWeeks, weekStories, type Job } from "../../lib/work";
+
+export function getStaticPaths() {
+  return JOBS.map((job) => ({ params: { job: job.slug }, props: { job } }));
+}
+
+const { job } = Astro.props as { job: Job };
+const cards = sectionStories.filter((s) => s.workCard.jobs.includes(job.key));
+const shown = cards.slice(0, 24);
+const tools = work.tools.filter((t) => t.jobs.includes(job.key));
+const thisWeek = workWeeks[0];
+const weekIds = new Set(thisWeek ? weekStories(thisWeek).changed.map((s) => s.id) : []);
+const newThisWeek = cards.filter((s) => weekIds.has(s.id));
+const weekTools = new Set(newThisWeek.map((s) => s.workCard.tool.toLowerCase())).size;
+const free = cards.filter((s) => ["free", "free tier", "included"].includes(s.workCard.costKind)).length;
+const latest = cards[0];
+const updated = latest?.updatedAt || latest?.firstPublishedAt || work.generatedAt;
+const others = JOBS.filter((j) => j.key !== job.key);
+const plural = (n: number, w: string, ws = `${w}s`) => `${n} ${n === 1 ? w : ws}`;
+
+const heading = `AI tools ${job.task}`;
+const title = `${heading}: what changed this week`;
+const description = (cards.length
+  ? `${heading}, from the news: ${plural(cards.length, "practical item")} across ${plural(tools.length, "tool")}, each with what it does, what it costs and the catch. Latest: ${cards.slice(0, 3).map((s) => s.workCard.tool).join(", ")}.`
+  : `${heading}: what changed this week for small teams, with what each tool does, what it costs and the catch.`).slice(0, 300);
+const url = `${meta.siteUrl}/work/${job.slug}`;
+const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: title,
+    description,
+    url,
+    dateModified: updated,
+    isPartOf: { "@type": "WebSite", name: "Digest AI", url: meta.siteUrl },
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: heading,
+    numberOfItems: shown.length,
+    itemListElement: shown.map((s, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      name: `${s.workCard.tool}: ${s.workCard.whatItDoes}`,
+      url: `${meta.siteUrl}/story/${s.slug}`,
+    })),
+  },
+];
+const cost = (c: string | null, kind: string | null) => (c && c !== "unknown" ? c : COST_LABELS[kind || "unknown"]);
+---
+
+<Work title={title} description={description} current="job" jsonLd={jsonLd} thin={jobThin(job.key)}>
+  <header class="page-head work-head">
+    <div class="eyebrow">Practical AI · {job.label}</div>
+    <h1>{heading}</h1>
+    <p class="intro">{job.covers}</p>
+    <p>
+      An item lands here when the desk covers a tool or a new feature a small team can use for this job. The job comes
+      from who the tool is for and what it does, never from payment: nothing here is sponsored, and nothing has been tested
+      by us. Every card gives the cost and the catch as the coverage reported them, newest first.
+    </p>
+    <p class="mono muted">Updated <time datetime={updated} data-static>{dateTime(updated)}</time></p>
+  </header>
+
+  <section class="work-lead" aria-labelledby="week-h">
+    <h2 id="week-h">What changed this week</h2>
+    {newThisWeek.length > 0 ? (
+      <>
+        <p class="work-lead-line">
+          {plural(newThisWeek.length, "new item")} across {plural(weekTools, "tool")} this week.
+          {free > 0 && <> {free} of the {cards.length} on this page cost nothing to start.</>}
+        </p>
+        <ul class="work-lead-list">
+          {newThisWeek.slice(0, 5).map((s) => (
+            <li>
+              <a href={`/story/${s.slug}`}><b>{s.workCard.tool}</b> {s.workCard.whatItDoes}</a>
+              <span class="mono muted">{s.workCard.effort || "effort not stated"} · {cost(s.workCard.cost, s.workCard.costKind)}</span>
+            </li>
+          ))}
+        </ul>
+      </>
+    ) : (
+      <p class="work-lead-line">
+        Nothing new for this job this week.
+        {latest ? <> The latest item is from {formatDate(latest.firstPublishedAt || latest.updatedAt, { day: "numeric", month: "long" })}: <a href={`/story/${latest.slug}`}>{latest.workCard.tool}</a>.</> : <> Items appear as soon as the desk covers something a small team can use for it.</>}
+      </p>
+    )}
+    {thisWeek && <a class="eyebrow" href={`/work/week/${thisWeek}`}>The whole week's playbook →</a>}
+  </section>
+
+  {shown.length > 0 && (
+    <section aria-labelledby="cards-h">
+      <div class="dayhead">
+        <h2 id="cards-h">{job.label}: {plural(cards.length, "item")}</h2>
+        {cards.length > shown.length && <span class="eyebrow">newest {shown.length}</span>}
+      </div>
+      <div class="workgrid">
+        {shown.map((s) => <WorkCard story={s} card={s.workCard} level="h3" />)}
+      </div>
+    </section>
+  )}
+
+  {tools.length > 0 && (
+    <section aria-labelledby="tools-h">
+      <div class="dayhead"><h2 id="tools-h">{plural(tools.length, "tool")} for this job</h2><a class="eyebrow" href="/work/tools">Tool directory →</a></div>
+      <ul class="coverage jobtools">
+        {tools.map((t) => (
+          <li>
+            <a class="t" href={`/work/tools#${toolSlug(t)}`}><b>{t.tool}</b>{t.maker && <span class="muted"> by {t.maker}</span>}: {t.whatItDoes}</a>
+            <span class="mono muted">{cost(t.cost, t.costKind)}{t.lastChange && <> · last change {formatDate(t.lastChange, { day: "numeric", month: "short" })}</>}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  {cards.length === 0 && tools.length === 0 && (
+    <p class="muted" style="padding: 24px 0">
+      Nothing for this job yet. The <a href="/work">section front</a> and the <a href="/work/tools">tool directory</a> have everything covered so far.
+    </p>
+  )}
+
+  <nav class="jobnav" aria-label="Other jobs">
+    <div class="dayhead"><h2>Other jobs</h2></div>
+    <ul class="taglist">
+      {others.map((j) => <li><a href={`/work/${j.slug}`} title={j.blurb}>{j.label}</a></li>)}
+    </ul>
+    <p class="mono muted">
+      <a href="/work">This week in AI at Work</a> · <a href="/work/tools">Tool directory</a>{thisWeek && <> · <a href={`/work/week/${thisWeek}`}>Weekly playbook</a></>}
+    </p>
+  </nav>
+</Work>

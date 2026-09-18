@@ -51,7 +51,10 @@ const jsonLd = {
   {rows.length > 0 && (
     <>
       <p class="mono muted work-note">
-        {free} of {rows.length} can be started without paying{jobs.length > 0 && <> · {jobs.map((j) => `${j.count} ${j.label.toLowerCase()}`).join(" · ")}</>}
+        {free} of {rows.length} can be started without paying{jobs.length > 0 && <> · {jobs.map((j, i) => <>{i > 0 && " · "}<a href={`/work/${j.slug}`}>{j.count} {j.label.toLowerCase()}</a></>)}</>}
+      </p>
+      <p class="workjob-pages">
+        By job: {JOBS.map((j, i) => <>{i > 0 && " · "}<a href={`/work/${j.slug}`}>AI tools {j.task}</a></>)}
       </p>
       <div class="tablewrap">
         <table class="tracker">
@@ -85,7 +88,7 @@ const jsonLd = {
               <div><dt>Who for</dt><dd>{whoLine(r.whoFor)}</dd></div>
               <div><dt>Cost</dt><dd>{r.cost && r.cost !== "unknown" ? r.cost : COST_LABELS[r.costKind || "unknown"]}</dd></div>
               {r.effort && <div><dt>Effort</dt><dd>{r.effort}</dd></div>}
-              <div><dt>Jobs</dt><dd>{r.jobs.map((j) => JOB_LABELS[j] || j).join(", ") || "not classified"}</dd></div>
+              <div><dt>Jobs</dt><dd>{r.jobs.length ? r.jobs.map((j, i) => { const job = JOBS.find((x) => x.key === j); return <>{i > 0 && ", "}{job ? <a href={`/work/${job.slug}`}>{job.label}</a> : JOB_LABELS[j] || j}</>; }) : "not classified"}</dd></div>
             </dl>
             {r.watchOut && <p class="workwatch"><b>Watch out</b> {r.watchOut}</p>}
             <p class="mono muted">

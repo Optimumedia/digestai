@@ -1,6 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
-import { trackers, formatDate, entitySlug, topicSlugs, topicInfo } from "../lib/data";
+import { trackers, formatDate, entitySlug, hubHref, topicInfo } from "../lib/data";
 
 const intro = topicInfo["page-models"]?.description || "";
 const rows = trackers.models;
@@ -20,7 +20,7 @@ const jsonLd = {
     <div class="eyebrow">Tracker</div>
     <h1>AI model releases</h1>
     {intro && <p class="intro">{intro}</p>}
-    <p>Every model launch or new version the news desk covered, newest first. Each row links to the story and its sources. Extracted automatically; corrections welcome.</p>
+    <p>Every model launch or new version the news desk covered, newest first. Each model has its own page with its specs and every story about it; each row also links to the launch story and its sources. Extracted automatically; corrections welcome.</p>
   </header>
   {rows.length === 0 && <p class="muted" style="padding: 24px 0">No releases recorded yet. Rows appear as stories about new models are published.</p>}
   <div class="tablewrap">
@@ -30,8 +30,8 @@ const jsonLd = {
         {rows.map((r) => (
           <tr>
             <td class="num">{formatDate(r.date, { day: "numeric", month: "short", year: "numeric" })}</td>
-            <td><b>{topicSlugs.has(entitySlug(r.name)) ? <a href={`/topic/${entitySlug(r.name)}`}>{r.name}</a> : r.name}</b>{r.link && <a class="mono muted" href={r.link} rel="noopener nofollow" target="_blank" title="Official page"> ↗</a>}</td>
-            <td>{r.lab && topicSlugs.has(entitySlug(r.lab)) ? <a href={`/topic/${entitySlug(r.lab)}`}>{r.lab}</a> : (r.lab || "")}</td>
+            <td><b><a href={`/models/${entitySlug(r.name)}`}>{r.name}</a></b>{r.link && <a class="mono muted" href={r.link} rel="noopener nofollow" target="_blank" title="Official page"> ↗</a>}</td>
+            <td>{r.lab && hubHref(r.lab) ? <a href={hubHref(r.lab)!}>{r.lab}</a> : (r.lab || "")}</td>
             <td>{kinds[r.kind] || r.kind}</td>
             <td>{labels[r.availability] ?? r.availability}</td>
             <td>{r.license || ""}</td>

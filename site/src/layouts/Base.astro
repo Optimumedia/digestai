@@ -47,7 +47,9 @@ const site = (Astro.site?.toString() || meta.siteUrl).replace(/\/$/, "");
 const cleanPath = Astro.url.pathname.replace(/\.html$/, "").replace(/\/index$/, "/").replace(/(.)\/$/, "$1");
 const url = canonical || new URL(cleanPath, site).toString();
 const ogImage = image || `${site}/og-default.png`;
-const fullTitle = title === "Digest AI" ? "Digest AI: AI news today, digested and sourced" : `${title} — Digest AI`;
+// The home page owns the brand; /today owns "AI news today" (its title and H1 lead with it), so the
+// two never compete for the same search.
+const fullTitle = title === "Digest AI" ? "Digest AI: AI news, digested and sourced every hour" : `${title} — Digest AI`;
 // Broadcast-style ticker: the hottest stories interleaved with the newest, no repeats. Eight links,
 // rendered after the main content (CSS puts it back under the masthead) so the first thing a
 // crawler reads on every page is the page itself, not the same eight headlines.

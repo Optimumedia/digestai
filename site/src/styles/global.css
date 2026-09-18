@@ -514,6 +514,12 @@ table.sortable th:hover { color: var(--ink); }
 .factbox dt { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
 .factbox dd { margin: 0; font-size: 15px; }
 .factbox p { margin: 10px 0 0; font-size: 13.5px; }
+.factbox dd a { overflow-wrap: anywhere; }
+/* Story page: the one line to a tracked model's page. */
+.model-line { font-family: var(--font-mono); font-size: 13px; color: var(--ink-3); margin: 12px 0; max-width: 68ch; }
+.model-line a { font-weight: 600; }
+/* /today: when the briefing was last rebuilt. */
+.updated-line { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink-3); margin: 6px 0 0; }
 .faq { margin-top: 28px; max-width: 68ch; }
 .faq details { border-top: 1px solid var(--line); padding: 10px 0; }
 .faq summary { font-weight: 600; cursor: pointer; }
@@ -884,6 +890,13 @@ table.sortable th:hover { color: var(--ink); }
 @media (max-width: 640px) { .workjob-note { margin-left: 0; } }
 
 .work-also { margin-top: 8px; }
+/* Links to the one-page-per-job addresses (/work/<job>), under the in-page filter and on job pages. */
+.workjob-pages { font-size: 14px; color: var(--ink-3); margin: 4px 0 8px; }
+.workjob-pages a { font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.workjob-pages a:hover, .workjob-pages a[data-active] { color: var(--accent); }
+.jobnav { margin: 28px 0 32px; }
+.jobnav ul.taglist { list-style: none; padding: 0; margin: 12px 0; }
+.jobnav p { margin: 8px 0 0; }
 .worktools { margin: 8px 0 32px; }
 .worktool { padding: 18px 0; border-top: 1px solid var(--line); scroll-margin-top: 20px; }
 .worktool h3 { font-size: 22px; margin-bottom: 6px; }
