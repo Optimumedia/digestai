@@ -134,7 +134,7 @@ const jsonLd = {
       {story.whyItMatters && <aside class="why"><b>Why it matters</b>{story.whyItMatters}</aside>}
 
       {modelLinks.length > 0 && (
-        <p class="model-line">{modelLinks.map((m, i) => <>{i > 0 && " · "}Model page: <a href={`/models/${m.slug}`}>{m.name} →</a></>)}</p>
+        <p class="model-line">{modelLinks.length === 1 ? "Model page: " : "Model pages: "}{modelLinks.map((m, i) => <>{i > 0 && " · "}<a href={`/models/${m.slug}`}>{m.name} →</a></>)}</p>
       )}
 
       {story.sourceNotes && (story.sourceNotes.differ?.length || story.sourceNotes.agree) && (

@@ -42,7 +42,7 @@ const plural = (n: number, w: string, ws = `${w}s`) => `${n} ${n === 1 ? w : ws}
 // The plain-English summary is built from the tracker's own fields, so it only says what is known.
 const lede = [
   `${name} is ${/^[aeiou]/i.test(kind) ? "an" : "a"} ${kind}${lab ? ` from ${lab}` : ""}${firstSeen ? `, first covered on ${formatDate(firstSeen)}` : ""}.`,
-  availabilityKey && availability[availabilityKey] ? `It is available ${availability[availabilityKey]}${license ? ` under the ${license} licence` : ""}.` : license ? `It is released under the ${license} licence.` : "",
+  availabilityKey && availability[availabilityKey] ? `It is available ${availability[availabilityKey]}${license ? ` (licence: ${license})` : ""}.` : license ? `Licence: ${license}.` : "",
   context ? `Its context window is ${context}.` : "",
 ].filter(Boolean).join(" ");
 const specWords = [context && "context window", license && "licence"].filter(Boolean) as string[];
