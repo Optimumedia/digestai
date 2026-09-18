@@ -21,7 +21,8 @@ LAUNCH_WORDS = re.compile(
     r"roll(?:s|ed)? out|ship(?:s|ped)?|open-sourc(?:e|es|ed)|drop(?:s|ped)?|adds|now available|available)\b", re.I)
 COMPARISON = re.compile(r"\bvs\.?\b|\bversus\b", re.I)
 FILE_SUFFIX = re.compile(r"(?:[-_. ]?gguf\b.*|\.(?:safetensors|bin|onnx))$", re.I)
-ORG_WORDS = re.compile(r"\b(?:ai|inc|labs?|platforms|technologies|corp(?:oration)?|ltd|llc|research|machine learning)\b\.?", re.I)
+ORG_WORDS = re.compile(r"\b(?:ai|inc|labs?|platforms|technologies|corp(?:oration)?|ltd|llc|research|machine learning|"
+                       r"s\.?a\.?s?|gmbh|ag|plc|bv|nv|pte|pty|srl|holdings?)\b\.?", re.I)
 
 
 def _plain(text: str) -> str:

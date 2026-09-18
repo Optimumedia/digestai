@@ -294,6 +294,7 @@ export function storiesByWeek(): Map<string, Story[]> {
 
 export function money(n: number | null | undefined): string {
   if (!n) return "undisclosed";
+  if (n >= 1e12) return `$${(n / 1e12).toFixed(n >= 1e13 ? 0 : 1)}T`;
   if (n >= 1e9) return `$${(n / 1e9).toFixed(n >= 1e10 ? 0 : 1)}B`;
   if (n >= 1e6) return `$${Math.round(n / 1e6)}M`;
   return `$${Math.round(n / 1e3)}K`;
