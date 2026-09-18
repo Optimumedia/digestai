@@ -18,7 +18,7 @@ This module holds three things, all pure functions so they can be tested without
 from __future__ import annotations
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from .trackers import _plain, org_key
 
@@ -334,8 +334,6 @@ def build_tools(stories: list[dict]) -> list[dict]:
 
 def week_key(iso: str | None) -> str:
     """ISO week key like 2026-W38, the same one intros.py and the site use."""
-    from datetime import datetime, timezone
-
     d = datetime.fromisoformat(iso.replace("Z", "+00:00")) if iso else datetime.now(timezone.utc)
     y, w, _ = d.isocalendar()
     return f"{y}-W{w:02d}"

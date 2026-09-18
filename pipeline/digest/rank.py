@@ -275,10 +275,10 @@ def update_source_weights(conn) -> None:
     overall = sum(means.values()) / len(means)
     if overall <= 0:
         return
-    for sid, avg in means.items():
-        rel = min(2.0, avg / overall)
-        conn.execute(update(db.sources).where(db.sources.c.id == sid)
-                     .values(engagement_ema=db.sources.c.engagement_ema * 0.7 + rel * 0.3))
+    # One batched statement for every source, not a round trip each.
+    conn.execute(update(db.sources).where(db.sources.c.id == bindparam("sid"))
+                 .values(engagement_ema=db.sources.c.engagement_ema * 0.7 + bindparam("rel") * 0.3),
+                 [{"sid": sid, "rel": min(2.0, avg / overall)} for sid, avg in means.items()])
 
 
 def is_discovery_term(term: str) -> bool:

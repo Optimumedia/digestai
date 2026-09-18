@@ -49,7 +49,8 @@ def _midnight(day: str) -> datetime:
     return datetime.combine(date.fromisoformat(day), time.min, tzinfo=timezone.utc)
 
 
-def _days(first: str, last: str) -> list[str]:
+def day_range(first: str, last: str) -> list[str]:
+    """Every ISO day from `first` to `last`, both included."""
     d, end, out = date.fromisoformat(first), date.fromisoformat(last), []
     while d <= end:
         out.append(d.isoformat())
@@ -82,7 +83,7 @@ def google_days(path: Path | None = None) -> dict[str, tuple]:
     if not got:
         return {}
     last = max(data.get("end") or "", max(got))
-    return {d: got.get(d, (0, 0, None, 0)) for d in _days(min(got), last)}
+    return {d: got.get(d, (0, 0, None, 0)) for d in day_range(min(got), last)}
 
 
 def google_values(value: tuple, old: dict | None = None) -> dict:
@@ -131,7 +132,7 @@ def update(eng: Engine, now: datetime | None = None, google: dict[str, tuple] | 
             return _export(conn)
 
         recent = {(now - timedelta(days=i)).date().isoformat() for i in range(RECOMPUTE_DAYS)}
-        compute = sorted(d for d in _days(begin, today) if d not in existing or d in recent)
+        compute = sorted(d for d in day_range(begin, today) if d not in existing or d in recent)
         agg: dict[str, dict] = {}
 
         def put(day, col: str, value) -> None:

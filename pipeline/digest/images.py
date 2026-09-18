@@ -20,12 +20,14 @@ import shutil
 import textwrap
 import time
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 
 import requests
 from PIL import Image, ImageDraw, ImageFont
 
 from . import config, media
+from .textutil import slugify
 
 log = logging.getLogger("digest.images")
 
@@ -54,7 +56,9 @@ def _save_card(img: Image.Image, path: Path) -> None:
     img.quantize(CARD_COLORS, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE).save(path, optimize=True)
 
 
+@lru_cache(maxsize=None)
 def _font(name: str, size: int, weight: int, opsz: int | None = None):
+    """Loaded once per (face, size, axes): a run renders hundreds of cards with the same few fonts."""
     f = ImageFont.truetype(str(FONTS / name), size)
     try:
         axes = [weight] + ([opsz] if opsz is not None else [])
@@ -309,8 +313,6 @@ def run(fetch=None, now: datetime | None = None) -> dict:
                 log.warning("thread card failed for %s: %s", t["slug"], exc)
     entities_file = config.SITE_DATA_DIR / "entities.json"
     if entities_file.exists():
-        from .textutil import slugify
-
         for e in json.loads(entities_file.read_text(encoding="utf-8")):
             if len(e.get("storyIds") or []) < 3:
                 continue

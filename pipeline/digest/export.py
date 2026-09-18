@@ -155,19 +155,21 @@ def _full_text(conn, story_rows, art_rows) -> dict[int, str]:
     return cache.article_bodies(conn, pick)
 
 
-def load_rows(conn, since) -> tuple[list, list, dict[int, str], list]:
+def load_rows(conn, since, stories: dict | None = None, articles: dict | None = None) -> tuple[list, list, dict[int, str], list]:
     """Published stories updated since `since` (newest first) and their published articles (newest
     first), as one object per row with the columns the export uses, plus the text each story page
     shows, plus the overflow members (coverage of a full story, cluster.py: counted, never shown,
     so their text is not read). Read through the runner's copy (cache.py): only rows written since
     the previous run come from the database, so a run with a few new stories reads kilobytes, not
-    megabytes."""
-    story_mirror = [s for s in cache.stories(conn).values()
+    megabytes. `stories` and `articles` are the mirrors when the caller already holds them."""
+    stories = cache.stories(conn) if stories is None else stories
+    articles = cache.articles(conn) if articles is None else articles
+    story_mirror = [s for s in stories.values()
                     if s.status == "published" and (db.as_utc(s.updated_at) or since) >= since]
     # Postgres order for "updated_at desc": newest first; ties by id so the order is stable.
     story_mirror.sort(key=lambda s: (db.as_utc(s.updated_at).timestamp(), s.id), reverse=True)
     ids = {s.id for s in story_mirror}
-    members = [a for a in cache.articles(conn).values() if a.status in ("published", "overflow") and a.story_id in ids]
+    members = [a for a in articles.values() if a.status in ("published", "overflow") and a.story_id in ids]
     art_mirror = [a for a in members if a.status == "published"]
     # "published_at desc" as Postgres sorts it: articles without a date first, then newest first.
     art_mirror.sort(key=lambda a: (a.published_at is None, db.as_utc(a.published_at).timestamp() if a.published_at else 0, a.id),
@@ -213,13 +215,14 @@ def run() -> dict:
         }
         # Supabase's free plan counts every byte read (5 GB a month): embeddings are never exported,
         # article text is read only for the one article per story the page shows, and rows the
-        # runner already has are not read again (load_rows).
-        story_rows, art_rows, full_text, overflow_rows = load_rows(conn, since)
+        # runner already has are not read again (load_rows). The two mirrors are read once here and
+        # handed on: nothing below writes to them, so a second read would only repeat the queries.
+        story_index, article_index = cache.stories(conn), cache.articles(conn)
+        story_rows, art_rows, full_text, overflow_rows = load_rows(conn, since, story_index, article_index)
         sent = {n.date: {"publicUrl": n.public_url, "subject": n.subject}
                 for n in conn.execute(select(db.newsletters.c.date, db.newsletters.c.public_url, db.newsletters.c.subject)).all()}
         # Stories folded into another one keep their address as a redirect (merge.py); their slugs
         # are read once and kept. Pairs that may be one event go to the dashboard (quality.py).
-        story_index = cache.stories(conn)
         merged_titles = cache.story_titles(conn, [s for s in story_index.values() if s.status == "merged" and s.redirect_to])
         suspects = list(cache.SUSPECTS.get(conn).get("pairs") or [])
         # Only threads a story points at can get a page, so only those are read.
@@ -229,7 +232,8 @@ def run() -> dict:
         t_text = cache.thread_text(conn, thread_meta)
         thread_rows = [cache.merged(t, t_text.get(t.id)) for t in thread_meta if t.id in t_text]
         # Stories that just aged out of the window keep a small page (archive.py).
-        archived = archive.update(conn, now, since, sources, [s.strip() for s in rules.get("unpublish") or [] if s])
+        archived = archive.update(conn, now, since, sources, [s.strip() for s in rules.get("unpublish") or [] if s],
+                                  stories=story_index, articles=article_index)
 
     by_story: dict[int, list] = {}
     for a in art_rows:

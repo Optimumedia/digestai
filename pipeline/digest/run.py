@@ -1,6 +1,7 @@
 """Entry point: python -m digest.run [all|fetch|extract|gate|enrich|cluster|rank|export]"""
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import sys
@@ -8,39 +9,23 @@ import time
 
 from sqlalchemy import insert, update
 
-from . import admin, audio, backup, cache, cluster, db, discuss, enrich, export, extract, fetch, gate, images, indexnow, media, newsletter, notify, pulse, gsc, intros, push, rank, repair, social, threads, tidy, topics, upgrade
+from . import cache, db
 
-STEPS = {
-    "admin": admin.run,
-    "media": media.run,
-    "backup": backup.run,
-    "notify": notify.run,
-    "indexnow": indexnow.run,
-    "topics": topics.run,
-    "intros": intros.run,
-    "push": push.run,
-    "audio": audio.run,
-    "social": social.run,
-    "gsc": gsc.run,
-    "tidy": tidy.run,
-    "fetch": fetch.run,
-    "extract": extract.run,
-    "gate": gate.run,
-    "enrich": enrich.run,
-    "cluster": cluster.run,
-    "threads": threads.run,
-    "discuss": discuss.run,
-    "pulse": pulse.run,
-    "rank": rank.run,
-    "upgrade": upgrade.run,
-    "repair": repair.run,
-    "export": export.run,
-    "images": images.run,
-    "newsletter": newsletter.run,
-}
-# "upgrade" comes after "rank", which is what tells it which stories turned out to matter, and
-# before "export", so a rewritten digest reaches the site in the same run.
+log = logging.getLogger("digest")
+
+# The steps, in the order a full run takes them. "upgrade" comes after "rank", which is what tells
+# it which stories turned out to matter, and before "export", so a rewritten digest reaches the site
+# in the same run. Each step is the run() of the module of the same name, imported when it starts:
+# a run of one step (the workflow's export after an early stop) does not load the other 25 modules,
+# and extract's HTML libraries (trafilatura, ~0.6 s) are loaded by the extract step alone.
 ORDER = ["fetch", "extract", "gate", "enrich", "cluster", "threads", "discuss", "pulse", "rank", "upgrade", "repair", "export", "push", "topics", "intros", "images", "audio", "media", "social", "newsletter", "gsc", "tidy", "backup", "admin", "notify", "indexnow"]
+
+
+def step_fn(name: str):
+    return importlib.import_module(f".{name}", __package__).run
+
+
+STEPS = {name: (lambda name=name: step_fn(name)()) for name in ORDER}
 
 
 def main(argv: list[str]) -> int:
@@ -63,7 +48,7 @@ def main(argv: list[str]) -> int:
         try:
             stats = STEPS[step]()
         except Exception:
-            logging.getLogger("digest").exception("step %s crashed", step)
+            log.exception("step %s crashed", step)
             stats = {"crashed": True}
         stats["seconds"] = round(time.time() - t0, 1)
         # Estimated kilobytes read from the database (the free plan meters them); the first step
@@ -73,7 +58,7 @@ def main(argv: list[str]) -> int:
         summary[step] = stats
         with eng.begin() as conn:
             conn.execute(update(db.runs).where(db.runs.c.id == run_id).values(finished_at=db.utcnow(), stats=stats))
-        logging.getLogger("digest").info("%s: %s", step, json.dumps(stats, default=str))
+        log.info("%s: %s", step, json.dumps(stats, default=str))
         # Saved after every step: a run stopped by the time limit still leaves a usable copy.
         cache.save_all()
     print(json.dumps(summary, indent=2, default=str))

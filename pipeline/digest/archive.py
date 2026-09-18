@@ -139,11 +139,13 @@ def _rebuild(conn, since: datetime, sources: dict, now: datetime) -> dict[str, d
     return out
 
 
-def update(conn, now: datetime, since: datetime, sources: dict, unpublished: list[str] | None = None) -> dict:
+def update(conn, now: datetime, since: datetime, sources: dict, unpublished: list[str] | None = None,
+           stories: dict | None = None, articles: dict | None = None) -> dict:
     """Called by the export with this run's window start. Stories whose updated_at moved out of the
     window since the previous run are appended; their rows are still in the runner's copy of the
     mirror (kept ten days past the window) and their texts were read last run, so this costs
-    nothing to read in the normal case."""
+    nothing to read in the normal case. `stories` and `articles`: the mirrors, when the caller
+    already read them this transaction."""
     data = _load()
     stats = {"added": 0, "removed": 0, "total": 0, "rebuilt": False}
     if not data.get("windowStart"):
@@ -157,12 +159,14 @@ def update(conn, now: datetime, since: datetime, sources: dict, unpublished: lis
         stats["rebuilt"] = True
         stats["added"] = len(data["stories"])
     else:
-        leaving = [s for s in cache.stories(conn).values()
+        stories = cache.stories(conn) if stories is None else stories
+        leaving = [s for s in stories.values()
                    if s.status == "published" and prev <= (db.as_utc(s.updated_at) or now) < since]
         if leaving:
             texts = cache.story_text(conn, leaving)
             ids = {s.id for s in leaving}
-            arts = [a for a in cache.articles(conn).values() if a.status == "published" and a.story_id in ids]
+            articles = cache.articles(conn) if articles is None else articles
+            arts = [a for a in articles.values() if a.status == "published" and a.story_id in ids]
             a_text = cache.article_text(conn, arts)
             by_story: dict[int, list] = {}
             for a in sorted(arts, key=lambda a: (a.published_at is None, db.as_utc(a.published_at) if a.published_at else now), reverse=True):
