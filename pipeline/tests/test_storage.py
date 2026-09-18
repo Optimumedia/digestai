@@ -50,6 +50,7 @@ class FakeGitHub:
         self.uploaded_bytes = 0
         self.log: list[str] = []
         self.refuse: dict[str, int] = {}  # asset name -> how many more times the upload answers 500
+        self.limit = 1000  # assets GitHub takes per release
 
     def _id(self) -> int:
         self.next_id += 1
@@ -92,6 +93,8 @@ class FakeGitHub:
                 return Resp(500, {"message": "Error creating asset temp dir"})
             if any(a["name"] == name and a["release_id"] == rid for a in self.assets.values()):
                 return Resp(422, {"errors": [{"code": "already_exists"}]}, text='{"errors":[{"code":"already_exists"}]}')
+            if sum(a["release_id"] == rid for a in self.assets.values()) >= self.limit:
+                return Resp(422, {"message": "Validation Failed"}, text='{"message":"Validation Failed"}')
             tag = next(t for t, r in self.releases.items() if r["id"] == rid)
             aid = self._id()
             self.assets[aid] = {"id": aid, "name": name, "release_id": rid, "data": bytes(data), "content_type": headers["Content-Type"],
@@ -186,6 +189,31 @@ def test_media_uploads_are_bounded_recorded_once_and_survive_a_lost_manifest():
         assert gh.uploads == 13 and st["uploaded"] == 1 and st["recovered"] == 12 and st["assets"] == 13, st
         indexes = [a for a in gh.assets.values() if a["name"] == "index.json"]
         assert len(indexes) == 1 and len(json.loads(indexes[0]["data"])["assets"]) == 13
+
+
+def test_media_store_moves_to_a_new_release_when_the_week_is_full():
+    with sandbox():
+        gh = FakeGitHub()
+        gh.limit = 4
+        saved = media.ASSETS_PER_RELEASE
+        media.ASSETS_PER_RELEASE = 3
+        try:
+            for i in range(5):
+                media.queue(f"og-s-{i}.png", b"x" * 100)
+            st = media.run(session=gh, now=NOW)
+            assert st["uploaded"] == 5 and st["store"] == "ok", st
+            tags = {media.manifest()["assets"][f"og-s-{i}.png"][0] for i in range(5)}
+            assert tags == {"media-2026-W38", "media-2026-W38-2"}, tags
+            # The release fills with files the manifest does not know about: GitHub's refusal moves it on.
+            media.ASSETS_PER_RELEASE = 99
+            for i in range(5, 12):
+                media.queue(f"og-s-{i}.png", b"x" * 100)
+            st = media.run(session=gh, now=NOW)
+            assert st["uploaded"] == 7 and not st.get("failed"), st
+            assert media.url("og-s-11.png").startswith("https://github.com/o/r/releases/download/media-2026-W38-")
+            assert all(len([a for a in gh.assets.values() if a["release_id"] == r["id"]]) <= 4 for r in gh.releases.values())
+        finally:
+            media.ASSETS_PER_RELEASE = saved
 
 
 def test_media_falls_back_to_pages_when_the_store_is_down_or_unconfigured():

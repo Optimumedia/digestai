@@ -42,6 +42,7 @@ UPLOAD_TIME_BUDGET_SECONDS = 240
 UPLOAD_RETRIES = 2               # more tries for one asset after a server-side (5xx) answer
 RETRY_PAUSE_SECONDS = 2.0
 MAX_UPLOAD_FAILURES_PER_RUN = 3  # assets GitHub refused before the run stops trying
+ASSETS_PER_RELEASE = 990         # GitHub's limit is 1,000 per release; room is left for index.json
 API = "https://api.github.com"
 UPLOADS = "https://uploads.github.com"
 CONTENT_TYPES = {".png": "image/png", ".webp": "image/webp", ".jpg": "image/jpeg", ".mp3": "audio/mpeg", ".json": "application/json"}
@@ -71,6 +72,21 @@ def repo() -> str:
 def release_tag(now: datetime | None = None) -> str:
     y, w, _ = (now or datetime.now(timezone.utc)).isocalendar()
     return f"media-{y}-W{w:02d}"
+
+
+def open_tag(now: datetime | None = None) -> str:
+    """The week's release with room left: GitHub takes at most 1,000 assets per release, and a busy
+    week fills one (W38 did in five days), so the week continues in media-<year>-W<week>-2, -3..."""
+    base = release_tag(now)
+    counts: dict[str, int] = {}
+    for entry in manifest()["assets"].values():
+        counts[entry[0]] = counts.get(entry[0], 0) + 1
+    full = set(manifest().get("full") or [])
+    tag, n = base, 1
+    while tag in full or counts.get(tag, 0) >= ASSETS_PER_RELEASE:
+        n += 1
+        tag = f"{base}-{n}"
+    return tag
 
 
 def asset_url(tag: str, name: str, repository: str | None = None) -> str:
@@ -431,19 +447,36 @@ def run(session=None, now: datetime | None = None) -> dict:
         t0 = time.time()
         budget = MAX_UPLOAD_MB_PER_RUN * 1048576
         try:
-            tag = release_tag(now)
-            rel = None
+            tag, rel, used = None, None, set()
+
+            def release_for(t: str) -> dict:
+                return store.release(t, f"Media {t[6:]}", "Share images, thumbnails and spoken briefings for digestai.news, "
+                                     "uploaded by the pipeline (pipeline/digest/media.py). Not a software release.")
+
             for p in list(files):
                 if stats["uploaded"] >= MAX_UPLOADS_PER_RUN or time.time() - t0 > UPLOAD_TIME_BUDGET_SECONDS:
                     break
                 data = p.read_bytes()
                 if stats["uploaded"] and budget - len(data) < 0:
                     break
+                if open_tag(now) != tag:  # the week's release filled up: go on in the next one
+                    tag, rel = open_tag(now), None
                 if rel is None:
-                    rel = store.release(tag, f"Media {tag[6:]}", "Share images, thumbnails and spoken briefings for digestai.news, "
-                                        "uploaded by the pipeline (pipeline/digest/media.py). Not a software release.")
+                    rel = release_for(tag)
                 try:
-                    taken = store.upload(rel["id"], p.name, data)
+                    try:
+                        taken = store.upload(rel["id"], p.name, data)
+                    except UploadError as exc:
+                        # A 422 that is not "already exists" is a release at GitHub's 1,000-asset limit
+                        # (files the manifest does not know about count too): mark it full and try this
+                        # file once more in the next release.
+                        if "HTTP 422" not in str(exc) or tag in manifest().setdefault("full", []):
+                            raise
+                        manifest()["full"].append(tag)
+                        log.info("media store: %s is full, continuing in %s", tag, open_tag(now))
+                        tag = open_tag(now)
+                        rel = release_for(tag)
+                        taken = store.upload(rel["id"], p.name, data)
                 except UploadError as exc:
                     # One asset refused: it stays pending for the next run, the others still go up.
                     # A run where nothing goes up is a store that is down, whatever it answers.
@@ -456,14 +489,15 @@ def run(session=None, now: datetime | None = None) -> dict:
                 if taken:
                     manifest()["assets"][p.name] = [tag, len(data), now.isoformat()]
                     manifest()["lastUploadAt"] = now.isoformat()
+                    used.add(tag)
                     stats["uploaded"] += 1
                     budget -= len(data)
                     stats["uploadedMB"] = round(stats["uploadedMB"] + len(data) / 1048576, 2)
                     files.remove(p)
                     p.unlink(missing_ok=True)
-            if stats["uploaded"]:
-                upload_index(store, tag, now)
-            elif stats.get("failed", 0) >= MAX_UPLOAD_FAILURES_PER_RUN:
+            for t in sorted(used):
+                upload_index(store, t, now)
+            if not stats["uploaded"] and stats.get("failed", 0) >= MAX_UPLOAD_FAILURES_PER_RUN:
                 stats["store"] = "unreachable"
             if publish_archive(store, now):
                 stats["archive"] = "published"
