@@ -204,6 +204,18 @@ def test_store_export_and_issue_embedding():
         config.CACHE_DIR, config.SITE_DATA_DIR = old
 
 
+def test_budget_and_reader_wording_for_early_limits_and_zero_views():
+    b = {"quotaMB": 5120, "projectedMB": None, "readMB": None, "exhausted": [{"provider": "gemini", "requests": 26, "budget": 54}]}
+    assert morning.s_budget(b) == ("Gemini hit its provider's limit yesterday after 26 requests of the 54 the pipeline allows it, "
+                                   "so later summaries went to the other models."), morning.s_budget(b)
+    b["exhausted"][0]["requests"] = 54
+    assert morning.s_budget(b).startswith("Gemini used all of its free allowance yesterday (54 of 54 requests)")
+    top = {"headline": "A", "views": 6, "rank": 2, "depth": 12, "clicks": 0, "dwell": None}
+    r = {"views": 6, "top": [top], "first": {"headline": "B", "views": 0, "rank": 1}, "rows": [top]}
+    text = morning.s_readers(r)
+    assert "drew no views" in text and "0 views" not in text, text
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

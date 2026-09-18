@@ -362,7 +362,7 @@ def s_readers(r: dict) -> str:
         return head + tail + "."
     if first and first["headline"] != top["headline"] and first["views"] * 2 < top["views"]:
         return head + (f" at #{top['rank']} in the ranking; the biggest surprise is that its first choice, "
-                       f"{_q(first['headline'])}, drew only {plural(first['views'], 'view')}.")
+                       f"{_q(first['headline'])}, drew " + ("no views." if not first["views"] else f"only {plural(first['views'], 'view')}."))
     gaps = [x for x in r["rows"][1:] if x["rank"] - (r["rows"].index(x) + 1) >= 5]
     if gaps:
         g = max(gaps, key=lambda x: (x["rank"] - (r["rows"].index(x) + 1), x["views"]))
@@ -397,8 +397,12 @@ def s_budget(b: dict) -> str:
     if b["exhausted"]:
         e = b["exhausted"][0]
         name = PROVIDER_NAMES.get(e["provider"], e["provider"])
-        return (f"{name} used all of its free allowance yesterday ({n(e['requests'])} of {n(e['budget'])} requests), "
-                "so later summaries went to the other models.")
+        if e["requests"] >= e["budget"]:
+            return (f"{name} used all of its free allowance yesterday ({n(e['requests'])} of {n(e['budget'])} requests), "
+                    "so later summaries went to the other models.")
+        # Stopped by the provider's own limit before our daily budget ran out (a 429 or a quota error).
+        return (f"{name} hit its provider's limit yesterday after {plural(e['requests'], 'request')} of the {n(e['budget'])} "
+                "the pipeline allows it, so later summaries went to the other models.")
     if b["readMB"] is not None:
         tail = f", on course for {mb(b['monthlyMB'])} MB a month" if b.get("monthlyMB") is not None else ""
         return (f"The pipeline read {mb(b['readMB'])} MB from the database in the last 24 hours "
