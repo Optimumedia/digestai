@@ -241,6 +241,93 @@ export function shareImage(story: { slug: string }): string {
   return `${meta.siteUrl}/og-default.png`;
 }
 
+/* ---- share images with their sizes (Google Discover, og:image:width/height, NewsArticle image) ----
+   Our own cards only: the 1200x630 share card from pipeline/digest/images.py, plus the 16:9, 4:3 and
+   1:1 variants it draws into public/og for recent stories. Publishers' photos are not used here: we do
+   not own them, their size is unknown, and a picture in the structured data is one Google may show as
+   the image of our page. Sizes are read from the files at build time (no database column); a card
+   that lives only in the media store is the renderer's fixed size. */
+export interface ImageInfo {
+  url: string;
+  width: number;
+  height: number;
+}
+const PUBLIC_DIR = path.resolve(process.cwd(), "public");
+const CARD_SIZE = { width: 1200, height: 630 }; // images.py W, H
+export const CARD_VARIANTS = ["16x9", "4x3", "1x1"] as const;
+const sizeCache = new Map<string, { width: number; height: number } | null>();
+
+/** Width and height of a PNG from its header, or null when the file is missing or not a PNG. */
+export function pngSize(file: string): { width: number; height: number } | null {
+  if (sizeCache.has(file)) return sizeCache.get(file)!;
+  let out: { width: number; height: number } | null = null;
+  try {
+    const fd = fs.openSync(file, "r");
+    const head = Buffer.alloc(24);
+    fs.readSync(fd, head, 0, 24, 0);
+    fs.closeSync(fd);
+    if (head.readUInt32BE(0) === 0x89504e47 && head.toString("ascii", 12, 16) === "IHDR") {
+      out = { width: head.readUInt32BE(16), height: head.readUInt32BE(20) };
+    }
+  } catch {
+    out = null;
+  }
+  sizeCache.set(file, out);
+  return out;
+}
+
+/** The site's default card, for pages without their own. */
+export function defaultImage(): ImageInfo {
+  return { url: `${meta.siteUrl}/og-default.png`, ...(pngSize(path.join(PUBLIC_DIR, "og-default.png")) || CARD_SIZE) };
+}
+
+/** The story's own share card with its size, or null when it has none (the page then uses the default). */
+export function storyCard(story: { slug: string }): ImageInfo | null {
+  const url = shareImage(story);
+  if (url === `${meta.siteUrl}/og-default.png`) return null;
+  const where = mediaIndex.og[story.slug];
+  const size = where && where.startsWith("/") ? pngSize(path.join(PUBLIC_DIR, where)) : null;
+  if (where && where.startsWith("/") && !size) return null; // listed but not in this build
+  return { url, ...(size || CARD_SIZE) };
+}
+
+/** Every card of the story, widest-first share card then the 16:9, 4:3 and 1:1 variants present in
+    this build; only images at least 1200 px wide, the size Discover asks for. */
+export function storyImages(story: { slug: string }): ImageInfo[] {
+  const card = storyCard(story);
+  const out: ImageInfo[] = card ? [card] : [];
+  for (const v of CARD_VARIANTS) {
+    const size = pngSize(path.join(PUBLIC_DIR, "og", `${story.slug}-${v}.png`));
+    if (size) out.push({ url: `${meta.siteUrl}/og/${encodeURIComponent(story.slug)}-${v}.png`, ...size });
+  }
+  return out.filter((i) => i.width >= 1200);
+}
+
+/** When the story last changed in a way a reader can see: the newest publication time among the
+    sources it lists, never before it was first published. Not updatedAt, which moves whenever an
+    article joins the story, even one that is only counted (a full story), and would make an old
+    story look new to Google (the freshness rules: first_published_at means new). */
+export function storyModified(story: Story): string | null {
+  const first = story.firstPublishedAt;
+  const firstT = Date.parse(first || "");
+  if (Number.isNaN(firstT)) return first || story.updatedAt;
+  let latest = firstT;
+  for (const a of story.articles) {
+    const t = Date.parse(a.publishedAt || "");
+    if (!Number.isNaN(t) && t > latest) latest = t;
+  }
+  // A feed's future-dated article cannot move the date past the last time the story changed.
+  const ceiling = Date.parse(story.updatedAt || "");
+  if (!Number.isNaN(ceiling) && latest > ceiling) latest = Math.max(ceiling, firstT);
+  return latest === firstT ? first : new Date(latest).toISOString().replace(/\.000Z$/, "Z");
+}
+
+/** A headline for structured data: Google shows at most 110 characters, cut at a word. */
+export function clipHeadline(text: string, max = 110): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max - 1).replace(/[\s,;:–—-]+\S*$/, "") + "…";
+}
+
 /** ~600 px WebP of the story's picture, or null (the page then uses the original). */
 export function thumbImage(story: { slug: string }): string | null {
   return mediaUrl(mediaIndex.thumb[story.slug], `thumb-${story.slug}.webp`);

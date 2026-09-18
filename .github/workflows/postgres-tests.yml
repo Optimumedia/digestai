@@ -39,6 +39,7 @@ jobs:
         run: |
           python tests/test_units.py
           python tests/test_quality.py
+          python tests/test_discover.py
           python tests/test_hold.py
           python tests/test_trackers.py
           python tests/test_funding.py

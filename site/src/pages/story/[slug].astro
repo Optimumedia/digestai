@@ -6,7 +6,7 @@ import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import StoryRedirect from "../../components/StoryRedirect.astro";
 import WorkCard from "../../components/WorkCard.astro";
 import { toolFor, toolSlug, workCardFor } from "../../lib/work";
-import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, dateTime, shortDate, readingMinutes, related, meta, threadFor, threadStories, hubHref, trackedModelsIn, storiesInCategory, storyIndexable, storyForSlug, storyRedirects, shareImage } from "../../lib/data";
+import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, dateTime, shortDate, readingMinutes, related, meta, threadFor, threadStories, hubHref, trackedModelsIn, storiesInCategory, storyIndexable, storyForSlug, storyRedirects, storyImages, defaultImage, storyModified, clipHeadline } from "../../lib/data";
 
 export function getStaticPaths() {
   return [
@@ -45,16 +45,31 @@ const giscus = {
 };
 const typeLabel: Record<string, string> = { primary: "Primary source", press: "Press", newsletter: "Newsletter", community: "Community" };
 
+// Google Discover wants a large image (1200 px wide or more) and, ideally, 16:9, 4:3 and 1:1 versions.
+// Only our own cards go here (storyImages in data.ts explains why not the publisher's photo); a story
+// whose card is not in this build uses the default card, so every page declares one image of known size.
+const images = storyImages(story);
+const ogImage = images[0] || defaultImage();
+// Dates: first published, and the newest source the page lists (never updatedAt, which moves when an
+// article is only counted and would make an old story look new).
+const modifiedAt = storyModified(story);
+
 const jsonLd = {
   "@context": "https://schema.org",
   "@type": "NewsArticle",
-  headline: story.headline,
+  headline: clipHeadline(story.headline),
   description,
-  image: [shareImage(story), ...(story.imageUrl ? [story.imageUrl] : [])],
+  image: (images.length ? images : [ogImage]).map((i) => ({ "@type": "ImageObject", url: i.url, width: i.width, height: i.height })),
   datePublished: story.firstPublishedAt,
-  dateModified: story.updatedAt,
+  dateModified: modifiedAt,
   author: { "@type": "Organization", name: "Digest AI", url: site },
-  publisher: { "@type": "Organization", name: "Digest AI", url: site, logo: { "@type": "ImageObject", url: `${site}/favicon.svg` } },
+  publisher: {
+    "@type": "NewsMediaOrganization",
+    "@id": `${site}/#organization`,
+    name: "Digest AI",
+    url: site,
+    logo: { "@type": "ImageObject", url: `${site}/logo-512.png`, width: 512, height: 512 },
+  },
   mainEntityOfPage: `${site}/story/${story.slug}`,
   isBasedOn: story.articles.map((a) => a.url),
   about: entityList.map(({ n }) => ({ "@type": "Thing", name: n })),
@@ -67,10 +82,12 @@ const jsonLd = {
 <Base
   title={story.headline}
   description={description}
-  image={shareImage(story)}
+  image={ogImage.url}
+  imageWidth={ogImage.width}
+  imageHeight={ogImage.height}
   type="article"
   publishedAt={story.firstPublishedAt}
-  modifiedAt={story.updatedAt}
+  modifiedAt={modifiedAt}
   jsonLd={jsonLd}
   currentCategory={story.category}
   storyId={story.id}
@@ -84,7 +101,7 @@ const jsonLd = {
         <div class="meta-row">
           <a class:list={["chip", { hot: story.importance >= 8 }]} href={`/category/${story.category}`}>{categories[story.category || ""] || "AI"}</a>
           <time datetime={story.firstPublishedAt || undefined} title={formatDate(story.firstPublishedAt)}>{dateTime(story.firstPublishedAt)}</time>
-          {story.updatedAt !== story.firstPublishedAt && <span>updated <time datetime={story.updatedAt || undefined}>{dateTime(story.updatedAt)}</time></span>}
+          {modifiedAt && modifiedAt !== story.firstPublishedAt && <span>updated <time datetime={modifiedAt}>{dateTime(modifiedAt)}</time></span>}
           {full && <span>{readingMinutes(full.wordCount)} min read</span>}
         </div>
         <h1>{story.headline}</h1>

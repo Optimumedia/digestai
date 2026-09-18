@@ -17,7 +17,6 @@ import io
 import json
 import logging
 import shutil
-import textwrap
 import time
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -36,6 +35,11 @@ OUT = config.ROOT / "site" / "public" / "og"
 W, H = 1200, 630
 MAX_PER_RUN = 150            # share images rendered per run (a backlog clears in a few runs)
 OG_PAGES_DAYS = 7            # share images of stories this recent are also served from Pages
+# The same card at the shapes Google asks for in a NewsArticle's image (Discover crops to them). Pages
+# only, never the media store, and only while a story is fresh enough for Discover: ~110 KB a story.
+VARIANTS = {"16x9": (1200, 675), "4x3": (1200, 900), "1x1": (1200, 1200)}
+VARIANT_DAYS = 3
+MAX_VARIANTS_PER_RUN = 150   # variant files per run, a budget of their own so share cards never wait
 CARD_COLORS = 64
 MAX_CARDS_PER_RUN = 300      # thread and topic cards, re-rendered every run
 MAX_THUMBS_PER_RUN = 40      # publisher pictures fetched per run
@@ -68,11 +72,34 @@ def _font(name: str, size: int, weight: int, opsz: int | None = None):
     return f
 
 
-def render(story: dict, path: Path) -> None:
+# Characters the card fonts have no glyph for (they drew as empty boxes), and what to draw instead.
+_GLYPHS = str.maketrans({"‐": "-", "‑": "-", "‒": "-", " ": " ", " ": " ", " ": " "})
+
+
+def _wrap(d: ImageDraw.ImageDraw, text: str, font, width: int) -> list[str]:
+    """Lines no wider than `width` pixels, measured with the font (a guess from the character count
+    let long words run off the card's right edge). A single word wider than the card gets its own line."""
+    lines: list[str] = []
+    for word in text.translate(_GLYPHS).split():
+        if lines and d.textlength(f"{lines[-1]} {word}", font=font) <= width:
+            lines[-1] = f"{lines[-1]} {word}"
+        else:
+            lines.append(word)
+    return lines
+
+
+def render(story: dict, path: Path, size: tuple[int, int] = (W, H)) -> None:
+    """The story's card. The default size is the 1200x630 share card; VARIANTS are the same card
+    at 16:9, 4:3 and 1:1 for Google (Discover and the NewsArticle image), with the headline allowed
+    more lines and the block placed lower as the card gets taller."""
+    W, H = size  # noqa: N806 - same names as the module's card size
     img = Image.new("RGB", (W, H), "#0e1116")
     d = ImageDraw.Draw(img)
     color = CATEGORY_COLORS.get(story.get("category") or "", "#4f6cf0")
     d.rectangle([0, 0, 16, H], fill=color)
+    extra = H - 630                        # room a taller card has over the share card
+    max_lines = 3 + extra // 190           # 630: 3, 675: 3, 900: 4, 1200: 6
+    sizes = (76, 68, 60, 54, 48) if extra < 200 else (84, 76, 68, 60, 54, 48)
 
     mono = _font("JetBrainsMono.ttf", 24, 500)
     brand_serif = _font("Newsreader.ttf", 44, 600, 72)
@@ -83,18 +110,20 @@ def render(story: dict, path: Path) -> None:
     d.text((W - 80 - d.textlength("Digest", font=brand_serif) - d.textlength(" AI", font=brand_serif), 48), "Digest", font=brand_serif, fill="#e6eaf0")
     d.text((W - 80 - d.textlength(" AI", font=brand_serif), 48), " AI", font=brand_serif, fill="#8397ff")
 
-    # Headline: shrink until it fits in three lines.
+    # Headline: shrink until it fits in the card's lines.
     headline = story["headline"]
-    for size in (76, 68, 60, 54, 48):
+    for size in sizes:
         font = _font("Newsreader.ttf", size, 500, 72)
-        chars = int((W - 160) / (size * 0.42))
-        lines = textwrap.wrap(headline, width=chars)
-        if len(lines) <= 3:
+        lines = _wrap(d, headline, font, W - 160)
+        if len(lines) <= max_lines:
             break
-    if len(lines) > 3:
-        lines = lines[:3]
-        lines[-1] = lines[-1][: max(0, len(lines[-1]) - 1)] + "…"
-    y = 140
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        last = lines[-1]
+        while last and d.textlength(last + "…", font=font) > W - 160:
+            last = last[:-1]
+        lines[-1] = last.rstrip() + "…"
+    y = 140 + int(extra * 0.3)
     for line in lines:
         d.text((80, y), line, font=font, fill="#f2f4f7")
         y += int(size * 1.15)
@@ -102,7 +131,7 @@ def render(story: dict, path: Path) -> None:
     # Digest line.
     summary = (story.get("keyPoints") or [None])[0] or ""
     if summary:
-        for line in textwrap.wrap(summary, width=78)[:2]:
+        for line in _wrap(d, summary, body, W - 160)[:2 + extra // 300]:
             d.text((80, y + 16), line, font=body, fill="#aab3bf")
             y += 38
 
@@ -136,14 +165,14 @@ def render_card(kind: str, title: str, subtitle: str, footer: str, color: str, p
     d.text((W - 80 - d.textlength(" AI", font=brand_serif), 48), " AI", font=brand_serif, fill="#8397ff")
     for size in (72, 64, 56, 48):
         font = _font("Newsreader.ttf", size, 500, 72)
-        lines = textwrap.wrap(title, width=int((W - 160) / (size * 0.42)))
+        lines = _wrap(d, title, font, W - 160)
         if len(lines) <= 3:
             break
     y = 150
     for line in lines[:3]:
         d.text((80, y), line, font=font, fill="#f2f4f7")
         y += int(size * 1.15)
-    for line in textwrap.wrap(subtitle, width=72)[:2]:
+    for line in _wrap(d, subtitle, body, W - 160)[:2]:
         d.text((80, y + 14), line, font=body, fill="#aab3bf")
         y += 40
     d.text((80, H - 70), footer, font=mono, fill="#78828f")
@@ -228,12 +257,26 @@ def make_thumbnails(stories: list[dict], fetch=None, budget_seconds: float = THU
 
 # ---- step -----------------------------------------------------------------------------
 
-def _recent(story: dict, now: datetime) -> bool:
+def _recent(story: dict, now: datetime, days: float = OG_PAGES_DAYS) -> bool:
     try:
         first = datetime.fromisoformat((story.get("firstPublishedAt") or "").replace("Z", "+00:00"))
     except ValueError:
         return False
-    return first >= now - timedelta(days=OG_PAGES_DAYS)
+    return first >= now - timedelta(days=days)
+
+
+def render_variants(story: dict, recent: set, budget: int) -> int:
+    """The story's 16:9, 4:3 and 1:1 cards in site/public/og, those not drawn yet, within budget.
+    Every variant name is added to `recent` so the prune below keeps it. Returns how many were drawn."""
+    drawn = 0
+    for key, size in VARIANTS.items():
+        page = OUT / f"{story['slug']}-{key}.png"
+        recent.add(page.name)
+        if page.exists() or drawn >= budget:
+            continue
+        render(story, page, size)
+        drawn += 1
+    return drawn
 
 
 def _card_once(path: Path, stamp: Path, draw) -> bool:
@@ -249,13 +292,14 @@ def _card_once(path: Path, stamp: Path, draw) -> bool:
 
 def run(fetch=None, now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
-    stats = {"rendered": 0, "skipped": 0, "pages": 0, "pruned": 0, "cards": 0}
+    stats = {"rendered": 0, "skipped": 0, "pages": 0, "pruned": 0, "cards": 0, "variants": 0}
     data = config.SITE_DATA_DIR / "stories.json"
     if not data.exists():
         return stats
     stories = json.loads(data.read_text(encoding="utf-8"))
     OUT.mkdir(parents=True, exist_ok=True)
     budget = MAX_PER_RUN
+    variant_budget = MAX_VARIANTS_PER_RUN
     recent = set()
     # Newest first, so a backlog never delays the cards of today's stories.
     for story in sorted(stories, key=lambda s: s.get("firstPublishedAt") or "", reverse=True):
@@ -265,6 +309,13 @@ def run(fetch=None, now: datetime | None = None) -> dict:
         in_window = _recent(story, now)
         if in_window:
             recent.add(page.name)
+        if _recent(story, now, VARIANT_DAYS):
+            try:
+                n = render_variants(story, recent, variant_budget)
+                variant_budget -= n
+                stats["variants"] += n
+            except Exception as exc:  # noqa: BLE001 - a variant is a nice-to-have, never a failed step
+                log.warning("card variants failed for %s: %s", slug, exc)
         need_store, need_page = not media.has(name), in_window and not page.exists()
         if not (need_store or need_page):
             stats["skipped"] += 1

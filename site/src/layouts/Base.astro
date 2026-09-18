@@ -8,6 +8,9 @@ interface Props {
   title: string;
   description?: string;
   image?: string | null;
+  /** Real size of `image` in pixels; without them the default card's 1200x630 is declared. */
+  imageWidth?: number;
+  imageHeight?: number;
   canonical?: string;
   type?: "website" | "article";
   publishedAt?: string | null;
@@ -27,6 +30,8 @@ const {
   title,
   description = "The AI news desk: every important story in artificial intelligence, digested and linked to its sources, updated every hour.",
   image,
+  imageWidth,
+  imageHeight,
   canonical,
   type = "website",
   publishedAt,
@@ -98,8 +103,9 @@ const clientConfig = {
     <meta property="og:description" content={description} />
     <meta property="og:url" content={url} />
     <meta property="og:image" content={ogImage} />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
+    <meta property="og:image:width" content={String(image && imageWidth ? imageWidth : 1200)} />
+    <meta property="og:image:height" content={String(image && imageHeight ? imageHeight : 630)} />
+    <meta property="og:image:alt" content={title} />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
