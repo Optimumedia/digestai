@@ -52,16 +52,22 @@ const gaId = import.meta.env.PUBLIC_GA_ID ?? "G-KFWT7G66Y8";
             for (const domain of ["", `; domain=.${host}`, `; domain=${host}`]) document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/${domain}`;
           }
         };
-        const show = () => { banner.hidden = false; banner.querySelector("[data-consent=accept]").focus({ preventScroll: true }); };
+        // While the banner is open the page is padded by its height, so the footer (and a player at
+        // the end of a page) can still be scrolled out from under it on a phone.
+        const pad = () => { document.body.style.paddingBottom = banner.hidden ? "" : `${banner.offsetHeight + 8}px`; };
+        const open = () => { banner.hidden = false; pad(); };
+        const close = () => { banner.hidden = true; pad(); };
+        addEventListener("resize", () => { if (!banner.hidden) pad(); });
+        const show = () => { open(); banner.querySelector("[data-consent=accept]").focus({ preventScroll: true }); };
         const choice = get();
         if (choice === "denied") dropCookies();  // anything left from an earlier accept
         if (choice === "granted") load();
-        else if (choice !== "denied") banner.hidden = false;
-        banner.querySelector("[data-consent=accept]").addEventListener("click", () => { set("granted"); banner.hidden = true; load(); });
+        else if (choice !== "denied") open();
+        banner.querySelector("[data-consent=accept]").addEventListener("click", () => { set("granted"); close(); load(); });
         banner.querySelector("[data-consent=decline]").addEventListener("click", () => {
           const was = get();
           set("denied");
-          banner.hidden = true;
+          close();
           if (was === "granted") {
             // Stop Google Analytics writing cookies first, or it rewrites them before the reload.
             if (typeof window.gtag === "function") window.gtag("consent", "update", { analytics_storage: "denied" });

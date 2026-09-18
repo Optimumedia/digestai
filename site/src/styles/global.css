@@ -67,6 +67,9 @@
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400 500; font-display: swap; src: url("/fonts/jetbrains-mono-normal-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 
 * { box-sizing: border-box; }
+/* hidden wins over any display rule (the saved-count badge is display: grid and was showing as an
+   empty red dot; the work-card filter and the consent banner rely on the attribute too). */
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
@@ -87,7 +90,7 @@ body > main { order: 2; width: 100%; }
 body > .footer { order: 3; }
 a { color: inherit; text-decoration: none; }
 a:hover { color: var(--accent); }
-a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 img { max-width: 100%; height: auto; display: block; }
 h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 500; line-height: 1.12; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
 p { margin: 0 0 1em; }
@@ -96,19 +99,49 @@ p { margin: 0 0 1em; }
 .eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
 .muted { color: var(--ink-2); }
 
-/* ---- header ---- */
+/* ---- header ----
+   Two rows. The top row is the brand, a one-line tagline (desktop only) and the tool buttons; the
+   row under it is the section menu: AI at Work, then every category. On a desktop the menu is one
+   full-width line. Under 1000px the same line scrolls sideways: the scrollbar is hidden and the
+   ends fade out through a mask so the cut-off names read as "more this way". The mask's solid part
+   starts exactly at the wrap padding, so nothing fades while everything fits. */
 .masthead { border-bottom: 1px solid var(--line); background: var(--surface); }
-.masthead .wrap { display: flex; align-items: center; gap: 20px; height: 60px; }
-.brand { font-family: var(--font-display); font-size: 26px; font-weight: 600; letter-spacing: -0.02em; display: flex; align-items: baseline; gap: 6px; }
+.masthead-row { display: flex; align-items: center; gap: 16px; height: 60px; }
+.brand { font-family: var(--font-display); font-size: 26px; font-weight: 600; letter-spacing: -0.02em; display: flex; align-items: baseline; gap: 6px; white-space: nowrap; flex: none; }
 .brand b { color: var(--accent); font-weight: 600; }
-.brand small { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); font-weight: 400; }
-.nav { display: flex; gap: 2px; margin-left: auto; overflow-x: auto; scrollbar-width: none; }
-.nav::-webkit-scrollbar { display: none; }
-.nav a { padding: 6px 10px; border-radius: 4px; font-size: 14px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
-.nav a:hover, .nav a[aria-current="page"] { background: var(--surface-2); color: var(--ink); }
-.tools { display: flex; gap: 6px; align-items: center; }
-.icon-btn { border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); border-radius: 4px; width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer; }
+.brand small { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); font-weight: 400; white-space: nowrap; }
+.masthead-tag { margin: 0 auto 0 8px; font-family: var(--font-display); font-size: 15px; font-style: italic; color: var(--ink-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav { border-top: 1px solid var(--line); }
+.nav-scroll { display: flex; align-items: stretch; gap: 2px; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; -webkit-mask-image: linear-gradient(90deg, transparent, #000 20px, #000 calc(100% - 20px), transparent); mask-image: linear-gradient(90deg, transparent, #000 20px, #000 calc(100% - 20px), transparent); }
+.nav-scroll::-webkit-scrollbar { display: none; }
+.nav a { display: inline-flex; align-items: center; flex: none; padding: 0 10px; min-height: 42px; font-size: 14px; font-weight: 600; color: var(--ink-2); white-space: nowrap; border-bottom: 2px solid transparent; }
+.nav a:hover { color: var(--ink); background: var(--surface-2); }
+.nav a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+.nav a:focus-visible { outline-offset: -2px; }
+.nav a.nav-work { padding-right: 12px; margin-right: 8px; border-right: 1px solid var(--line); }
+.tools { display: flex; gap: 6px; align-items: center; margin-left: auto; flex: none; }
+.icon-btn { border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); border-radius: 4px; width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer; font: inherit; }
 .icon-btn:hover { color: var(--ink); border-color: var(--ink-3); }
+.icon-btn .btn-label { display: none; }
+@media (min-width: 720px) {
+  .listen-btn { width: auto; grid-auto-flow: column; gap: 6px; padding: 0 12px 0 10px; }
+  .listen-btn .btn-label { display: inline; font-size: 14px; font-weight: 600; }
+}
+@media (max-width: 999px) { .masthead-tag { display: none; } }
+@media (max-width: 640px) {
+  .wrap { padding: 0 16px; }
+  .masthead-row { height: 54px; gap: 10px; }
+  .brand { font-size: 24px; }
+  .brand small { display: none; }
+  .tools { gap: 5px; }
+  .nav-scroll { -webkit-mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent); mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent); }
+  .nav a { min-height: 44px; padding: 0 11px; }
+  .nav a.nav-work { padding-right: 13px; }
+}
+@media (pointer: coarse) {
+  .icon-btn { width: 38px; height: 38px; }
+  .nav a { min-height: 44px; }
+}
 .ticker { border-bottom: 1px solid var(--line); font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); background: var(--surface); }
 .ticker .wrap { display: flex; gap: 14px; height: 34px; align-items: center; overflow: hidden; white-space: nowrap; }
 .ticker .live { flex: none; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #fff; background: var(--hot); padding: 3px 7px; border-radius: 3px; }
@@ -171,7 +204,7 @@ p { margin: 0 0 1em; }
 .river p { color: var(--ink-2); margin-bottom: 8px; font-size: 16px; }
 .river .thumb { aspect-ratio: 4 / 3; overflow: hidden; border-radius: 3px; background: var(--surface-2); }
 .river .thumb img { width: 100%; height: 100%; object-fit: cover; }
-.dayhead { display: flex; align-items: baseline; gap: 12px; margin: 28px 0 4px; padding-bottom: 8px; border-bottom: 2px solid var(--ink); }
+.dayhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 28px 0 4px; padding-bottom: 8px; border-bottom: 2px solid var(--ink); }
 .dayhead h2 { font-size: 20px; }
 .dayhead .eyebrow { margin-left: auto; }
 .meta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); }
@@ -279,8 +312,11 @@ p { margin: 0 0 1em; }
 .briefing-stats { color: var(--ink-3); }
 .briefing-actions { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-left: auto; padding-bottom: 2px; }
 .briefing-actions .more { margin-left: 0; }
-.briefing-head h2 { font-size: 26px; }
-.briefing-head .more { margin-left: auto; color: var(--accent); }
+.briefing-head h2 { font-size: 28px; }
+/* The way into the full briefing is a button, not a mono caption: it is the page's first call. */
+.briefing-head .more { display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: 4px; background: var(--accent); color: var(--accent-ink); font-family: var(--font-body); font-size: 14px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.briefing-head .more:hover { color: var(--accent-ink); filter: brightness(1.08); }
+@media (max-width: 640px) { .briefing-head h2 { font-size: 25px; } .briefing-actions { margin-left: 0; width: 100%; } }
 .briefing .hero { border-bottom: 0; margin-bottom: 4px; padding-bottom: 12px; }
 .briefing-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; counter-reset: b 1; }
 @media (max-width: 640px) { .briefing-list { grid-template-columns: minmax(0, 1fr); } }
@@ -321,6 +357,16 @@ p { margin: 0 0 1em; }
 .tb { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px; font-weight: 600; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); cursor: pointer; }
 .tb:hover { border-color: var(--ink-3); color: var(--ink); }
 .tb.is-on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+/* One shape for every button. Filled ones (Follow, the briefing's "Read", "Open source", Subscribe,
+   AI at Work's "Open tool") and outlined ones (.tb, the job filters) share the height, radius and
+   weight; on a touch screen all of them grow to a 40px target. */
+.follow, .work-btn, .source-box .cta, .newsletter button { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 14px; border-radius: 4px; font-size: 14px; font-weight: 600; line-height: 1.2; }
+.tb, .workjob { min-height: 34px; }
+@media (pointer: coarse) {
+  .follow, .work-btn, .source-box .cta, .newsletter button, .tb, .workjob, .consent-btn, .listen-speed { min-height: 40px; }
+  .taglist a { padding: 7px 11px; }
+  .footer-col a { padding: 8px 0; }
+}
 .linkish { background: none; border: 0; padding: 0; font: inherit; font-size: 13px; color: var(--accent); cursor: pointer; text-decoration: underline; }
 .icon-btn { position: relative; }
 .icon-btn .count { position: absolute; top: -6px; right: -6px; background: var(--hot); color: #fff; font-family: var(--font-mono); font-size: 10px; min-width: 16px; height: 16px; border-radius: 8px; display: grid; place-items: center; padding: 0 4px; }
@@ -358,8 +404,15 @@ p { margin: 0 0 1em; }
 .pulse b { display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--hot); margin-bottom: 4px; font-weight: 500; }
 .pulse a { color: var(--hot); font-weight: 600; }
 
-/* ---- trackers ---- */
-.tablewrap { overflow-x: auto; margin: 16px 0 40px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+/* ---- trackers ----
+   A wide table scrolls inside its own box, never the page. The box paints a shadow on whichever
+   edge still has columns behind it (the local-attachment gradients slide away with the content). */
+.tablewrap { overflow-x: auto; overscroll-behavior-x: contain; margin: 16px 0 40px; border: 1px solid var(--line); border-radius: 4px; background:
+  linear-gradient(90deg, var(--surface) 40%, transparent) 0 0 / 40px 100%,
+  linear-gradient(270deg, var(--surface) 40%, transparent) 100% 0 / 40px 100%,
+  radial-gradient(farthest-side at 0 50%, rgb(0 0 0 / 0.22), transparent) 0 0 / 14px 100%,
+  radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 0.22), transparent) 100% 0 / 14px 100%,
+  var(--surface); background-repeat: no-repeat; background-attachment: local, local, scroll, scroll; }
 table.tracker { border-collapse: collapse; width: 100%; font-size: 14.5px; min-width: 820px; }
 table.tracker th, table.tracker td { text-align: left; padding: 10px 12px; border-top: 1px solid var(--line); vertical-align: top; }
 table.tracker th { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; border-top: 0; background: var(--surface-2); position: sticky; top: 0; }
@@ -513,9 +566,13 @@ table.sortable th:hover { color: var(--ink); }
   .listen { gap: 12px; padding: 12px; }
   .listen-play, .listen-hero .listen-play { width: 50px; height: 50px; }
   .listen-play svg, .listen-hero .listen-play svg { width: 22px; height: 22px; }
+  .listen-kicker { letter-spacing: .05em; }
+  .listen-kicker > span:not(.listen-dot) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .listen-title { font-size: 18px; }
   .listen-hero .listen-title { font-size: 20px; }
+  .listen-note { font-size: 14px; }
   .listen-more { display: none; }
+  .listen-speed { min-height: 32px; }
 }
 .icon-btn.listen-btn { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
 
@@ -716,7 +773,10 @@ table.sortable th:hover { color: var(--ink); }
 }
 /* ---------- /Admin: Home header and action list ---------- */
 
-/* ---------- Analytics consent ---------- */
+/* ---------- Analytics consent ----------
+   A card in the bottom-left corner on a desktop. On a phone it is a compact sheet along the bottom
+   edge, and while it is open Analytics.astro pads the page by its height, so the footer and the
+   player at the end of a page can always be scrolled out from under it. */
 .consent { position: fixed; z-index: 60; left: 16px; bottom: 16px; width: min(420px, calc(100vw - 32px)); padding: 16px 18px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 28px rgb(0 0 0 / 0.18); }
 .consent-title { margin: 0 0 4px; font-weight: 700; font-size: 15px; }
 .consent-text { margin: 0 0 12px; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
@@ -724,6 +784,13 @@ table.sortable th:hover { color: var(--ink); }
 .consent-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .consent-btn { font: inherit; font-size: 14px; font-weight: 600; padding: 7px 16px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); cursor: pointer; }
 .consent-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+@media (max-width: 640px) {
+  .consent { left: 0; right: 0; bottom: 0; width: auto; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); border-radius: 10px 10px 0 0; border-width: 1px 0 0; box-shadow: 0 -6px 24px rgb(0 0 0 / 0.16); }
+  .consent-title { font-size: 14px; }
+  .consent-text { font-size: 13px; margin-bottom: 10px; }
+  .consent-actions { gap: 8px; }
+  .consent-btn { flex: 1 1 0; padding: 9px 12px; text-align: center; }
+}
 .consent-btn:focus-visible, .footer-link-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .footer-link-btn { font: inherit; color: inherit; background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
 
@@ -732,28 +799,35 @@ table.sortable th:hover { color: var(--ink); }
    written against --accent (chips, buttons, the "why it matters" box) turns green inside the section
    and nothing needs a second copy. The three tokens are declared for both themes at the top of the
    file's cascade, next to the ones they shadow. */
-.work-section {
-  --accent: #0f6f5c;
-  --accent-soft: #daf0ea;
-  --accent-ink: #ffffff;
-}
+:root { --work-accent: #0f6f5c; --work-soft: #daf0ea; --work-ink: #ffffff; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .work-section { --accent: #5ed3b4; --accent-soft: #10302a; --accent-ink: #05231d; }
+  :root:not([data-theme="light"]) { --work-accent: #5ed3b4; --work-soft: #10302a; --work-ink: #05231d; }
 }
-:root[data-theme="dark"] .work-section { --accent: #5ed3b4; --accent-soft: #10302a; --accent-ink: #05231d; }
+:root[data-theme="dark"] { --work-accent: #5ed3b4; --work-soft: #10302a; --work-ink: #05231d; }
+.work-section { --accent: var(--work-accent); --accent-soft: var(--work-soft); --accent-ink: var(--work-ink); }
 
+/* The band: wordmark, sub-menu and the way back on one line. On a phone the wordmark and the way
+   back share the first line and the sub-menu becomes a scrolling strip under them, so the band
+   stays two lines tall instead of four. */
 .work-band { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 18px; padding: 16px 0 10px; border-bottom: 2px solid var(--accent); margin-bottom: 4px; }
-.work-wordmark { font-family: var(--font-display); font-size: 26px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); }
+.work-wordmark { font-family: var(--font-display); font-size: 26px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); white-space: nowrap; }
 .work-wordmark b { color: var(--accent); font-weight: 600; }
 .work-nav { display: flex; flex-wrap: wrap; gap: 2px; }
-.work-nav a { padding: 5px 10px; border-radius: 4px; font-size: 14px; font-weight: 600; color: var(--ink-2); }
+.work-nav a { display: inline-flex; align-items: center; min-height: 32px; padding: 0 10px; border-radius: 4px; font-size: 14px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
 .work-nav a:hover { background: var(--accent-soft); color: var(--accent); }
 .work-nav a[aria-current="page"] { background: var(--accent); color: var(--accent-ink); }
-.work-back { margin-left: auto; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.work-back { margin-left: auto; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); white-space: nowrap; }
 .work-back:hover { color: var(--accent); }
-@media (max-width: 640px) { .work-back { margin-left: 0; } }
-.nav a.nav-work { color: var(--accent); }
-:root .nav a.nav-work[aria-current="page"] { background: var(--accent-soft); color: var(--accent); }
+@media (max-width: 640px) {
+  .work-band { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding-top: 12px; }
+  .work-back { grid-column: 2; grid-row: 1; margin-left: 0; align-self: center; }
+  .work-nav { grid-column: 1 / -1; grid-row: 2; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; -webkit-mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent); mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent); }
+  .work-nav::-webkit-scrollbar { display: none; }
+  .work-nav a { min-height: 40px; }
+}
+.nav a.nav-work { color: var(--work-accent); }
+.nav a.nav-work:hover { background: var(--work-soft); color: var(--work-accent); }
+.nav a.nav-work[aria-current="page"] { color: var(--work-accent); border-bottom-color: var(--work-accent); }
 
 .work-head { border-bottom-color: var(--accent); }
 .work-note { font-size: 14.5px; margin: 6px 0 12px; max-width: 68ch; }
