@@ -266,10 +266,8 @@ def run(eng, thr: float, max_merges: int | None = None) -> dict:
             return i
 
         if pairs:
-            from .export import PRIMARY_DOMAINS
-
             source_type = dict(conn.execute(select(db.sources.c.id, db.sources.c.source_type)).all())
-            primary = lambda m: m.domain in PRIMARY_DOMAINS or source_type.get(m.source_id) == "primary"  # noqa: E731
+            primary = lambda m: m.domain in config.PRIMARY_DOMAINS or source_type.get(m.source_id) == "primary"  # noqa: E731
         for sim, reason, a_id, b_id in pairs:
             if stats["merged_stories"] >= max_merges:
                 break

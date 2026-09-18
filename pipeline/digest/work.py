@@ -55,7 +55,6 @@ CONTENT_WORDS = re.compile(
     r"\b(content|copy(?:writing)?|writ(?:e|es|ing)|draft(?:s|ing)?|blog|article|newsletter|caption|"
     r"headline|script|video|image|photo|design|graphic|slide|podcast|voice ?over|social (?:post|media)|"
     r"seo|transcri(?:be|pt)|translat)\w*", re.I)
-COST_KINDS = ("free", "free tier", "included", "paid", "unknown")
 # Wording in a caveat that means "not for everyone yet": the weekly playbook lists these as things
 # to skip for now rather than things to try.
 NOT_YET = re.compile(

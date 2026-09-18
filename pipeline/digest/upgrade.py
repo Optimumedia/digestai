@@ -32,7 +32,7 @@ from types import SimpleNamespace
 
 from sqlalchemy import func, select, update
 
-from . import cache, checks, config, db, enrich
+from . import cache, config, db, enrich
 from .textutil import word_count
 
 log = logging.getLogger("digest.upgrade")

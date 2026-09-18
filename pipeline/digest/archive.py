@@ -86,11 +86,6 @@ def plain(md: str | None, limit: int) -> str:
     return text
 
 
-def _iso(dt) -> str | None:
-    dt = db.as_utc(dt)
-    return dt.isoformat().replace("+00:00", "Z") if dt else None
-
-
 def entry(story, articles: list, sources: dict, left_at: str) -> dict:
     """The compact record of one story. `story` and `articles` carry the columns the export reads."""
     points = story.key_points if isinstance(story.key_points, list) else []
@@ -112,8 +107,8 @@ def entry(story, articles: list, sources: dict, left_at: str) -> dict:
         "keyPoints": [plain(p, 240) for p in points[:KEY_POINTS] if p],
         "category": story.category,
         "categoryName": config.CATEGORIES.get(story.category or "", "AI"),
-        "firstPublishedAt": _iso(story.first_published_at),
-        "updatedAt": _iso(story.updated_at),
+        "firstPublishedAt": db.iso_z(story.first_published_at),
+        "updatedAt": db.iso_z(story.updated_at),
         "archivedAt": left_at,
         "sources": srcs,
     }
@@ -134,7 +129,7 @@ def _rebuild(conn, since: datetime, sources: dict, now: datetime) -> dict[str, d
         for r in arts:
             by_story.setdefault(r.story_id, []).append(r)
     out = {}
-    left = _iso(now)
+    left = db.iso_z(now)
     for r in rows:
         arts = sorted(by_story.get(r.id, []), key=lambda x: (x.published_at is None, db.as_utc(x.published_at) if x.published_at else now), reverse=True)
         if not arts:
@@ -173,7 +168,7 @@ def update(conn, now: datetime, since: datetime, sources: dict, unpublished: lis
             for a in sorted(arts, key=lambda a: (a.published_at is None, db.as_utc(a.published_at) if a.published_at else now), reverse=True):
                 if a.id in a_text:
                     by_story.setdefault(a.story_id, []).append(cache.merged(a, a_text[a.id]))
-            left = _iso(now)
+            left = db.iso_z(now)
             for s in leaving:
                 if s.id in texts and by_story.get(s.id):
                     data["stories"][texts[s.id].slug] = entry(cache.merged(s, texts[s.id]), by_story[s.id], sources, left)

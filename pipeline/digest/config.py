@@ -213,7 +213,6 @@ MAX_DISCOVERED_ITEMS = int(os.environ.get("MAX_DISCOVERED_ITEMS") or "10")  # it
 FETCH_HOST_DELAY = float(os.environ.get("FETCH_HOST_DELAY") or "1.0")
 FETCH_SLOW_HOSTS = {"reddit.com": 4.0}
 FETCH_WORKERS = int(os.environ.get("FETCH_WORKERS") or "8")  # hosts fetched in parallel
-EXTRACT_WORKERS = int(os.environ.get("EXTRACT_WORKERS") or "6")  # article pages downloaded in parallel
 # A page's own publication date replaces the feed/submission date when it is this much older.
 PAGE_DATE_MIN_GAP_DAYS = float(os.environ.get("PAGE_DATE_MIN_GAP_DAYS") or "3")
 # Clustering: a story stops absorbing articles at this size (threads link related stories), and
@@ -251,6 +250,17 @@ CATEGORIES: dict[str, str] = {
     "enterprise": "Enterprise & Industry",
     "robotics": "Robotics & Physical AI",
     "society": "Society & Work",
+}
+
+# Domains whose posts are the primary source of a story regardless of which feed found them
+# (export.py counts coverage with it; enrich, cluster, merge and rank rank and choose leads by it).
+PRIMARY_DOMAINS = {
+    "openai.com", "anthropic.com", "claude.com", "deepmind.google", "blog.google", "research.google",
+    "ai.meta.com", "about.fb.com", "blogs.nvidia.com", "nvidia.com", "huggingface.co", "mistral.ai",
+    "microsoft.com", "blogs.microsoft.com", "azure.microsoft.com", "aws.amazon.com", "machinelearning.apple.com",
+    "x.ai", "cohere.com", "stability.ai", "arxiv.org", "github.com", "deepseek.com", "qwenlm.github.io",
+    "ai.google.dev", "cloud.google.com", "apple.com", "meta.com", "perplexity.ai", "cursor.com",
+    "europa.eu", "whitehouse.gov", "gov.uk", "nist.gov", "ftc.gov", "sec.gov",
 }
 
 # Focus categories: a score bonus so their stories hold top places, and a reserved place in the

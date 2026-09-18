@@ -12,7 +12,7 @@ import requests
 from sqlalchemy import func, select, update
 
 from . import checks, config, db, work
-from .textutil import first_sentences, keywords, word_count
+from .textutil import first_sentences, keywords
 
 log = logging.getLogger("digest.enrich")
 
@@ -269,13 +269,11 @@ LISTICLE_PENALTY = 0.4
 
 
 def _is_primary_row(row) -> bool:
-    from .export import PRIMARY_DOMAINS
-
     # arXiv is a primary source for a paper, and GitHub for a repository, but neither is the
     # announcement a story is built on, and both arrive by the hundred; they are scored through
     # their community signal instead.
     domain = (getattr(row, "domain", "") or "").lower()
-    return (domain in PRIMARY_DOMAINS or getattr(row, "source_type", None) == "primary") and domain not in NOT_ANNOUNCEMENT
+    return (domain in config.PRIMARY_DOMAINS or getattr(row, "source_type", None) == "primary") and domain not in NOT_ANNOUNCEMENT
 
 
 def front_page_words(conn) -> set[str]:

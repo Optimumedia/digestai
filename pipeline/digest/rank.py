@@ -143,11 +143,9 @@ def train_and_predict(conn) -> dict:
         return stats
     story_size: dict[int, int] = {}
     story_primary: dict[int, bool] = {}
-    from .export import PRIMARY_DOMAINS
-
     for a in arts:
         story_size[a.story_id] = story_size.get(a.story_id, 0) + 1
-        if a.domain in PRIMARY_DOMAINS:
+        if a.domain in config.PRIMARY_DOMAINS:
             story_primary[a.story_id] = True
 
     # Target: reader engagement rate when we have it, otherwise external popularity.

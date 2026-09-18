@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 import logging
 from datetime import timedelta
+from pathlib import Path
 
+import yaml
 from sqlalchemy import select, update
 
 from . import archive, cache, config, db, funding as funding_rules, hold, trackers as tracker_rules, work as work_rules
@@ -17,11 +19,6 @@ BRIEFING_SIZE = 5
 BRIEFING_ALSO = 8
 
 
-def _iso(dt):
-    dt = db.as_utc(dt)
-    return dt.isoformat().replace("+00:00", "Z") if dt else None
-
-
 def _coverage(articles: list[dict]) -> dict:
     cov = {"primary": 0, "press": 0, "newsletter": 0, "community": 0}
     for a in articles:
@@ -32,7 +29,7 @@ def _coverage(articles: list[dict]) -> dict:
 def _source_type(src: dict, domain: str | None) -> str:
     """Community feeds point at other publishers, so their finds count as press; a primary source is
     one the story is *about* (the lab's own post counts even when it arrived via HN)."""
-    if domain in PRIMARY_DOMAINS:
+    if domain in config.PRIMARY_DOMAINS:
         return "primary"
     stype = src.get("type") or "press"
     return "press" if stype == "community" or src.get("discovered") else stype
@@ -69,7 +66,7 @@ def build_briefing(stories: list[dict], now) -> dict:
 
     rank = lambda s: (not s["pinned"], -s["score"])  # noqa: E731
     for window in (24, 48, 96):
-        cutoff = _iso(now - timedelta(hours=window))
+        cutoff = db.iso_z(now - timedelta(hours=window))
         fresh = sorted((s for s in stories if new_story(s, cutoff)), key=rank)
         if len(fresh) >= BRIEFING_SIZE + BRIEFING_ALSO or window == 96:
             break
@@ -88,7 +85,7 @@ def build_briefing(stories: list[dict], now) -> dict:
     words = sum(word_count(s.get("summaryMd") or "") for s in top) + 25 * len(also)
     return {
         "date": now.date().isoformat(),
-        "generatedAt": _iso(now),
+        "generatedAt": db.iso_z(now),
         "windowHours": window,
         "storyIds": [s["id"] for s in top],
         "alsoIds": [s["id"] for s in also],
@@ -101,10 +98,6 @@ def build_briefing(stories: list[dict], now) -> dict:
 
 
 def load_moderation() -> dict:
-    from pathlib import Path
-
-    import yaml
-
     path = Path(__file__).with_name("moderation.yaml")
     if not path.exists():
         return {}
@@ -113,8 +106,6 @@ def load_moderation() -> dict:
 
 def apply_moderation(eng, rules: dict | None = None) -> dict:
     """moderation.yaml is the unpublish button when there is no database console."""
-    from sqlalchemy import update
-
     rules = load_moderation() if rules is None else rules
     if not rules:
         return {}
@@ -201,7 +192,7 @@ def run() -> dict:
     # or an `approve` entry arrives) before the query below, which exports only "published" ones.
     if config.HOLD_RISKY_CLAIMS:
         held, moderation["hold"] = hold.review(eng, since, [s for s in rules.get("approve") or [] if s])
-        moderation["hold"].update(hold.write_review(out_dir, held, _iso(now)))
+        moderation["hold"].update(hold.write_review(out_dir, held, db.iso_z(now)))
     else:
         # Hold switched off: publish anything still held and drop the review files, so the admin page
         # shows no review card.
@@ -278,7 +269,7 @@ def run() -> dict:
                 "title": m.title,
                 "headline": m.headline,
                 "author": m.author,
-                "publishedAt": _iso(m.published_at) or _iso(m.fetched_at),
+                "publishedAt": db.iso_z(m.published_at) or db.iso_z(m.fetched_at),
                 "description": m.description,
                 "contentMd": full_text.get(m.id),
                 "wordCount": m.word_count,
@@ -334,8 +325,8 @@ def run() -> dict:
             "discussions": discussions,
             "threadId": s.thread_id,
             "pulse": s.pulse or None,
-            "firstPublishedAt": _iso(s.first_published_at),
-            "updatedAt": _iso(s.updated_at),
+            "firstPublishedAt": db.iso_z(s.first_published_at),
+            "updatedAt": db.iso_z(s.updated_at),
             "imageUrl": lead.image_url or next((a["imageUrl"] for a in articles if a["imageUrl"]), None),
             "ogImage": f"/og/{s.slug}.png",
             "leadArticleId": lead.id,
@@ -363,7 +354,7 @@ def run() -> dict:
     section = work_rules.section_stories(stories_out)
     work_briefing = work_rules.build_briefing(stories_out, now)
     work_out = {
-        "generatedAt": _iso(now),
+        "generatedAt": db.iso_z(now),
         "storyIds": [s["id"] for s in sorted(section, key=lambda s: s.get("firstPublishedAt") or "", reverse=True)],
         "tools": work_rules.build_tools(section),
         "weeks": work_rules.weeks(section),
@@ -448,7 +439,7 @@ def run() -> dict:
     (out_dir / "sources.json").write_text(
         json.dumps([v for v in sources.values() if v["enabled"] and not v["discovered"]], ensure_ascii=False), encoding="utf-8")
     (out_dir / "meta.json").write_text(json.dumps({
-        "generatedAt": _iso(now),
+        "generatedAt": db.iso_z(now),
         "siteUrl": config.SITE_URL,
         "categories": config.CATEGORIES,
         "storyCount": len(stories_out),
@@ -459,14 +450,3 @@ def run() -> dict:
             "threads": len(threads_out), "models": len(trackers["models"]), "funding": len(trackers["funding"]),
             "fundingDropped": funding_dropped, "hedged": sum(1 for s in stories_out if s["hedged"]),
             "redirects": len(redirects), "moderation": moderation, "archive": archived, "dir": str(out_dir)}
-
-
-# Domains whose posts are the primary source of a story regardless of which feed found them.
-PRIMARY_DOMAINS = {
-    "openai.com", "anthropic.com", "claude.com", "deepmind.google", "blog.google", "research.google",
-    "ai.meta.com", "about.fb.com", "blogs.nvidia.com", "nvidia.com", "huggingface.co", "mistral.ai",
-    "microsoft.com", "blogs.microsoft.com", "azure.microsoft.com", "aws.amazon.com", "machinelearning.apple.com",
-    "x.ai", "cohere.com", "stability.ai", "arxiv.org", "github.com", "deepseek.com", "qwenlm.github.io",
-    "ai.google.dev", "cloud.google.com", "apple.com", "meta.com", "perplexity.ai", "cursor.com",
-    "europa.eu", "whitehouse.gov", "gov.uk", "nist.gov", "ftc.gov", "sec.gov",
-}

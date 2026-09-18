@@ -160,9 +160,7 @@ def merge_threshold() -> float:
 
 
 def _is_primary(row, source_type: dict) -> bool:
-    from .export import PRIMARY_DOMAINS
-
-    return row is not None and (row.domain in PRIMARY_DOMAINS or source_type.get(row.source_id) == "primary")
+    return row is not None and (row.domain in config.PRIMARY_DOMAINS or source_type.get(row.source_id) == "primary")
 
 
 def repair_oversized(eng, lead_thr: float, cap: int = None, max_detach: int = None) -> dict:

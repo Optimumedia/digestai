@@ -16,7 +16,7 @@ from dateutil import parser as dateparser
 from sqlalchemy import insert, select, update
 
 from . import cache, config, db
-from .textutil import SKIP_DOMAINS, clean_title, domain_of, is_skipped_domain, normalize_url, simhash, title_year, word_count  # noqa: F401
+from .textutil import clean_title, domain_of, is_skipped_domain, normalize_url, simhash, title_year, word_count
 
 log = logging.getLogger("digest.fetch")
 
