@@ -864,6 +864,8 @@ table.sortable th:hover { color: var(--ink); }
 .work-chip { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 8px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); font-weight: 500; }
 .workcard-title { font-family: var(--font-display); font-weight: 500; font-size: 20px; line-height: 1.2; margin: 0 0 10px; }
 .workcard-title a:hover { color: var(--accent); }
+/* Under an outcome headline: what the tool does (lib/work.ts, cardTitle). */
+.workcard-what { margin: -4px 0 10px; color: var(--ink-2); font-size: 15px; line-height: 1.45; }
 .workcard-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); margin: 10px 0 4px; }
 .workfacts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0 0 8px; }
 @media (max-width: 460px) { .workfacts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -1008,6 +1010,9 @@ a.wk-h2-side:hover { color: var(--w-thread); text-decoration: underline; text-un
 .wk-chip-cost.is-free { background: var(--accent-soft); border-color: transparent; }
 .wk-chip-cost.is-free .wk-chip-k { color: var(--accent); }
 .wk-chip.is-unknown { border-style: dashed; color: var(--ink-2); }
+/* "Already included in: <plan>": nothing new to buy, so it wears the free chip's wash. */
+.wk-chip-inc { background: var(--accent-soft); border-color: transparent; }
+.wk-chip-inc .wk-chip-k { color: var(--accent); }
 .wk-scale { display: inline-flex; gap: 2px; }
 .wk-scale i { width: 5px; height: 12px; border-radius: 1px; background: var(--w-line); }
 .wk-chip-time[data-step="1"] .wk-scale i:nth-child(-n + 1),
@@ -1033,6 +1038,9 @@ a.wk-h2-side:hover { color: var(--w-thread); text-decoration: underline; text-un
 .wk-card-num { font-family: var(--font-work); font-weight: 700; font-size: 24px; line-height: 1; color: var(--accent); }
 .wk-card-title { margin: 0 0 14px; font-size: 22px; line-height: 1.16; }
 .wk-card-title a:hover { color: var(--accent); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+/* Under an outcome headline: what the tool does, so the plain description is never lost. */
+.wk-card-what { margin: -6px 0 14px; color: var(--ink-2); font-size: 15.5px; line-height: 1.45; }
+.wk-card.is-feature .wk-card-what { font-size: 17px; max-width: 60ch; }
 .wk-card-more { margin-top: 2px; border-top: 1px solid var(--line); }
 details.wk-card-more > summary { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 0; list-style: none; cursor: pointer; font-family: var(--font-work); font-weight: 700; font-size: 15px; color: var(--ink); }
 details.wk-card-more > summary::-webkit-details-marker { display: none; }

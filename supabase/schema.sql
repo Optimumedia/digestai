@@ -34,16 +34,17 @@ grant insert on events to anon;
 grant usage, select on sequence events_id_seq to anon;
 
 -- The pipeline re-creates this policy on every run (db.py, EVENTS_POLICY_SQL); keep the two in step.
--- detail: a site search query (search) or how far a story was read (depth), at most 100 characters.
+-- detail: a site search query (search), how far a page was read (depth), or the tool / link an
+-- AI at Work event is about (try, copy_prompt, expand, next_click), at most 100 characters.
 alter table events add column if not exists detail varchar(100);
 drop policy if exists "public can log events" on events;
 create policy "public can log events" on events
   for insert to anon
   with check (
-    type in ('view', 'click_source', 'dwell', 'share', 'newsletter_click', 'save', 'follow', 'comment', 'push_on', 'listen', 'search', 'depth')
+    type in ('view', 'click_source', 'dwell', 'share', 'newsletter_click', 'save', 'follow', 'comment', 'push_on', 'listen', 'search', 'depth', 'try', 'copy_prompt', 'expand', 'next_click')
     and value >= 0 and value <= 3600
     and (type <> 'depth' or (value <= 100 and detail in ('top', 'summary', 'full_text', 'end')))
-    and (detail is null or type in ('search', 'depth'))
+    and (detail is null or type in ('search', 'depth', 'try', 'copy_prompt', 'expand', 'next_click'))
   );
 
 -- 2b. Abuse limits on the public insert path. The publishable key is in every page, so anyone

@@ -186,8 +186,9 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL") or "qwen2.5:3b"
 MAX_ENRICH_LOCAL_PER_RUN = int(os.environ.get("MAX_ENRICH_LOCAL_PER_RUN") or "10")
 # The local model answers inside a 4,096-token context (num_ctx in call_ollama) and writes up to
 # 900 of them, so prompt and article together have to stay near 3,000: the guidance it gets is the
-# short one and the article is cut here.
-LOCAL_INPUT_WORDS = int(os.environ.get("LOCAL_INPUT_WORDS") or "1000")
+# short one and the article is cut here (960 words since the AI at Work card gained headline, prompt,
+# steps, example and included_in: the prompt grew by about 90 tokens and the article gave them up).
+LOCAL_INPUT_WORDS = int(os.environ.get("LOCAL_INPUT_WORDS") or "960")
 MAX_FETCH_PER_SOURCE = int(os.environ.get("MAX_FETCH_PER_SOURCE", "40"))
 MAX_EXTRACT_PER_RUN = int(os.environ.get("MAX_EXTRACT_PER_RUN", "120"))
 FETCH_TIMEOUT = float(os.environ.get("FETCH_TIMEOUT", "10"))

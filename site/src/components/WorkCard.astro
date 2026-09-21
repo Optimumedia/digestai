@@ -4,7 +4,7 @@
    has none (pipeline/digest/work.py), so it is always here to show. */
 import type { Story } from "../lib/data";
 import { shortDate, sourceNames } from "../lib/data";
-import { COST_LABELS, JOB_LABELS, whoLine, type WorkCard } from "../lib/work";
+import { COST_LABELS, JOB_LABELS, cardTitle, whoLine, type WorkCard } from "../lib/work";
 
 interface Props {
   story: Story;
@@ -21,6 +21,9 @@ const { names } = sourceNames(story, 2);
 const cost = COST_LABELS[card.costKind] || COST_LABELS.unknown;
 // Who cannot use it (a region, a plan), from the caveat (pipeline/digest/work.py, limits).
 const limits = card.limits || [];
+// The outcome headline when the pipeline wrote one, with what it does under it (lib/work.ts).
+const { title, sub } = cardTitle(card);
+const plan = (card.includedIn || "").trim();
 ---
 
 <article class:list={["workcard", { compact, "is-skip": Boolean(card.skip) }]} data-jobs={card.jobs.join(" ")} data-cost={card.costKind}>
@@ -31,13 +34,15 @@ const limits = card.limits || [];
   </div>
 
   <Heading class="workcard-title">
-    {linkStory ? <a href={`/story/${story.slug}`}>{card.whatItDoes}</a> : card.whatItDoes}
+    {linkStory ? <a href={`/story/${story.slug}`}>{title}</a> : title}
   </Heading>
+  {sub && <p class="workcard-what">{sub}</p>}
 
   <dl class="workfacts">
     <div><dt>Who for</dt><dd>{whoLine(card.whoFor)}</dd></div>
     <div><dt>Cost</dt><dd>{card.cost && card.cost !== "unknown" && card.costKind !== "unknown" ? card.cost : cost}</dd></div>
     {card.effort && <div><dt>Effort</dt><dd>{card.effort}</dd></div>}
+    {plan && <div><dt>Already included in</dt><dd>{plan}</dd></div>}
   </dl>
 
   {card.useFor.length > 0 && !compact && (
@@ -51,7 +56,7 @@ const limits = card.limits || [];
   {limits.length > 0 && <p class="worklimits"><b>Not for everyone</b> {limits.join(" · ")}</p>}
 
   <div class="workcard-foot">
-    {card.link && <a class="work-btn" href={card.link} rel="noopener nofollow" target="_blank" data-source-link>Try it ↗</a>}
+    {card.link && <a class="work-btn" href={card.link} rel="noopener nofollow" target="_blank" data-source-link data-work-try={card.tool}>Try it ↗</a>}
     <a class="work-link" href={`/story/${story.slug}`}>What happened{names.length > 0 && <span class="muted"> · {names.join(", ")}</span>}</a>
     {card.jobs.length > 0 && (
       <span class="worktags">{card.jobs.map((j) => <span class="worktag">{JOB_LABELS[j] || j}</span>)}</span>

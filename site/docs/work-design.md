@@ -74,8 +74,11 @@ newsroom's Newsreader serif.
 ### The hub (/work)
 
 1. Page head.
-2. **This week's one thing to try**: a single featured card, shown expanded (the most useful item of
-   the week, from the week's own try list).
+2. **This week's one thing to try**: a single featured card, shown expanded: the pipeline's
+   featured pick (`featuredId` in `work-briefing.json`: a real maker, an official link, a
+   publisher's coverage); without one, the first card with a named maker (never a forum handle),
+   from the week's try list in the pipeline's order, then today's picks (`featuredPick` in
+   `src/lib/work.ts`).
 3. **Find it by job**: five tiles, one per job page, each with its line and its count.
 4. **What changed**: a compact, dense list, one line per item (tool, what you get, cost and time
    chips), with the job filter above it. The filter works on the rows, and says when a job has none.
@@ -98,9 +101,13 @@ newsroom's Newsreader serif.
 Collapsed (job pages, playbooks):
 
 1. Tool on **label tape** (ink strip, display face, caps) · maker · date.
-2. **Outcome headline** (what it does), the strongest text on the page, in the display face.
+2. **Outcome headline** (`card.headline`, what the reader gets), the strongest text on the page, in
+   the display face, with what the tool does in a quieter line under it. When the pipeline had no
+   outcome and wrote its stand-in (the tool plus what it does), the heading is what it does
+   (`cardTitle` in `src/lib/work.ts`).
 3. **Chips**: cost (free/included in the accent wash, paid outlined, not stated dashed), time (a
-   three-step effort scale: minutes, an afternoon, needs a developer), and who it is for.
+   three-step effort scale: minutes, an afternoon, needs a developer), "Already included in: <plan>"
+   when `card.includedIn` names one, and who it is for.
 4. **Watch out**: one calm line in a pale caution wash with a hatched highlighter edge. Never
    hidden, never truncated.
 5. "Not for everyone" limits, when there are any.
@@ -112,15 +119,19 @@ Collapsed (job pages, playbooks):
 Expanded (the featured card; the same blocks inside the details of a collapsed card):
 
 - **Use it for**: a checklist with drawn boxes.
-- **Steps** (`card.steps: string[]`): a numbered list with large numerals. *Slot: no data yet.*
+- **Steps** (`card.steps: string[]`): a numbered list with large numerals.
 - **Prompt** (`card.prompt: string`): a monospace block with a labelled **Copy prompt** button and
-  a live "Copied" status. *Slot: no data yet.*
+  a live "Copied" status (the layout's script copies; `public/app.js` only records `copy_prompt`).
 - **Before / after** (`card.example: { before, after }`): two panels side by side, stacked on a
-  phone. *Slot: no data yet.*
+  phone.
 
-Each block renders only when the card has the data. The field names are declared as optional on
-`WorkCard` in `src/lib/work.ts`; the pipeline can fill them under those names, or the names can be
-changed there and in `WorkEntry.astro`.
+Each block renders only when the card has the data: the pipeline writes them only when the article
+gives them (`pipeline/digest/work.py`, `card_out`).
+
+Measurement (`public/app.js`) keys on attributes, so markup changes must keep them: `data-work-try`
+on every Try / Site / Open link, `data-work-copy` on the copy button, `data-work-howto` on the
+"How to use it" `<details>`, `data-work-next` on `WorkNext` (its `track` prop) and the playbook and
+next-week links, and `data-work-tool` on the card.
 
 ## Small visual language
 

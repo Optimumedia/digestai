@@ -1,7 +1,8 @@
 ---
 /* The facts every AI at Work item carries, as chips: what it costs, how long it takes (a three-step
    scale: minutes, an afternoon, needs a developer) and who it is for. `compact` drops the visible
-   "Cost" / "Time" keys for the one-line rows; screen readers still hear them. */
+   "Cost" / "Time" keys for the one-line rows; screen readers still hear them. `includedIn` names
+   the plan it already comes with ("Already included in: Google Workspace"), full chips only. */
 import { EFFORT_STEPS, costLabel, isFree, whoLine } from "../lib/work";
 
 interface Props {
@@ -10,8 +11,10 @@ interface Props {
   effort: string | null;
   whoFor?: string[];
   compact?: boolean;
+  includedIn?: string | null;
 }
-const { cost, costKind, effort, whoFor, compact = false } = Astro.props;
+const { cost, costKind, effort, whoFor, compact = false, includedIn } = Astro.props;
+const plan = (includedIn || "").trim();
 const kind = costKind || "unknown";
 const effortStep = effort ? EFFORT_STEPS[effort] : undefined;
 ---
@@ -25,6 +28,9 @@ const effortStep = effort ? EFFORT_STEPS[effort] : undefined;
     {effortStep && <span class="wk-scale" aria-hidden="true"><i></i><i></i><i></i></span>}
     {effortStep ? effortStep.label : effort || "Not stated"}
   </li>
+  {plan && !compact && (
+    <li class="wk-chip wk-chip-inc"><span class="wk-chip-k">Already included in:</span> {plan}</li>
+  )}
   {whoFor && whoFor.length > 0 && !compact && (
     <li class="wk-chip wk-chip-who"><span class="wk-chip-k">For</span> {whoLine(whoFor)}</li>
   )}

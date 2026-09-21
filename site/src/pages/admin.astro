@@ -345,6 +345,14 @@ const homeData = JSON.stringify({
                   {" · "}{plural(workHealth.toolCount, "tool")} in the directory, {workHealth.noCost} without a stated cost, {workHealth.noLink} without an official link
                   {" · "}{workDroppedText}
                 </p>
+                {workHealth.engagement7 && (
+                  <p class="work-health-line" data-work-engagement>
+                    Readers, 7 days: {plural(workHealth.engagement7.views, "view")} of /work pages
+                    {" · "}{workHealth.engagement7.depthAvg != null ? `${workHealth.engagement7.depthAvg}% average read depth` : "no read depth yet"}
+                    {" · "}{plural(workHealth.engagement7.tries, "try", "tries")}, {plural(workHealth.engagement7.copies, "prompt copy", "prompt copies")}, {plural(workHealth.engagement7.expands, "how-to opened", "how-tos opened")}
+                    {workHealth.engagement7.nextClicks ? <>{" · "}{plural(workHealth.engagement7.nextClicks, "next-step click")}</> : ""}
+                  </p>
+                )}
                 <p class="work-health-line muted">
                   {workHealth.thinJobs.length ? <>Job pages below three items (not indexed): {workHealth.thinJobs.join(", ")}{workHealth.emptyJobs.length ? <>; empty: {workHealth.emptyJobs.join(", ")}</> : ""}.</> : "Every job page has three items or more."}
                   {" "}Podcast: {workHealth.episode ? <>latest episode {workHealth.episode.week}, out {fmtDayShort(workHealth.episode.date)}{workHealth.episode.seconds ? `, ${Math.round(workHealth.episode.seconds / 60)} min` : ""}</> : "no episode yet"}{workHealth.audioReason && workHealth.audioReason !== "episode exists" ? <> (latest run: {workHealth.audioReason})</> : ""}.

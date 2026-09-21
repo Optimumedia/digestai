@@ -7,11 +7,16 @@
    - "feature", expanded: the same with every block open, for the hub's one thing to try.
 
    The expanded blocks (use it for, steps, a prompt to copy, before and after) each render only when
-   the card has that data; steps, prompt and example are not in the export yet (lib/work.ts). The
-   catch is never folded away: the pipeline drops a card without one (pipeline/digest/work.py). */
+   the card has that data (lib/work.ts). The heading is the outcome headline when the pipeline wrote
+   one, with what the tool does under it; otherwise what the tool does (lib/work.ts, cardTitle). The
+   catch is never folded away: the pipeline drops a card without one (pipeline/digest/work.py).
+
+   What readers do is measured by public/app.js from the data-work-* attributes: the Try link (try),
+   the copy button (copy_prompt; the layout's script does the copying, app.js only records it), and
+   opening "How to use it" (expand). data-work-tool on the card names the tool for all three. */
 import type { Story } from "../lib/data";
 import { shortDate, sourceNames } from "../lib/data";
-import type { WorkCard } from "../lib/work";
+import { cardTitle, type WorkCard } from "../lib/work";
 import WorkChips from "./WorkChips.astro";
 
 interface Props {
@@ -32,6 +37,7 @@ const hasMore = card.useFor.length > 0 || steps.length > 0 || Boolean(card.promp
 const feature = variant === "feature";
 const date = story.firstPublishedAt || story.updatedAt;
 const promptId = `prompt-${story.id}`;
+const { title, sub } = cardTitle(card);
 // Open on the featured card; folded (and only when there is something inside) everywhere else.
 const More = feature ? "div" : "details";
 ---
@@ -40,6 +46,7 @@ const More = feature ? "div" : "details";
   class:list={["wk-card", { "is-feature": feature, "has-more": hasMore, "is-skip": Boolean(card.skip) }]}
   data-jobs={card.jobs.join(" ")}
   data-cost={card.costKind}
+  data-work-tool={card.tool}
 >
   <div class="wk-card-main">
     <p class="wk-card-tool">
@@ -49,16 +56,17 @@ const More = feature ? "div" : "details";
       <time class="mono" datetime={date || undefined} data-static>{shortDate(date)}</time>
     </p>
 
-    <Heading class="wk-card-title"><a href={`/story/${story.slug}`}>{card.whatItDoes}</a></Heading>
+    <Heading class="wk-card-title"><a href={`/story/${story.slug}`}>{title}</a></Heading>
+    {sub && <p class="wk-card-what">{sub}</p>}
 
-    <WorkChips cost={card.cost} costKind={card.costKind} effort={card.effort} whoFor={card.whoFor} />
+    <WorkChips cost={card.cost} costKind={card.costKind} effort={card.effort} whoFor={card.whoFor} includedIn={card.includedIn} />
 
     <p class="wk-watch"><b>Watch out</b> <span>{card.watchOut}</span></p>
     {limits.length > 0 && <p class="wk-limits"><b>Not for everyone</b> {limits.join(" · ")}</p>}
   </div>
 
   {hasMore && (
-    <More class="wk-card-more">
+    <More class="wk-card-more" data-work-howto={feature ? undefined : card.tool}>
       {!feature && <summary>{steps.length || card.prompt || example ? "How to use it" : "What to use it for"}</summary>}
       {card.useFor.length > 0 && (
         <div class="wk-block">
@@ -77,7 +85,7 @@ const More = feature ? "div" : "details";
           <figcaption class="wk-block-h" id={`${promptId}-h`}>Prompt to copy</figcaption>
           <pre id={promptId} tabindex="0" aria-labelledby={`${promptId}-h`}><code>{card.prompt}</code></pre>
           <div class="wk-copy-row">
-            <button type="button" class="wk-copy" data-copy={promptId}>Copy prompt</button>
+            <button type="button" class="wk-copy" data-copy={promptId} data-work-copy={card.tool}>Copy prompt</button>
             <span class="wk-copy-status" role="status" aria-live="polite"></span>
           </div>
         </figure>
@@ -95,7 +103,7 @@ const More = feature ? "div" : "details";
   )}
 
   <div class="wk-card-foot">
-    {card.link && <a class="wk-btn" href={card.link} rel="noopener nofollow" target="_blank" data-source-link>Try it<span aria-hidden="true"> ↗</span><span class="sr-only"> (opens the maker's site)</span></a>}
+    {card.link && <a class="wk-btn" href={card.link} rel="noopener nofollow" target="_blank" data-source-link data-work-try={card.tool}>Try it<span aria-hidden="true"> ↗</span><span class="sr-only"> (opens the maker's site)</span></a>}
     <a class="wk-thread" href={`/story/${story.slug}`}>What happened{names.length > 0 && <span class="wk-thread-src"> · {names.join(", ")}</span>}</a>
     {card.skip && <span class="wk-skip-tag">Leave for now: {card.skip}</span>}
   </div>

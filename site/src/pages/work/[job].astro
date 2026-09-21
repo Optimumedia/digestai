@@ -79,7 +79,7 @@ const nextJob = JOBS[(JOBS.findIndex((j) => j.key === job.key) + 1) % JOBS.lengt
   <section class="wk-sec" aria-labelledby="week-h">
     <div class="wk-h2row">
       <h2 id="week-h">What changed this week</h2>
-      {thisWeek && <a class="wk-h2-side" href={`/work/week/${thisWeek}`}>The whole week's playbook →</a>}
+      {thisWeek && <a class="wk-h2-side" href={`/work/week/${thisWeek}`} data-work-next="playbook">The whole week's playbook →</a>}
     </div>
     {newThisWeek.length > 0 ? (
       <>
@@ -131,7 +131,7 @@ const nextJob = JOBS[(JOBS.findIndex((j) => j.key === job.key) + 1) % JOBS.lengt
     </p>
   )}
 
-  <WorkNext href={`/work/${nextJob.slug}`} label={`AI tools ${nextJob.task}`} why={nextJob.blurb} />
+  <WorkNext href={`/work/${nextJob.slug}`} label={`AI tools ${nextJob.task}`} why={nextJob.blurb} track="next-job" />
   <p class="wk-alljobs">
     Every job: {JOBS.map((j, i) => <>{i > 0 && " · "}{j.key === job.key ? <b aria-current="page">{j.label}</b> : <a href={`/work/${j.slug}`}>{j.label}</a>}</>)}
   </p>

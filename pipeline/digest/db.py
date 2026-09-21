@@ -649,8 +649,15 @@ end $$;"""
 
 # What the public key may insert into events (also in supabase/schema.sql). A type that is not in
 # this list is refused by the database, so a new reader event needs its name added here.
+# AI at Work (/work): what readers do with a card. try = the card's "Try it" link, copy_prompt = the
+# starter prompt copied, expand = "How to use it" opened, next_click = the page's next-step link.
+# They carry the tool's name (or the link's label) in detail and, on /work pages, no story_id: the
+# page is the path, which every event already has (the guard lets story_id be empty).
+WORK_EVENT_TYPES = ("try", "copy_prompt", "expand", "next_click")
 PUBLIC_EVENT_TYPES = ("view", "click_source", "dwell", "share", "newsletter_click", "save", "follow", "comment",
-                      "push_on", "listen", "search", "depth")
+                      "push_on", "listen", "search", "depth", *WORK_EVENT_TYPES)
+# The event types that may carry a detail (anything else must send none).
+DETAIL_EVENT_TYPES = ("search", "depth", *WORK_EVENT_TYPES)
 DEPTH_STAGES = ("top", "summary", "full_text", "end")
 _quoted = lambda xs: ", ".join(f"'{x}'" for x in xs)  # noqa: E731
 EVENTS_POLICY_SQL = [
@@ -661,7 +668,7 @@ EVENTS_POLICY_SQL = [
     type IN ({_quoted(PUBLIC_EVENT_TYPES)})
     AND value >= 0 AND value <= 3600
     AND (type <> 'depth' OR (value <= 100 AND detail IN ({_quoted(DEPTH_STAGES)})))
-    AND (detail IS NULL OR type IN ('search', 'depth'))
+    AND (detail IS NULL OR type IN ({_quoted(DETAIL_EVENT_TYPES)}))
   )""",
 ]
 

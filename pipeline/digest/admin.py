@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, or_, select
 
 from . import cache, config, db, history
 from . import quality as content_quality
@@ -229,7 +229,10 @@ def run() -> dict:
         ev = conn.execute(
             select(func.date(db.events.c.created_at).label("day"), db.events.c.type, func.count(), func.sum(db.events.c.value),
                    func.count(func.distinct(db.events.c.session)))
-            .where(db.events.c.created_at >= since)
+            # Time on page and read depth are story reading here; /work pages send them without a
+            # story (their own line: work_engagement).
+            .where(db.events.c.created_at >= since,
+                   or_(db.events.c.type.notin_(("dwell", "depth")), db.events.c.story_id.isnot(None)))
             .group_by(func.date(db.events.c.created_at), db.events.c.type)
         ).all()
         per_day_ev: dict[str, dict] = {d: {"day": d, "views": 0, "sessions": 0, "visitors": 0, "clicks": 0, "saves": 0, "follows": 0, "shares": 0, "dwellSeconds": 0, "dwellReads": 0} for d in days}
@@ -473,6 +476,8 @@ def run() -> dict:
         # AI at Work (/work): its health from the files the export and audio steps just wrote; no read.
         out["work"] = work_summary(_read_json("work.json"), _read_json("work-briefing.json"),
                                    _read_json("work-episodes.json"), step_rows, now)
+        if out["work"] is not None:
+            out["work"]["engagement7"] = work_engagement(conn, now - timedelta(days=7))
         actions += work_health_cards(out["work"], now)
 
         # ---- the database against the free plan: its size, and how much the pipeline reads.
@@ -598,6 +603,36 @@ def work_summary(work: dict | None, briefing: dict | None, episodes: list | None
         "lastWeekEpisode": any(e.get("week") == last_week for e in episodes or []),
         "audioReason": (audio or {}).get("reason") or None,
         "minItems": config.WORK_AUDIO_MIN_ITEMS,
+    }
+
+
+def work_engagement(conn, since) -> dict:
+    """How readers use AI at Work since `since`: views and average read depth of the /work pages,
+    and the card actions (try, copy_prompt, expand, next_click) wherever a card is shown. One grouped
+    query returning at most six rows, so it costs no egress to speak of."""
+    e = db.events.c
+    rows = conn.execute(
+        select(e.type, func.count(), func.avg(e.value))
+        .where(e.created_at >= since,
+               or_(e.type.in_(db.WORK_EVENT_TYPES),
+                   and_(e.type.in_(("view", "depth")), or_(e.path == "/work", e.path.like("/work/%")))))
+        .group_by(e.type)
+    ).all()
+    return work_engagement_summary(rows)
+
+
+def work_engagement_summary(rows) -> dict:
+    """(type, count, average value) rows into the admin line's numbers."""
+    by = {str(t): (int(n or 0), float(avg or 0)) for t, n, avg in rows}
+    depth_n, depth_avg = by.get("depth", (0, 0.0))
+    return {
+        "views": by.get("view", (0, 0.0))[0],
+        "depthAvg": round(depth_avg) if depth_n else None,
+        "depthReads": depth_n,
+        "tries": by.get("try", (0, 0.0))[0],
+        "copies": by.get("copy_prompt", (0, 0.0))[0],
+        "expands": by.get("expand", (0, 0.0))[0],
+        "nextClicks": by.get("next_click", (0, 0.0))[0],
     }
 
 

@@ -9,7 +9,7 @@ import WorkNext from "../../components/WorkNext.astro";
 import ListenPlayer from "../../components/ListenPlayer.astro";
 import { WORK_MIN_ITEMS, formatDate, dateTime, meta, weekMonday } from "../../lib/data";
 import {
-  JOBS, SECTION_TAGLINE, briefingAlso, briefingItems, count, isFree, latestWorkEpisode, sectionStories, work, workBriefing,
+  JOBS, SECTION_TAGLINE, briefingAlso, briefingItems, count, featuredPick, isFree, latestWorkEpisode, sectionStories, work, workBriefing,
   workWeeks, weekStories,
 } from "../../lib/work";
 import { weekKey } from "../../lib/indexing.mjs";
@@ -25,8 +25,11 @@ const weekRange = (w: string, sep = "–") => {
 const episodeRange = episode?.week ? weekRange(episode.week) : "";
 const week = thisWeek ? weekStories(thisWeek) : { changed: [], tryThis: [], skip: [], tools: 0, tryCount: 0, skipCount: 0 };
 
-// The one thing to try: the week's most useful item you can start now, else today's top pick.
-const featured = week.tryThis[0] || briefingItems[0] || sectionStories.find((s) => !s.workCard.skip) || sectionStories[0];
+// The one thing to try: the pipeline's featured pick (work-briefing.json, featuredId: a real maker,
+// an official link and a publisher's coverage). Without one, the first card with a named maker,
+// never a forum handle: the week's try list in the pipeline's order, then today's picks, then the
+// rest. No such card means no featured block at all (lib/work.ts, featuredPick).
+const featured = featuredPick([...week.tryThis, ...briefingItems, ...briefingAlso, ...sectionStories]);
 // Everything else, one line each: today's picks first (most useful first), then the rest, newest first.
 const notFeatured = (s: { id: number }) => s.id !== featured?.id;
 const today = [...briefingItems, ...briefingAlso].filter(notFeatured);
@@ -86,7 +89,7 @@ const jsonLd = [
     <section class="wk-sec" aria-labelledby="try-h">
       <div class="wk-h2row">
         <h2 id="try-h">{isCurrentWeek ? "This week's one thing to try" : "Last week's one thing to try"}</h2>
-        {week.tryCount > 1 && <span class="wk-h2-side">the most useful of {week.tryCount}</span>}
+        {week.tryCount > 1 && featured.id === week.tryThis[0]?.id && <span class="wk-h2-side">the most useful of {week.tryCount}</span>}
       </div>
       <WorkEntry story={featured} card={featured.workCard} level="h3" variant="feature" />
     </section>
@@ -111,7 +114,7 @@ const jsonLd = [
     <section class="wk-sec" aria-labelledby="changed-h">
       <div class="wk-h2row">
         <h2 id="changed-h">{isCurrentWeek ? "What changed" : "What changed last week"}</h2>
-        {thisWeek && <a class="wk-h2-side" href={`/work/week/${thisWeek}`}>The week's playbook →</a>}
+        {thisWeek && <a class="wk-h2-side" href={`/work/week/${thisWeek}`} data-work-next="playbook">The week's playbook →</a>}
       </div>
       {week.changed.length > 0 && (
         <p class="wk-lede">
@@ -196,9 +199,9 @@ const jsonLd = [
   )}
 
   {thisWeek ? (
-    <WorkNext href={`/work/week/${thisWeek}`} label={isCurrentWeek ? "This week's playbook" : "Last week's playbook"} why="What is worth an hour of your time, and what can wait." />
+    <WorkNext href={`/work/week/${thisWeek}`} label={isCurrentWeek ? "This week's playbook" : "Last week's playbook"} why="What is worth an hour of your time, and what can wait." track="playbook" />
   ) : (
-    <WorkNext href="/work/tools" label="The tool directory" why="Every tool the desk has covered, with what it costs and the catch." />
+    <WorkNext href="/work/tools" label="The tool directory" why="Every tool the desk has covered, with what it costs and the catch." track="tools" />
   )}
 </Work>
 

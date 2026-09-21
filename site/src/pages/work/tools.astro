@@ -74,7 +74,7 @@ const jsonLd = {
                   <td>{r.cost && r.cost !== "unknown" && r.costKind !== "unknown" ? r.cost : COST_LABELS[r.costKind || "unknown"]}</td>
                   <td>{r.effort || ""}</td>
                   <td class="num">{formatDate(r.lastChange, { day: "numeric", month: "short", year: "numeric" })}</td>
-                  <td>{r.link ? <a href={r.link} rel="noopener nofollow" target="_blank" data-source-link>Site ↗</a> : r.changes[0] ? <a class="muted" href={`/story/${r.changes[0].slug}`} title="The coverage names no official page">Coverage</a> : ""}</td>
+                  <td>{r.link ? <a href={r.link} rel="noopener nofollow" target="_blank" data-source-link data-work-try={r.tool}>Site ↗</a> : r.changes[0] ? <a class="muted" href={`/story/${r.changes[0].slug}`} title="The coverage names no official page">Coverage</a> : ""}</td>
                 </tr>
               ))}
             </tbody>
@@ -95,7 +95,7 @@ const jsonLd = {
                   {r.changeCount} {r.changeCount === 1 ? "change" : "changes"} covered
                   {r.firstSeen && r.firstSeen !== r.lastChange && <> · first seen {formatDate(r.firstSeen, { day: "numeric", month: "short", year: "numeric" })}</>}
                 </p>
-                {r.link && <a class="wk-btn" href={r.link} rel="noopener nofollow" target="_blank" data-source-link>Open {r.tool}<span aria-hidden="true"> ↗</span></a>}
+                {r.link && <a class="wk-btn" href={r.link} rel="noopener nofollow" target="_blank" data-source-link data-work-try={r.tool}>Open {r.tool}<span aria-hidden="true"> ↗</span></a>}
               </div>
               <div class="wk-sheet-body">
                 <p class="wk-sheet-what">{r.whatItDoes}</p>
@@ -121,8 +121,8 @@ const jsonLd = {
   )}
 
   {workWeeks[0] ? (
-    <WorkNext href={`/work/week/${workWeeks[0]}`} label="This week's playbook" why="What changed across these tools this week, and which ones are worth an hour now." />
+    <WorkNext href={`/work/week/${workWeeks[0]}`} label="This week's playbook" why="What changed across these tools this week, and which ones are worth an hour now." track="playbook" />
   ) : (
-    <WorkNext href="/work" label="AI at Work" why="The one thing to try this week, and everything that changed." />
+    <WorkNext href="/work" label="AI at Work" why="The one thing to try this week, and everything that changed." track="hub" />
   )}
 </Work>

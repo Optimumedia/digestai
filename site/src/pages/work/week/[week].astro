@@ -117,13 +117,13 @@ const long = changed.length >= 10;
       <nav class="wk-weeknav" aria-label="Playbook navigation">
         {older && <a href={`/work/week/${older}`}><span aria-hidden="true">← </span>{older}</a>}
         <a href="/work" class="wk-weeknav-home">AI at Work</a>
-        {newer && <a href={`/work/week/${newer}`}>{newer}<span aria-hidden="true"> →</span></a>}
+        {newer && <a href={`/work/week/${newer}`} data-work-next="next-week">{newer}<span aria-hidden="true"> →</span></a>}
       </nav>
 
       {newer ? (
-        <WorkNext href={`/work/week/${newer}`} label={`The playbook for ${newer}`} why="The week after this one: what changed, what to try." />
+        <WorkNext href={`/work/week/${newer}`} label={`The playbook for ${newer}`} why="The week after this one: what changed, what to try." track="next-week" />
       ) : (
-        <WorkNext href="/work/tools" label="The tool directory" why="Every tool the desk has covered, with what it costs, how long it takes and the catch." />
+        <WorkNext href="/work/tools" label="The tool directory" why="Every tool the desk has covered, with what it costs, how long it takes and the catch." track="tools" />
       )}
     </div>
   </div>

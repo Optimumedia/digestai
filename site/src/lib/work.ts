@@ -29,8 +29,14 @@ export interface WorkCard {
       exports have no such field. */
   limits?: string[];
   usefulness: number;
-  /* The expanded card's blocks (components/WorkEntry.astro). Nothing fills them yet: each block
-     renders only when its field is there, so the pipeline can start writing them at any time. */
+  /** What the reader gets, in plain words ("Turn 20 customer reviews into three ad angles"). The
+      pipeline writes the tool plus what it does when the article gave no outcome (work.py,
+      fallback_headline); cardTitle() below tells the two apart. Older exports have no such field. */
+  headline?: string;
+  /** The plan it already comes with ("Google Workspace Business Standard"), or "". */
+  includedIn?: string;
+  /* The expanded card's blocks (components/WorkEntry.astro). Each block renders only when its
+     field is there; the pipeline writes them only when the article gives them (work.py, card_out). */
   /** How to do it, one short step each. */
   steps?: string[];
   /** A prompt a reader can copy into the tool as it is. */
@@ -82,6 +88,10 @@ export interface WorkBriefing {
   windowHours: number;
   storyIds: number[];
   alsoIds: number[];
+  /** The featured pick ("one thing to try"), always storyIds[0] when set: a real maker, an official
+      link and a publisher's coverage (work.py, featurable). Null when nothing qualified that day;
+      older exports have no such field. */
+  featuredId?: number | null;
   stats: { items: number; tools: number; free: number; minutes: number };
 }
 
@@ -246,6 +256,67 @@ export function toolSlug(tool: WorkTool): string {
     .replace(/^-|-$/g, "")
     .toLowerCase()
     .slice(0, 60);
+}
+
+/* ---------- the card's headline ---------- */
+
+/** work.py's fallback_headline, to the character, so a page can tell a written outcome headline
+    from the pipeline's stand-in for one. */
+const HEADLINE_MAX = 80;
+function cutWords(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  return text.slice(0, limit - 1).replace(/\s+\S*$/, "").replace(/[ ,;:\-–—]+$/, "") + "…";
+}
+export function fallbackHeadline(tool: string, what: string): string {
+  const w = (what || "").trim().replace(/\.+$/, "");
+  if (!w) return cutWords(tool, HEADLINE_MAX);
+  let line: string;
+  if (w.toLowerCase().startsWith(tool.toLowerCase())) line = w;
+  else if (/^[A-Z][a-z]+s\b/.test(w) && !/^(?:This|Its|Is|Has|Was|Does|Analytics|News)\b/.test(w)) line = `${tool} ${w[0].toLowerCase()}${w.slice(1)}`;
+  else line = `${tool}: ${w}`;
+  return cutWords(line, HEADLINE_MAX + 10);
+}
+
+/** What a card's heading says: the outcome headline when the pipeline wrote one, else what the tool
+    does (the tool's name is already on the card's label). `sub` is the line under an outcome
+    headline, so what the tool does is never lost. */
+export function cardTitle(card: WorkCard): { title: string; sub: string | null } {
+  const h = (card.headline || "").trim();
+  if (!h || h === fallbackHeadline(card.tool, card.whatItDoes)) return { title: card.whatItDoes, sub: null };
+  return { title: h, sub: card.whatItDoes };
+}
+
+/* ---------- the featured pick ---------- */
+
+/** work.py's HANDLE and COMMUNITY_HOSTS: a maker that is a forum handle ("MoistTonight3997", "u/x",
+    "jane_doe"), or the author of one of the story's forum posts, is not a company behind a tool. */
+const HANDLE = /^(?:\/?u\/|@)\S+$|^[A-Za-z][A-Za-z-]*\d{3,}$|^[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+$/;
+const COMMUNITY_HOSTS = ["reddit.com", "redd.it", "news.ycombinator.com", "ycombinator.com", "github.com", "gitlab.com",
+  "x.com", "twitter.com", "lobste.rs", "bsky.app", "mastodon.social", "discord.com", "discord.gg"];
+const hostOf = (url: string | null | undefined): string => {
+  try { return new URL(url || "").hostname.toLowerCase().replace(/^www\./, ""); } catch { return ""; }
+};
+const onCommunity = (host: string) => COMMUNITY_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+/** The card names a maker, and the maker is not a forum handle. */
+export function namedMaker(story: WorkStory): boolean {
+  const name = (story.workCard.maker || "").trim();
+  if (!name || HANDLE.test(name)) return false;
+  const bare = name.toLowerCase().replace(/^u\//, "");
+  return !story.articles.some((a) => {
+    const author = (a.author || "").trim().replace(/^\/?u\//, "").toLowerCase();
+    return author && author === bare && onCommunity((a.domain || hostOf(a.url)).toLowerCase().replace(/^www\./, ""));
+  });
+}
+
+/** The hub's one thing to try: the pipeline's featured pick when the export names one, else the
+    first card with a named maker (never a forum handle) among `candidates`, in their order. */
+export function featuredPick(candidates: WorkStory[]): WorkStory | undefined {
+  const id = workBriefing.featuredId;
+  if (id != null) {
+    const s = storyFor(id);
+    if (hasCard(s)) return s;
+  }
+  return candidates.find((s) => !s.workCard.skip && namedMaker(s)) || candidates.find(namedMaker);
 }
 
 /** "marketers and online shops" from ["marketer", "ecommerce"]. */

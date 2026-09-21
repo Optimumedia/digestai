@@ -12,7 +12,7 @@ import logging
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import case, func, literal_column, select
+from sqlalchemy import case, func, literal_column, or_, select
 from sqlalchemy.engine import Engine
 
 from . import cache, config, db
@@ -149,7 +149,9 @@ def update(eng: Engine, now: datetime | None = None, google: dict[str, tuple] | 
                 d_ev = _day_of(eng, e.created_at)
                 for day, etype, n, total, sessions in conn.execute(
                     select(d_ev, e.type, func.count(), func.sum(e.value), func.count(func.distinct(e.session)))
-                    .where(e.created_at >= lo("events"), e.created_at < hi)
+                    # Time on page is story reading; /work pages send dwell without a story.
+                    .where(e.created_at >= lo("events"), e.created_at < hi,
+                           or_(e.type != "dwell", e.story_id.isnot(None)))
                     .group_by(d_ev, e.type)
                 ).all():
                     if etype == "view":
