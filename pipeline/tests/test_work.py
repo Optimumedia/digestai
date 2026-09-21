@@ -721,7 +721,7 @@ def test_the_prompt_asks_for_the_teaching_fields_and_still_fits_the_local_window
     row = SimpleNamespace(title="T", source_name="S", published_at=None)
     for provider in ("gemini", "groq", "ollama"):
         p = enrich.build_prompt(row, "word " * 20000, provider)
-        for field in ('"headline": what the reader gets', '"prompt"', '"steps"', '"example"', '"included_in"'):
+        for field in ('"headline": what the reader gets', '"you_get"', '"prompt"', '"steps"', '"example"', '"included_in"'):
             assert field in p, (provider, field)
         cap = config.PROMPT_TOKEN_BUDGET.get(provider)
         assert cap is None or enrich.estimated_tokens(p) <= cap, (provider, enrich.estimated_tokens(p))

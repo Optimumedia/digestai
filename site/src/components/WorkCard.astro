@@ -1,10 +1,11 @@
 ---
-/* One practical item in AI at Work: what it does, who it is for, what to use it for, what it costs,
-   how much work it is, and the catch. The catch is not optional — the pipeline drops a card that
+/* One practical item in AI at Work: what you get, what it does, who it is for, what to use it for,
+   how to set it up (when the article or the maker's own page says how), what it costs, how much work
+   it is, and the catch. The catch is not optional — the pipeline drops a card that
    has none (pipeline/digest/work.py), so it is always here to show. */
 import type { Story } from "../lib/data";
 import { shortDate, sourceNames } from "../lib/data";
-import { COST_LABELS, JOB_LABELS, cardTitle, whoLine, type WorkCard } from "../lib/work";
+import { COST_LABELS, JOB_LABELS, cardTitle, stepsSourceLabel, whoLine, youGetLine, type WorkCard } from "../lib/work";
 
 interface Props {
   story: Story;
@@ -24,6 +25,12 @@ const limits = card.limits || [];
 // The outcome headline when the pipeline wrote one, with what it does under it (lib/work.ts).
 const { title, sub } = cardTitle(card);
 const plan = (card.includedIn || "").trim();
+// What you get in plain words, unless it only repeats the heading (lib/work.ts, youGetLine).
+const get = youGetLine(card, title);
+// How to set it up, only when the article or the maker's own page says how (pipeline/digest/howto.py),
+// labelled with where the steps came from.
+const steps = card.steps?.filter(Boolean) || [];
+const stepsId = `worksteps-${story.id}`;
 ---
 
 <article class:list={["workcard", { compact, "is-skip": Boolean(card.skip) }]} data-jobs={card.jobs.join(" ")} data-cost={card.costKind}>
@@ -36,6 +43,7 @@ const plan = (card.includedIn || "").trim();
   <Heading class="workcard-title">
     {linkStory ? <a href={`/story/${story.slug}`}>{title}</a> : title}
   </Heading>
+  {get && <p class="workget"><b>What you get</b> <span>{get}</span></p>}
   {sub && <p class="workcard-what">{sub}</p>}
 
   <dl class="workfacts">
@@ -50,6 +58,13 @@ const plan = (card.includedIn || "").trim();
       <p class="workcard-label">Use it for</p>
       <ul class="workuses">{card.useFor.map((u) => <li>{u}</li>)}</ul>
     </>
+  )}
+
+  {steps.length > 0 && !compact && (
+    <div class="worksteps-wrap">
+      <p class="workcard-label" id={stepsId}>How to set it up <span class="worksteps-src">· {stepsSourceLabel(card)}</span></p>
+      <ol class="worksteps" aria-labelledby={stepsId}>{steps.map((s) => <li>{s}</li>)}</ol>
+    </div>
   )}
 
   <p class="workwatch"><b>Watch out</b> {card.watchOut}</p>

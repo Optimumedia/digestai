@@ -2,7 +2,8 @@
 /* One practical item, as AI at Work's own pages show it (the story page keeps WorkCard.astro,
    the home page has WorkTeaser.astro and WorkHome.astro). Two shapes of the same card:
 
-   - "card", collapsed: the tool, the outcome as the headline, cost / time / who chips, the catch in
+   - "card", collapsed: the tool, the outcome as the headline, "What you get" in plain words (never
+     folded, lib/work.ts youGetLine), cost / time / who chips, the catch in
      one calm line, and "How to use it" folded underneath when there is something to unfold.
    - "feature", expanded: the same with every block open, for the hub's one thing to try.
 
@@ -16,7 +17,7 @@
    opening "How to use it" (expand). data-work-tool on the card names the tool for all three. */
 import type { Story } from "../lib/data";
 import { shortDate, sourceNames } from "../lib/data";
-import { cardTitle, type WorkCard } from "../lib/work";
+import { cardTitle, stepsSourceLabel, youGetLine, type WorkCard } from "../lib/work";
 import WorkChips from "./WorkChips.astro";
 
 interface Props {
@@ -38,6 +39,8 @@ const feature = variant === "feature";
 const date = story.firstPublishedAt || story.updatedAt;
 const promptId = `prompt-${story.id}`;
 const { title, sub } = cardTitle(card);
+// What you get, right under the heading and never folded; left out when it only repeats the heading.
+const get = youGetLine(card, title);
 // Open on the featured card; folded (and only when there is something inside) everywhere else.
 const More = feature ? "div" : "details";
 ---
@@ -57,6 +60,7 @@ const More = feature ? "div" : "details";
     </p>
 
     <Heading class="wk-card-title"><a href={`/story/${story.slug}`}>{title}</a></Heading>
+    {get && <p class="wk-get"><b>What you get</b> <span>{get}</span></p>}
     {sub && <p class="wk-card-what">{sub}</p>}
 
     <WorkChips cost={card.cost} costKind={card.costKind} effort={card.effort} whoFor={card.whoFor} includedIn={card.includedIn} />
@@ -76,7 +80,7 @@ const More = feature ? "div" : "details";
       )}
       {steps.length > 0 && (
         <div class="wk-block">
-          <p class="wk-block-h">Steps</p>
+          <p class="wk-block-h">How to set it up <span class="wk-block-src">{stepsSourceLabel(card)}</span></p>
           <ol class="wk-steps" role="list">{steps.map((s) => <li>{s}</li>)}</ol>
         </div>
       )}

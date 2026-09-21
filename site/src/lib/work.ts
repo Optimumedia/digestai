@@ -37,8 +37,16 @@ export interface WorkCard {
   includedIn?: string;
   /* The expanded card's blocks (components/WorkEntry.astro). Each block renders only when its
      field is there; the pipeline writes them only when the article gives them (work.py, card_out). */
+  /** What the owner gets, in one or two plain sentences written to "you" ("Get a week of social
+      posts drafted in one sitting"). The model's line when it passed the article checks, else one
+      the pipeline builds from the card's own fields (work.py, fallback_you_get), so every card from
+      the export that added it has one. Older exports have no such field. */
+  youGet?: string;
   /** How to do it, one short step each. */
   steps?: string[];
+  /** Where the steps came from: the article, or the maker's own page (pipeline/digest/howto.py).
+      Present whenever `steps` is. */
+  stepsSource?: "article" | "maker";
   /** A prompt a reader can copy into the tool as it is. */
   prompt?: string;
   /** What the work looked like before and after, in a sentence or two each. */
@@ -284,6 +292,42 @@ export function cardTitle(card: WorkCard): { title: string; sub: string | null }
   const h = (card.headline || "").trim();
   if (!h || h === fallbackHeadline(card.tool, card.whatItDoes)) return { title: card.whatItDoes, sub: null };
   return { title: h, sub: card.whatItDoes };
+}
+
+/* ---------- what you get ---------- */
+
+const PLAIN_STOP = new Set(("a an the and or but of to in on for with from by at as is are be it its this that your you " +
+  "yours their them they can will get gets lets let into out up more less one all any every each so than then").split(" "));
+const plainWords = (text: string): Set<string> =>
+  new Set((text.toLowerCase().match(/[a-z0-9]+/g) || [])
+    .filter((w) => w.length > 2 && !PLAIN_STOP.has(w))
+    .map((w) => w.replace(/(?:ing|ed|es|s)$/, "")));
+
+/** Share of the shorter text's meaningful words that the other one also has (0 to 1). */
+export function wordOverlap(a: string, b: string): number {
+  const x = plainWords(a);
+  const y = plainWords(b);
+  if (!x.size || !y.size) return 0;
+  let shared = 0;
+  for (const w of x) if (y.has(w)) shared++;
+  return shared / Math.min(x.size, y.size);
+}
+
+/** The card's "What you get" line, or null when there is none or when it only says again what the
+    heading already says (most of its words are the heading's), so a reader never reads one thing
+    twice. `title` is the heading the card shows (cardTitle). */
+export function youGetLine(card: WorkCard, title: string): string | null {
+  const line = (card.youGet || "").trim();
+  if (!line) return null;
+  return wordOverlap(line, title) >= 0.7 ? null : line;
+}
+
+/** Where a card's steps came from, as the card says it: "From the article", "From Canva's own page". */
+export function stepsSourceLabel(card: WorkCard): string {
+  if (card.stepsSource !== "maker") return "From the article";
+  const maker = (card.maker || "").trim();
+  if (!maker) return "From the maker's own page";
+  return `From ${maker}${/s$/i.test(maker) ? "’" : "’s"} own page`;
 }
 
 /* ---------- the featured pick ---------- */

@@ -4,8 +4,8 @@
    different publication without shouting over the news.
 
    1. The head: the "AI at Work" wordmark, what the section is, and the way in.
-   2. The week's one thing to try (lib/work.ts, homeWork): the outcome headline, the tool on its
-      tape, the chips, the catch, one action ("See how" on /work, where the same card is open), and
+   2. The week's one thing to try (lib/work.ts, homeWork): the outcome headline, what you get in
+      plain words, the tool on its tape, the chips, the catch, one action ("See how" on /work, where the same card is open), and
       the prompt to copy when the card has one (else what to use it for).
    3. Two more things to try, one line each; three when there is no featured pick.
    4. Shortcuts to the job pages that have something on them.
@@ -16,7 +16,7 @@
    line), "home-band-job" (a job), "home-band-all" (the head's link). WorkTeaser.astro records
    "home-teaser". */
 import type { HomeWork } from "../lib/work";
-import { cardTitle } from "../lib/work";
+import { cardTitle, youGetLine } from "../lib/work";
 import WorkChips from "./WorkChips.astro";
 import WorkRow from "./WorkRow.astro";
 
@@ -25,6 +25,7 @@ const { home } = Astro.props;
 const { featured, also, jobs } = home;
 const card = featured?.workCard;
 const head = card ? cardTitle(card) : null;
+const get = card && head ? youGetLine(card, head.title) : null;
 const steps = card?.steps?.filter(Boolean) || [];
 const example = Boolean(card?.example?.before && card?.example?.after);
 // What is waiting on /work, so "See how" says why to click.
@@ -54,6 +55,7 @@ const why = waiting.length > 1
           {card.maker && <span class="wk-maker">by {card.maker}</span>}
         </p>
         <h3 id="wk-hfeat-h" class="wk-hfeat-title"><a href="/work" data-work-next="home-band">{head.title}</a></h3>
+        {get && <p class="wk-get"><b>What you get</b> <span>{get}</span></p>}
         {head.sub && <p class="wk-card-what">{head.sub}</p>}
         <WorkChips cost={card.cost} costKind={card.costKind} effort={card.effort} includedIn={card.includedIn} />
         <p class="wk-watch"><b>Watch out</b> <span>{card.watchOut}</span></p>

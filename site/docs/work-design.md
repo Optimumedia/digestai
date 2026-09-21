@@ -105,6 +105,15 @@ Collapsed (job pages, playbooks):
    the display face, with what the tool does in a quieter line under it. When the pipeline had no
    outcome and wrote its stand-in (the tool plus what it does), the heading is what it does
    (`cardTitle` in `src/lib/work.ts`).
+   **What you get** (`card.youGet`) sits between the headline and what the tool does: the practical
+   payoff in one or two plain sentences written to "you", in a mint wash with a small field-green
+   marker and a "What you get" label, 17px (18.5px on the featured card). Never folded. The pipeline
+   writes the model's line only when its figures and names are in the article, and otherwise a line
+   built from the card's own fields (`pipeline/digest/work.py`, `fallback_you_get`), so every card
+   has one. When most of its words are the heading's, it is left out (`youGetLine`, 70% overlap),
+   so nothing is read twice. Rows show it as a second, one-line, muted line under the headline (two
+   lines on a phone); the teaser, the
+   home band's pick and the story page's card show it under the headline too.
 3. **Chips**: cost (free/included in the accent wash, paid outlined, not stated dashed), time (a
    three-step effort scale: minutes, an afternoon, needs a developer), "Already included in: <plan>"
    when `card.includedIn` names one, and who it is for.
@@ -119,7 +128,10 @@ Collapsed (job pages, playbooks):
 Expanded (the featured card; the same blocks inside the details of a collapsed card):
 
 - **Use it for**: a checklist with drawn boxes.
-- **Steps** (`card.steps: string[]`): a numbered list with large numerals.
+- **How to set it up** (`card.steps: string[]`): a numbered list with large numerals, labelled with
+  where the steps came from (`card.stepsSource`): "From the article", or "From <maker>'s own page"
+  when `pipeline/digest/howto.py` took them from the maker's own help page. The story page's card
+  shows the same list, numbered in small accent circles.
 - **Prompt** (`card.prompt: string`): a monospace block with a labelled **Copy prompt** button and
   a live "Copied" status (the layout's script copies; `public/app.js` only records `copy_prompt`).
 - **Before / after** (`card.example: { before, after }`): two panels side by side, stacked on a
@@ -145,7 +157,8 @@ next-week links, and `data-work-tool` on the card.
 - Everything is under `body[data-section="work"]` / `.work-theme`; only `layouts/Work.astro` sets
   the body attribute. The home page's two doors (below) carry the same tokens on their own
   `.wk-home.work-theme` element, redefined for dark mode in the same three blocks. The story page's
-  card is unchanged.
+  card keeps the site's look, in the section's green (`.work-section`), with "What you get" and
+  "How to set it up" added.
 
 ## On the home page
 

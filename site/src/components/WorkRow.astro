@@ -1,9 +1,13 @@
 ---
 /* One item as a single line in AI at Work's dense lists: the tool, what you get (linked to the
    story, where the whole card is), and the cost and time chips. `note` replaces the chips with a
-   reason (the playbook's "what to leave" says what is in the way). */
+   reason (the playbook's "what to leave" says what is in the way).
+
+   The link is the card's heading (lib/work.ts, cardTitle), with its "What you get" line under it as
+   a quieter line (one line cut with an ellipsis, two on a phone), unless it only repeats the
+   heading. */
 import type { Story } from "../lib/data";
-import { cardTitle, type WorkCard } from "../lib/work";
+import { cardTitle, youGetLine, type WorkCard } from "../lib/work";
 import WorkChips from "./WorkChips.astro";
 
 interface Props {
@@ -17,10 +21,16 @@ interface Props {
 const { story, card, note, track } = Astro.props;
 // The outcome headline when there is one (lib/work.ts, cardTitle); rows do not link out, so no Try.
 const { title } = cardTitle(card);
+// The payoff as a quieter second line; a list of links all starting "Lets marketers..." reads as one.
+const under = youGetLine(card, title);
+const link = title;
 ---
 
 <li class:list={["wk-row", { "is-skip": Boolean(card.skip) }]} data-jobs={card.jobs.join(" ")}>
   <span class="wk-row-tool">{card.tool}</span>
-  <a class="wk-row-what" href={`/story/${story.slug}`} data-work-next={track}>{title}</a>
+  <span class="wk-row-body">
+    <a class="wk-row-what" href={`/story/${story.slug}`} data-work-next={track}>{link}</a>
+    {under && <span class="wk-row-get"><span class="sr-only">What you get: </span>{under}</span>}
+  </span>
   {note ? <span class="wk-row-note">{note}</span> : <WorkChips cost={card.cost} costKind={card.costKind} effort={card.effort} compact />}
 </li>

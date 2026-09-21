@@ -302,8 +302,12 @@ def _clamp_card(value) -> dict | None:
         "watch_out": watch,
         "link": link or None,
         "prompt": _prompt(value.get("prompt")),
-        "steps": _steps(value.get("steps")),
+        "steps": (steps := _steps(value.get("steps"))),
+        # Where the steps came from: the article (enrich.py) or the maker's own page (howto.py).
+        "steps_source": ("maker" if value.get("steps_source") == "maker" else "article") if steps else "",
         "example": _example(value.get("example")),
+        # The model's "what you get" line, or "" (card_out then builds one from the card's fields).
+        "you_get": _you_get(value.get("you_get")),
     }
 
 
@@ -415,6 +419,144 @@ def _included_in(value) -> str:
     return text
 
 
+# ---------------------------------------------------------------------------- what you get
+#
+# One or two short sentences to the owner ("you") on the practical result: "Answer the same customer
+# questions once, and let it reply for you after hours." The model writes it (enrich.py); the rules
+# below clamp it (_you_get), check it against the article (ground_card: figures and names the
+# article does not have), and card_out puts a plain line built from the card's own fields in its place
+# when there is none, so every card on the site carries one. A reader who is not technical reads
+# this line first, so jargon is rewritten when a plain word says the same, and dropped otherwise.
+
+YOU_GET_MAX = 160
+YOU_GET_MIN = 20
+# Jargon and hype a small-business owner should not have to decode. A line with any of these goes.
+YOU_GET_BANNED = re.compile(
+    r"\b(?:leverag\w*|streamlin\w*|workflow automation|llms?|large language models?|agentic|seamless\w*|"
+    r"synerg\w*|unlock\w*|empower\w*|supercharg\w*|game[- ]?chang\w*|revolutioni[sz]\w*|cutting[- ]edge|"
+    r"next[- ]level|best[- ]in[- ]class|robust|utili[sz]\w*|paradigm\w*|ai[- ]powered|ai[- ]driven|"
+    r"generative ai|genai|10x|holistic|scalab\w*|end[- ]to[- ]end|frictionless|turnkey|optimi[sz]ations?)\b",
+    re.I)
+# ...and the ones a plain word replaces without changing what the line says.
+YOU_GET_PLAIN = [
+    (re.compile(r"\bleverag(?:e|ing)\b", re.I), lambda m: "use" if m.group(0).lower() == "leverage" else "using"),
+    (re.compile(r"\bleverages\b", re.I), lambda m: "uses"),
+    (re.compile(r"\butili[sz](?:e|ing)\b", re.I), lambda m: "use" if m.group(0).lower()[-1] == "e" else "using"),
+    (re.compile(r"\butili[sz]es\b", re.I), lambda m: "uses"),
+    (re.compile(r"\bseamlessly\s+", re.I), lambda m: ""),
+]
+# Who the rules-built line is for, as a person reads it ("sales" alone reads as a number).
+YOU_GET_WHO = {
+    "marketer": "marketers", "sales": "salespeople", "founder": "founders",
+    "support": "support teams", "ops": "small teams", "ecommerce": "shop owners",
+}
+# First words of a use that is a thing rather than an action ("Product captions from photos"): the
+# rules-built line says "Helps ... with" for those and "Lets ... <use>" for a verb. Words that are as
+# often a verb ("Email", "Reply", "Schedule", "Search", "Support") are left out: they read as the verb.
+NOUN_START = {
+    "a", "an", "the", "your", "their", "its", "product", "products", "social", "emails", "customer",
+    "customers", "blog", "ad", "ads", "sales", "seo", "weekly", "daily", "monthly", "quick", "faster", "better",
+    "automatic", "automated", "ai", "new", "internal", "team", "meeting", "meetings", "content", "video",
+    "videos", "image", "images", "photo", "photos", "website", "websites", "landing", "leads",
+    "marketing", "invoices", "personalized", "personalised", "custom", "bulk", "first",
+    "short", "long", "more", "all", "local", "online", "one", "two", "three", "multiple", "several", "every",
+    "each", "instant", "on-brand", "campaign", "campaigns", "event",
+    "events", "job", "jobs", "follow-up", "follow-ups", "replies", "answers", "faqs", "reports",
+    "data", "spreadsheet", "spreadsheets", "calendar", "phone", "calls",
+    "headlines", "captions", "descriptions", "posts", "newsletters", "reviews", "competitor",
+    "prices", "pricing", "inventory", "orders", "booking", "bookings", "appointment",
+    "appointments", "live", "real-time", "after-hours", "b2b", "small", "large", "common",
+}
+
+
+def _you_get(value) -> str:
+    """The model's line, clamped: plain words (a banned word goes, unless a plain one says the same),
+    no exclamation marks, at most YOU_GET_MAX characters. A longer line keeps its first sentence
+    when that fits; it is never cut mid-sentence. "" when nothing usable is left."""
+    text = _text(value, 600).strip().strip("\"“”'").strip()
+    if _empty(text) or "!" in text:
+        return ""
+    for pattern, plain in YOU_GET_PLAIN:
+        text = pattern.sub(plain, text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if YOU_GET_BANNED.search(_dashes(text)):
+        return ""
+    if len(text) > YOU_GET_MAX:
+        head = text[:YOU_GET_MAX]
+        end = max(head.rfind(". "), head.rfind("? "))
+        if head.endswith((".", "?")):
+            end = len(head) - 1
+        text = head[: end + 1].strip() if end + 1 >= YOU_GET_MIN else ""
+    if len(text) < YOU_GET_MIN:
+        return ""
+    if text[0].islower():
+        text = text[0].upper() + text[1:]
+    if not text.endswith((".", "?")):
+        text += "."
+    return text
+
+
+# Capitalised words after the first of a sentence: the names a line uses ("Gmail", "Google Ads").
+_NAME = re.compile(r"(?<!^)(?<![.?!]\s)\b[A-Z][A-Za-z0-9'’&+.-]*(?:\s+[A-Z][A-Za-z0-9'’&+.-]*)*")
+
+
+def you_get_names(text: str) -> list[str]:
+    """The names a line uses, so the article check can ask whether the article has each one."""
+    out = []
+    for m in _NAME.finditer(text or ""):
+        name = m.group(0).rstrip(".’'")
+        if name and name not in {"I", "AI", "You", "Your"}:
+            out.append(name)
+    return out
+
+
+def you_get_grounded(line: str, source: str) -> bool:
+    """A line the article supports: every figure in it is the article's, and every name it uses is
+    in the article. Without enough article text, a line with any figure goes."""
+    if not line:
+        return False
+    if len(source or "") < checks.MIN_SOURCE_CHARS:
+        return not re.search(r"\d", line)
+    if checks.unsupported_figures(line, source):
+        return False
+    return not checks.unsupported_names(you_get_names(line), line, source)
+
+
+def _who_words(who_for: list[str]) -> str:
+    names = list(dict.fromkeys(YOU_GET_WHO.get(w, w) for w in (who_for or [])))[:2]
+    return " and ".join(names) or "small teams"
+
+
+def fallback_you_get(card: dict) -> str:
+    """A plain line from the card's own fields, for a card whose model line is missing or failed a
+    check: "Lets marketers and founders draft product captions from photos." Built only from what
+    the card already says (a use and who it is for), so it claims nothing new: no figure, no "faster"."""
+    who = _who_words(card.get("who_for") or [])
+    names = {w.lower() for n in (card.get("tool"), card.get("maker")) for w in (n or "").split()[:1]}
+    for use in card.get("use_for") or []:
+        use = re.sub(r"\s+", " ", str(use or "")).strip().rstrip(".;:,")
+        if len(use) < 6 or YOU_GET_BANNED.search(_dashes(use)):
+            continue
+        word = use.split()[0]
+        first = word.lower()
+        # A name ("Shopify product pages", "iPhone photos") keeps its case and reads as a thing.
+        name = first in names or bool(re.search(r"[A-Z0-9]", word[1:]))
+        lead = word if name else first
+        rest = use[len(word):]
+        if name or first in NOUN_START or first.endswith("ing") or first[0].isdigit():
+            line = f"Helps {who} with {lead}{rest}"
+        else:
+            line = f"Lets {who} {lead}{rest}"
+        return _end(_cut_words(line, YOU_GET_MAX - 1))
+    what = re.sub(r"\s+", " ", card.get("what_it_does") or "").strip().rstrip(".")
+    line = f"{card.get('tool') or 'It'}: {what}" if what else (card.get("tool") or "")
+    return _end(_cut_words(line, YOU_GET_MAX - 1))
+
+
+def _end(line: str) -> str:
+    return line if line.endswith(("…", ".", "?")) else line + "."
+
+
 # Words that say how to do something rather than what: every step has them, so they prove nothing.
 STEP_FILLER = {"open", "click", "select", "choose", "pick", "then", "next", "first", "go", "tap", "press", "enter",
                "type", "paste", "copy", "use", "using", "make", "sure", "button", "menu", "option", "options",
@@ -493,6 +635,13 @@ def ground_card(card: dict | None, source: str | None) -> dict | None:
     headline = card.get("headline") or ""
     if headline and enough and checks.unsupported_figures(headline, source):
         card["headline"] = fallback_headline(card["tool"], card["what_it_does"])
+
+    # What you get: a figure or a name the article lacks sends the line back to the rules-built one
+    # (card_out), which only repeats what the card already says.
+    if card.get("you_get") and not you_get_grounded(card["you_get"], source):
+        card["you_get"] = ""
+    if not card.get("steps"):
+        card["steps_source"] = ""
     return card
 
 
@@ -697,11 +846,16 @@ def card_out(card: dict, story: dict | None = None) -> dict:
         "usefulness": usefulness(card, story),
         # The plan it already comes with ("Google Workspace Business Standard"), or "".
         "includedIn": card.get("included_in") or "",
+        # What you get, in plain words: the model's grounded line, else one built from the card's own
+        # fields, so every card on the site has it (cards stored before the field existed included).
+        "youGet": card.get("you_get") or fallback_you_get(card),
     }
     # The teaching fields, only when present: the site's WorkCard (site/src/lib/work.ts) renders
     # `steps`, `prompt` and `example` only when the export carries them, under exactly these names.
     if card.get("steps"):
         out["steps"] = list(card["steps"])
+        # "article" or "maker" (the maker's own page, howto.py), so the page can say where they came from.
+        out["stepsSource"] = card.get("steps_source") or "article"
     if card.get("prompt"):
         out["prompt"] = card["prompt"]
     if card.get("example"):

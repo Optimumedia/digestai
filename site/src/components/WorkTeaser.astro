@@ -5,7 +5,7 @@
    goes is set by the home page's grid (styles/global.css, .grid.has-teaser); the band further down
    (WorkHome.astro) has the details. A click records next_click "home-teaser" (public/app.js). */
 import type { HomeWork } from "../lib/work";
-import { cardTitle } from "../lib/work";
+import { cardTitle, youGetLine } from "../lib/work";
 import WorkChips from "./WorkChips.astro";
 
 interface Props { home: HomeWork }
@@ -13,6 +13,8 @@ const { home } = Astro.props;
 const story = home.featured || home.also[0];
 const card = story.workCard;
 const { title } = cardTitle(card);
+// The plain payoff under the headline (lib/work.ts), unless it only repeats it.
+const get = youGetLine(card, title);
 ---
 
 <aside class="wk-home work-theme wk-teaser" aria-label="AI at Work">
@@ -23,6 +25,7 @@ const { title } = cardTitle(card);
   <a class="wk-teaser-link" href="/work" data-work-next="home-teaser" data-work-tool={card.tool}>
     <span class="wk-tape">{card.tool}</span>
     <span class="wk-teaser-title">{title}</span>
+    {get && <span class="wk-teaser-get"><b>What you get</b> {get}</span>}
   </a>
   <div class="wk-teaser-foot">
     <WorkChips cost={card.cost} costKind={card.costKind} effort={card.effort} compact />
