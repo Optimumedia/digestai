@@ -50,3 +50,4 @@ jobs:
           python tests/test_work.py
           python tests/test_summaries.py
           python tests/test_morning.py
+          python tests/test_share.py

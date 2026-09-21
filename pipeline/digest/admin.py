@@ -13,7 +13,7 @@ from urllib.parse import quote
 
 from sqlalchemy import and_, case, func, or_, select
 
-from . import cache, config, db, history
+from . import cache, config, db, history, share
 from . import quality as content_quality
 
 log = logging.getLogger("digest.admin")
@@ -510,6 +510,14 @@ def run() -> dict:
     except Exception as exc:  # noqa: BLE001  (a quality check must never cost the dashboard)
         log.warning("quality checks failed: %s", str(exc)[:200])
         out["quality"] = {"checkedAt": _iso(now), "error": str(exc)[:120], "flags": {}, "cards": []}
+
+    # ---- Share today: the day's stories for LinkedIn and X with posts ready to paste (share.py). Built
+    # from the files the export step wrote and pipeline/digest/shared.json; no database read.
+    try:
+        out["share"] = share.run_from_files(now)
+    except Exception as exc:  # noqa: BLE001 - a shortlist must never cost the dashboard
+        log.warning("share shortlist failed: %s", str(exc)[:200])
+        out["share"] = None
 
     order = {"critical": 0, "warning": 1, "info": 2}
     actions.sort(key=lambda c: order.get(c["level"], 3))

@@ -4,7 +4,7 @@ import HeldReview from "../components/HeldReview.astro";
 import { columns, lines, bars, stackedBars, sinceFirst, dayLabel } from "../lib/charts";
 import { rankLine, rankSpark } from "../lib/charts";
 import { searchView, rowChange, explainPosition, plural, dayTip, sparkTitle, MIN_IMPRESSIONS, MEANINGFUL_IMPRESSIONS } from "../lib/search";
-import { meta, categories, formatDate } from "../lib/data";
+import { meta, categories, formatDate, shareImage } from "../lib/data";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -148,7 +148,14 @@ if (heldCount > 0) {
     action: { kind: "link", url: "#held", label: "Review held stories" },
   });
 }
-const LEVEL: Record<string, string> = { critical: "Needs you now", warning: "Worth a look", info: "For your information" };
+// ---- Share today (pipeline/digest/share.py): the day's stories for LinkedIn and X, posted by hand.
+type ShareItem = { id: number; slug: string; headline: string; category: string; categoryName: string; kind: string; reason: string;
+  publishers: number; url: string; links: { linkedin: string; x: string }; linkedin: string; x: string; xLength: number;
+  done: Record<string, { at: string; url: string }> };
+const shareToday: { day: string; items: ShareItem[]; week: Record<string, number>; file: string } | null = admin?.share?.items?.length ? admin.share : null;
+const shareData = JSON.stringify(shareToday ? { day: shareToday.day, file: shareToday.file, week: shareToday.week,
+  items: shareToday.items.map((i) => ({ id: i.id, slug: i.slug, links: i.links, done: i.done })) } : null).replace(/</g, "\\u003c");
+const LEVEL: Record<string, string> ={ critical: "Needs you now", warning: "Worth a look", info: "For your information" };
 const whatParts = (c: Card) => c.what.split("{at}");
 const actionsUrl = `https://github.com/${repo}/actions/workflows/pipeline.yml`;
 const qualityRun = admin?.quality;
@@ -282,6 +289,54 @@ const homeData = JSON.stringify({
             )}
             {qualityRun?.checked && <p class="ac-foot">Content checks ran at <time datetime={qualityRun.checkedAt} data-static data-clock>{String(qualityRun.checkedAt).slice(11, 16)} UTC</time>: {qualityRun.checked.stories} stories, {qualityRun.checked.images} pictures and {qualityRun.checked.links} links checked. They run with every pipeline run, {everyText}.</p>}
           </section>
+
+          {shareToday && (
+            <section class="share" id="share-today" aria-labelledby="share-title">
+              <div class="share-head">
+                <h2 id="share-title">Share today</h2>
+                <p class="share-progress" data-share-progress aria-live="polite">0 of {shareToday.items.length} shared today</p>
+              </div>
+              <p class="share-sub">Stories worth posting on LinkedIn and X today, with the text ready. You post them from your own accounts; nothing here posts for you.</p>
+              <p class="share-sub"><span data-share-week>Shared this week: {shareToday.week.linkedin || 0} on LinkedIn, {shareToday.week.x || 0} on X</span> · <span data-share-store>Checking where your ticks are kept…</span></p>
+              <ol class="share-list">
+                {shareToday.items.map((it) => (
+                  <li class="share-item" data-share-id={it.id}>
+                    <div class="share-top">
+                      <img class="share-img" src={shareImage(it)} alt="" width="120" height="63" loading="lazy" decoding="async" />
+                      <div class="share-text">
+                        <a class="share-hl" href={`/story/${it.slug}`} target="_blank" rel="noopener">{it.headline}</a>
+                        <p class="share-why"><span class="share-cat">{it.categoryName}</span> {it.reason}</p>
+                      </div>
+                    </div>
+                    <div class="share-tabs" role="tablist" aria-label="Network">
+                      <button type="button" role="tab" class="share-tab" aria-selected="true" data-tab-net="linkedin">LinkedIn<span class="share-tick" data-tick="linkedin" hidden> ✓</span></button>
+                      <button type="button" role="tab" class="share-tab" aria-selected="false" data-tab-net="x">X<span class="share-tick" data-tick="x" hidden> ✓</span></button>
+                    </div>
+                    {(["linkedin", "x"] as const).map((net) => (
+                      <div class="share-pane" role="tabpanel" data-pane={net} hidden={net !== "linkedin"}>
+                        <label class="sr-only" for={`share-${it.id}-${net}`}>{net === "x" ? "X" : "LinkedIn"} post text</label>
+                        <textarea id={`share-${it.id}-${net}`} class="share-box" rows={net === "x" ? 7 : 9} data-text={net} spellcheck="true">{net === "x" ? it.x : it.linkedin}</textarea>
+                        {net === "x" && <p class="share-count" data-count>{it.xLength} of 280 characters (a link counts as 23)</p>}
+                        <div class="share-btns">
+                          <button type="button" class="tb share-btn" data-copy={net}>Copy text</button>
+                          <button type="button" class="tb primary share-btn" data-open={net}>{net === "x" ? "Open X" : "Open LinkedIn"} ↗</button>
+                          <button type="button" class="tb share-btn share-done" data-done={net}>Mark done</button>
+                        </div>
+                        {net === "linkedin"
+                          ? <p class="share-hint">LinkedIn does not take text from a link, so Open LinkedIn copies the text first: paste it into the post box.</p>
+                          : <p class="share-hint">Open X fills in the text and the link; check it and post.</p>}
+                        <label class="share-url"><span>Link to your post <span class="muted">(optional)</span></span>
+                          <input type="url" inputmode="url" data-post-url={net} placeholder={net === "x" ? "https://x.com/DigestAINews/status/…" : "https://www.linkedin.com/feed/update/…"} />
+                        </label>
+                      </div>
+                    ))}
+                    <p class="share-msg" data-share-msg aria-live="polite"></p>
+                  </li>
+                ))}
+              </ol>
+              <script is:inline type="application/json" id="share-data" set:html={shareData}></script>
+            </section>
+          )}
 
           <article class="card live" id="live-now" aria-live="polite">
             <div class="live-head"><span class="live-dot" aria-hidden="true"></span><span class="eyebrow" data-live-status>Connecting…</span></div>
@@ -1250,4 +1305,277 @@ const homeData = JSON.stringify({
       rows.forEach((r) => tbody.appendChild(r));
     }));
   </script>
+  <script is:inline define:vars={{ repo }}>
+    // Share today: copy, open the network's own share page, and tick what went out. Ticks are written to
+    // pipeline/digest/shared.json through GitHub's API with the token saved in Settings (the way Pin and
+    // Unpublish edit moderation.yaml), so every device sees them and the pipeline drops shared stories
+    // from the next day's list. Without a token they stay in this browser. Nothing here posts anything.
+    (() => {
+      const root = document.getElementById("share-today");
+      const dataEl = document.getElementById("share-data");
+      if (!root || !dataEl) return;
+      const data = JSON.parse(dataEl.textContent || "null");
+      if (!data) return;
+      const FILE = data.file || "pipeline/digest/shared.json";
+      const LOCAL = "admin_share_local";
+      const NETS = ["linkedin", "x"];
+      const NAME = { linkedin: "LinkedIn", x: "X" };
+      const items = Object.fromEntries(data.items.map((i) => [String(i.id), i]));
+      const token = () => { try { return localStorage.getItem("admin_gh_token") || ""; } catch { return ""; } };
+      const readLocal = () => { try { return JSON.parse(localStorage.getItem(LOCAL) || "{}").stories || {}; } catch { return {}; } };
+      const writeLocal = (s) => { try { localStorage.setItem(LOCAL, JSON.stringify({ stories: s })); } catch {} };
+      const toB64 = (s) => btoa(unescape(encodeURIComponent(s)));
+      const fromB64 = (s) => decodeURIComponent(escape(atob(s.replace(/\n/g, ""))));
+      const nowIso = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
+
+      // What the pipeline knew at build time, then whatever this browser or the repo says since.
+      let stories = {};
+      for (const it of data.items) if (it.done && Object.keys(it.done).length) stories[it.id] = { slug: it.slug, ...it.done };
+      let mode = "local"; // "repo" once shared.json has been read with the token
+      let storeNote = "";
+
+      function apply(obj, id, net, rec) {
+        const key = String(id);
+        if (rec) obj[key] = { ...(obj[key] && typeof obj[key] === "object" ? obj[key] : {}), slug: items[key]?.slug || obj[key]?.slug, [net]: rec };
+        else if (obj[key]) { delete obj[key][net]; if (!NETS.some((n) => obj[key][n])) delete obj[key]; }
+      }
+      function prune(obj) {
+        const cutoff = new Date(Date.now() - 120 * 864e5).toISOString();
+        for (const [k, v] of Object.entries(obj)) if (!v || typeof v !== "object" || !NETS.some((n) => v[n]?.at && v[n].at >= cutoff)) delete obj[k];
+      }
+      async function gh(path, method = "GET", body) {
+        const r = await fetch(`https://api.github.com/repos/${repo}/${path}`, { method, cache: "no-store",
+          headers: { Authorization: `Bearer ${token()}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
+          body: body ? JSON.stringify(body) : undefined });
+        if (!r.ok) { const e = new Error(`GitHub ${r.status}: ${(await r.text()).slice(0, 100)}`); e.status = r.status; throw e; }
+        return r.json();
+      }
+      async function readFile() {
+        try {
+          const f = await gh(`contents/${FILE}?ref=main`);
+          const json = JSON.parse(fromB64(f.content));
+          return { sha: f.sha, json: json && typeof json === "object" ? json : {} };
+        } catch (e) {
+          if (e.status === 404) return { sha: null, json: {} };
+          throw e;
+        }
+      }
+
+      // ---- rendering
+      const weekCounts = () => {
+        const cutoff = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 19);
+        const out = { linkedin: 0, x: 0 };
+        for (const v of Object.values(stories)) for (const n of NETS) if (v?.[n]?.at && v[n].at.slice(0, 19) >= cutoff) out[n]++;
+        // Before the repo is read, the pipeline's own count covers shares older than today's list.
+        if (mode !== "repo") for (const n of NETS) out[n] = Math.max(out[n], data.week?.[n] || 0);
+        return out;
+      };
+      function render() {
+        let shared = 0;
+        root.querySelectorAll(".share-item").forEach((li) => {
+          const rec = stories[li.dataset.shareId] || {};
+          let nets = 0;
+          for (const net of NETS) {
+            const done = rec[net];
+            if (done) nets++;
+            const btn = li.querySelector(`[data-done="${net}"]`);
+            btn.textContent = done ? `Live on ${NAME[net]} ✓` : "Mark done";
+            btn.classList.toggle("is-on", !!done);
+            btn.setAttribute("aria-pressed", done ? "true" : "false");
+            btn.title = done ? `Shared ${done.at.slice(0, 16).replace("T", " ")} UTC. Click to undo.` : `Tick when the ${NAME[net]} post is live`;
+            li.querySelector(`[data-tick="${net}"]`).hidden = !done;
+            const input = li.querySelector(`[data-post-url="${net}"]`);
+            if (done?.url && document.activeElement !== input && !input.value) input.value = done.url;
+          }
+          li.classList.toggle("is-done", nets === NETS.length);
+          if (nets) shared++;
+        });
+        const total = data.items.length;
+        root.querySelector("[data-share-progress]").textContent = shared === total ? `All ${total} shared today ✓` : `${shared} of ${total} shared today`;
+        const w = weekCounts();
+        root.querySelector("[data-share-week]").textContent = `Shared this week: ${w.linkedin} on LinkedIn, ${w.x} on X`;
+        root.querySelector("[data-share-store]").innerHTML = storeNote;
+      }
+      const say = (li, text, bad) => { const el = li.querySelector("[data-share-msg]"); el.textContent = text; el.classList.toggle("bad", !!bad); };
+
+      // ---- saving a tick
+      async function save(li, net, rec) {
+        const id = li.dataset.shareId, slug = items[id]?.slug || id;
+        apply(stories, id, net, rec);
+        render();
+        if (mode !== "repo") {
+          writeLocal(stories);
+          say(li, rec ? `Ticked in this browser only (no GitHub token).` : "Tick removed in this browser.");
+          return;
+        }
+        li.querySelectorAll("button").forEach((b) => (b.disabled = true));
+        say(li, "Saving to the repo…");
+        try {
+          for (let attempt = 0; ; attempt++) {
+            try {
+              const f = await readFile();
+              const json = f.json;
+              json.stories = json.stories && typeof json.stories === "object" ? json.stories : {};
+              apply(json.stories, id, net, rec);
+              prune(json.stories);
+              const body = { message: `admin: ${rec ? "shared" : "not shared"} ${slug} on ${NAME[net]}`, content: toB64(JSON.stringify(json, null, 2) + "\n"), branch: "main" };
+              if (f.sha) body.sha = f.sha;
+              await gh(`contents/${FILE}`, "PUT", body);
+              stories = { ...readLocal(), ...json.stories };
+              break;
+            } catch (e) {
+              if ((e.status === 409 || e.status === 422) && attempt < 2) continue; // someone else wrote first: read again
+              throw e;
+            }
+          }
+          say(li, rec ? `Saved: live on ${NAME[net]}. It leaves tomorrow's list.` : `Tick removed for ${NAME[net]}.`);
+        } catch (e) {
+          writeLocal(stories);
+          say(li, `Could not save to GitHub (${e.message}). Kept in this browser for now; try again later.`, true);
+        } finally {
+          li.querySelectorAll("button").forEach((b) => (b.disabled = false));
+          render();
+        }
+      }
+
+      // ---- the text: X's own count (links are 23, wide characters count twice)
+      const xLength = (text) => text.split(/(https?:\/\/\S+)/).reduce((n, part) => {
+        if (/^https?:\/\//.test(part)) return n + 23;
+        for (const ch of part) { const c = ch.codePointAt(0); n += c <= 4351 || (c >= 8192 && c <= 8205) || (c >= 8208 && c <= 8223) || (c >= 8242 && c <= 8247) ? 1 : 2; }
+        return n;
+      }, 0);
+      const countX = (li) => {
+        const box = li.querySelector('[data-text="x"]'), out = li.querySelector("[data-count]");
+        const n = xLength(box.value);
+        out.textContent = `${n} of 280 characters (a link counts as 23)${n > 280 ? `: ${n - 280} over, shorten it` : ""}`;
+        out.classList.toggle("bad", n > 280);
+      };
+      async function copy(text) {
+        try { await navigator.clipboard.writeText(text); return true; } catch {}
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        let ok = false; try { ok = document.execCommand("copy"); } catch {}
+        ta.remove();
+        return ok;
+      }
+      const storyLink = (text, fallback) => (text.match(/https?:\/\/\S+/g) || []).find((u) => u.includes("/story/")) || fallback;
+      const intentUrl = (net, text, item) => {
+        if (net === "linkedin") return `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(item.links.linkedin)}`;
+        const link = storyLink(text, item.links.x);
+        const body = text.replace(link, "").replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim();
+        return `https://x.com/intent/post?text=${encodeURIComponent(body)}&url=${encodeURIComponent(link)}`;
+      };
+      window.__shareIntentUrl = intentUrl; // for checking the built links from the console
+
+      root.querySelectorAll(".share-item").forEach((li) => {
+        const item = items[li.dataset.shareId];
+        li.querySelectorAll("[data-tab-net]").forEach((tab) => tab.addEventListener("click", () => {
+          li.querySelectorAll("[data-tab-net]").forEach((t) => t.setAttribute("aria-selected", t === tab ? "true" : "false"));
+          li.querySelectorAll("[data-pane]").forEach((p) => (p.hidden = p.dataset.pane !== tab.dataset.tabNet));
+        }));
+        li.querySelector('[data-text="x"]').addEventListener("input", () => countX(li));
+        countX(li);
+        li.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", async () => {
+          const ok = await copy(li.querySelector(`[data-text="${b.dataset.copy}"]`).value);
+          say(li, ok ? "Copied." : "Could not copy: select the text and copy it by hand.", !ok);
+        }));
+        li.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => {
+          const net = b.dataset.open, text = li.querySelector(`[data-text="${net}"]`).value;
+          // Start the copy inside the click (browsers only allow it there), then open the network.
+          const copied = net === "linkedin" ? copy(text) : null;
+          window.open(intentUrl(net, text, item), "_blank", "noopener");
+          if (copied) copied.then((ok) => say(li, ok ? "Text copied: paste it into the LinkedIn post box, then tick Mark done." : "Could not copy the text: use Copy text, then paste it into LinkedIn.", !ok));
+          else say(li, "X opened with the text and link filled in. Tick Mark done once it is live.");
+        }));
+        li.querySelectorAll("[data-done]").forEach((b) => b.addEventListener("click", () => {
+          const net = b.dataset.done, id = li.dataset.shareId, done = stories[id]?.[net];
+          if (done) { if (confirm(`Mark "${item.slug}" as not shared on ${NAME[net]}?`)) save(li, net, null); return; }
+          const url = li.querySelector(`[data-post-url="${net}"]`).value.trim();
+          save(li, net, { at: nowIso(), url: /^https:\/\//.test(url) ? url : "" });
+        }));
+        li.querySelectorAll("[data-post-url]").forEach((input) => input.addEventListener("change", () => {
+          const net = input.dataset.postUrl, done = stories[li.dataset.shareId]?.[net], url = input.value.trim();
+          if (url && !/^https:\/\//.test(url)) { say(li, "The link should start with https://", true); return; }
+          if (done && url !== (done.url || "")) save(li, net, { ...done, url });
+        }));
+      });
+
+      // ---- where ticks live: the repo with a token, else this browser
+      const local = readLocal();
+      stories = { ...stories, ...local };
+      if (!token()) {
+        storeNote = 'No GitHub token in this browser, so ticks are kept here only and tomorrow\'s list will not know about them. <a href="#settings">Add the token in Settings</a>.';
+        render();
+        return;
+      }
+      storeNote = "Reading your ticks from the repo…";
+      render();
+      readFile().then((f) => {
+        mode = "repo";
+        const repoStories = f.json.stories && typeof f.json.stories === "object" ? f.json.stories : {};
+        const onlyHere = Object.keys(local).filter((k) => items[k] && !repoStories[k]);
+        stories = { ...local, ...repoStories };
+        storeNote = `Ticks are saved to the repo (${FILE}), so every device sees them.${onlyHere.length ? ` ${onlyHere.length} tick${onlyHere.length > 1 ? "s were" : " was"} made in this browser without the token; tick again to save ${onlyHere.length > 1 ? "them" : "it"} to the repo.` : ""}`;
+        render();
+      }).catch((e) => {
+        storeNote = `Could not read ${FILE} from GitHub (${e.message}), so ticks are kept in this browser for now.`;
+        render();
+      });
+    })();
+  </script>
 </Base>
+
+<style>
+  .share { margin: 0 0 18px; padding: 14px 16px 6px; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 4px; }
+  .share-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
+  .share-head h2 { margin: 0; font-family: var(--font-display); font-size: clamp(19px, 2.3vw, 23px); font-weight: 600; color: var(--ink); }
+  .share-progress { margin: 0; font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.04em; color: var(--ink-2); }
+  .share-sub { margin: 4px 0 0; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+  .share-sub :global(a) { color: var(--accent); }
+  .share-list { margin: 12px 0 0; padding: 0; list-style: none; }
+  .share-item { padding: 14px 0; border-top: 1px solid var(--line); }
+  .share-item.is-done .share-hl { color: var(--ink-3); }
+  .share-top { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 12px; align-items: start; }
+  .share-img { width: 120px; height: 63px; object-fit: cover; border-radius: 3px; background: var(--surface-2); border: 1px solid var(--line); }
+  .share-text { min-width: 0; }
+  .share-hl { display: block; font-size: 16px; font-weight: 600; line-height: 1.35; color: var(--ink); overflow-wrap: anywhere; text-wrap: pretty; }
+  .share-why { margin: 4px 0 0; font-size: 13px; line-height: 1.45; color: var(--ink-3); }
+  .share-cat { display: inline-block; margin-right: 4px; padding: 1px 7px; border-radius: 3px; background: var(--surface-2); color: var(--ink-2); font-size: 12px; font-weight: 600; }
+  .share-tabs { display: flex; gap: 6px; margin: 12px 0 8px; }
+  .share-tab { min-height: 40px; min-width: 96px; padding: 6px 14px; font: inherit; font-size: 14px; font-weight: 600; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+  .share-tab[aria-selected="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .share-tick { color: var(--status-good); }
+  .share-pane[hidden] { display: none; }
+  .share-box { display: block; width: 100%; box-sizing: border-box; padding: 10px 12px; font: inherit; font-size: 15px; line-height: 1.5; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; resize: vertical; }
+  .share-box:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .share-count { margin: 4px 0 0; font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); }
+  .share-count.bad, .share-msg.bad { color: var(--status-critical); }
+  .share-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .share-btn { min-height: 44px; padding: 8px 14px; font-size: 14px; justify-content: center; }
+  .share-btn:disabled { opacity: 0.6; cursor: progress; }
+  .share-done.is-on { color: var(--status-good); border-color: var(--status-good); background: color-mix(in srgb, var(--status-good) 10%, var(--surface)); }
+  .share-hint { margin: 6px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-3); }
+  .share-url { display: grid; gap: 4px; margin-top: 10px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+  .share-url input { width: 100%; box-sizing: border-box; min-height: 40px; padding: 8px 10px; font: inherit; font-size: 14px; font-weight: 400; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+  .share-msg { margin: 8px 0 0; min-height: 1em; font-size: 13px; color: var(--ink-2); }
+  .share-msg:empty { display: none; }
+  @media (min-width: 900px) {
+    /* Side by side on a wide screen: the story on the left, the post on the right. */
+    .share-item { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); grid-template-rows: auto auto 1fr; column-gap: 20px; }
+    .share-top { grid-column: 1; grid-row: 1 / span 3; grid-template-columns: minmax(0, 1fr); align-self: start; align-content: start; }
+    .share-img { width: 100%; height: auto; aspect-ratio: 1200 / 630; }
+    .share-tabs { grid-column: 2; grid-row: 1; margin-top: 0; }
+    .share-pane { grid-column: 2; grid-row: 2; }
+    .share-msg { grid-column: 2; grid-row: 3; }
+  }
+  @media (max-width: 560px) {
+    .share { padding: 12px 12px 4px; }
+    .share-top { grid-template-columns: 88px minmax(0, 1fr); gap: 10px; }
+    .share-img { width: 88px; height: 46px; }
+    .share-tab { flex: 1; }
+    .share-btn { flex: 1 1 calc(50% - 8px); }
+    .share-btn.primary { flex-basis: 100%; order: -1; }
+    .share-box, .share-url input { font-size: 16px; } /* no zoom-on-focus on iOS */
+  }
+</style>
