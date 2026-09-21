@@ -36,6 +36,8 @@ jobs:
         run: |
           python tests/test_reads.py
           python tests/test_work_learn.py
+          python tests/test_mistral.py
+          python tests/test_cloudflare.py
       - name: Unit tests
         working-directory: pipeline
         run: |
@@ -52,5 +54,7 @@ jobs:
           python tests/test_work.py
           python tests/test_work_learn.py
           python tests/test_summaries.py
+          python tests/test_mistral.py
+          python tests/test_cloudflare.py
           python tests/test_morning.py
           python tests/test_share.py

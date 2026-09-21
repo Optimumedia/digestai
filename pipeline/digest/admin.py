@@ -108,6 +108,43 @@ def source_name(raw: str | None) -> str:
         return "Mastodon"
     return s
 
+def mistral_card(conn) -> dict:
+    """Mistral's calls today and this month and its spend against the monthly cap (enrich.py keeps
+    them in llm_usage), with the line the dashboard shows:
+    "Mistral: 42 calls today (310 this month) · $1.84 of $9.00 this month". Calls, not summaries:
+    the how-to and plain-words steps use it too."""
+    from . import enrich  # the step module, only when a Mistral key is configured
+
+    u = enrich.mistral_usage(conn)
+    spent, cap = round(u["spentMicro"] / 1e6, 4), config.MISTRAL_MONTHLY_CAP_USD
+    paused = u["pausedUntil"] if u["pausedUntil"] > db.utcnow().timestamp() else None
+    return {
+        "model": config.MISTRAL_MODEL, "month": u["month"], "callsToday": u["callsToday"], "callsMonth": u["callsMonth"],
+        "spentUSD": spent, "capUSD": cap, "share": round(spent / cap, 3) if cap else None,
+        "pausedUntil": datetime.fromtimestamp(paused, timezone.utc).isoformat() if paused else None,
+        "line": (f"Mistral: {u['callsToday']} call{'' if u['callsToday'] == 1 else 's'} today ({u['callsMonth']} this month) · "
+                 f"${spent:.2f} of ${cap:.2f} this month"),
+    }
+
+
+def cloudflare_card(conn) -> dict:
+    """Cloudflare Workers AI's calls and neurons today against the daily limit (enrich.py keeps them
+    in llm_usage), with the line the dashboard shows: "Cloudflare: 12 calls today · 3,400 of 9,000
+    neurons"."""
+    from . import enrich
+
+    u = enrich.cloudflare_usage(conn)
+    now = db.utcnow().timestamp()
+    limit = config.CLOUDFLARE_DAILY_NEURONS
+    paused = [m for m in enrich._cf_models() if u["paused"].get(enrich._cf_pause_key(m), 0) > now]
+    return {
+        "model": config.CLOUDFLARE_AI_MODEL, "callsToday": u["calls"], "neuronsToday": u["neurons"],
+        "limitNeurons": limit, "fallbackNeurons": round(limit * config.CLOUDFLARE_FALLBACK_SHARE),
+        "share": round(u["neurons"] / limit, 3) if limit else None, "pausedModels": paused,
+        "line": f"Cloudflare: {u['calls']} call{'' if u['calls'] == 1 else 's'} today · {u['neurons']:,} of {limit:,.0f} neurons",
+    }
+
+
 def _iso(dt):
     dt = db.as_utc(dt)
     return dt.isoformat().replace("+00:00", "Z") if dt else None
@@ -196,6 +233,10 @@ def run() -> dict:
             "budgets": config.DAILY_BUDGET,
             "usage": [{"day": u.day, "provider": u.provider, "requests": u.requests, "exhausted": u.exhausted} for u in usage],
         }
+        if config.MISTRAL_API_KEY:
+            out["llm"]["mistral"] = mistral_card(conn)
+        if config.CLOUDFLARE_ACCOUNT_ID and config.CLOUDFLARE_AI_TOKEN:
+            out["llm"]["cloudflare"] = cloudflare_card(conn)
 
         # ---- content mix.
         story_mirror = sorted((s for s in cache.stories(conn).values() if db.as_utc(s.updated_at) >= since), key=lambda s: s.id)

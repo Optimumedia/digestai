@@ -20,6 +20,10 @@ from sqlalchemy import create_engine, insert, select  # noqa: E402
 from digest import admin, cache, checks, config, db, enrich, upgrade  # noqa: E402
 
 NOW = datetime.now(timezone.utc)
+# No test here reaches a real provider: a Mistral key or Cloudflare credentials in .env must not
+# make them live providers (the tests that want them patch them in).
+config.MISTRAL_API_KEY = ""
+config.CLOUDFLARE_ACCOUNT_ID = config.CLOUDFLARE_AI_TOKEN = ""
 
 
 @contextmanager
@@ -144,7 +148,7 @@ LONG_TEXT = "The company said the round values it at $3 billion. " * 600
 def test_prompt_stays_inside_every_provider_window():
     row = SimpleNamespace(title="A title", source_name="Press", published_at=NOW)
     sizes = {}
-    for provider in ("gemini", "cloud", "groq", "ollama"):
+    for provider in ("gemini", "cloud", "groq", "mistral", "ollama"):
         prompt = enrich.build_prompt(row, LONG_TEXT, provider)
         sizes[provider] = enrich.estimated_tokens(prompt)
         cap = config.PROMPT_TOKEN_BUDGET.get(provider)
@@ -158,6 +162,8 @@ def test_prompt_stays_inside_every_provider_window():
         assert "Keep the source's hedging" in prompt
         assert "Copy every number" in prompt  # the figures rule reaches every provider
     assert sizes["groq"] < sizes["gemini"], sizes
+    # Ministral 8B has a 128k context: it gets the same full prompt as Gemini and Ollama Cloud.
+    assert sizes["mistral"] == sizes["gemini"] == sizes["cloud"], sizes
     assert sizes["ollama"] < sizes["groq"], sizes
     # The worked examples are what the narrow windows trade away, not the rules.
     assert "Example 1" in enrich.build_prompt(row, "short", "gemini")
@@ -464,6 +470,34 @@ def test_upgrade_stands_aside_while_articles_wait_and_when_the_day_is_behind():
         with Patch((config, "GEMINI_API_KEY", "k"), (enrich, "spare", lambda conn, p: 5),
                    (upgrade.time, "sleep", lambda s: None)):
             assert upgrade.run()["skipped"] == "daily upgrade limit reached"
+
+
+def test_upgrade_fallback_writes_multi_source_digests_only():
+    """Mistral (the fallback after the strong providers) is not a stronger model than the one that
+    wrote most first summaries, so it only writes the multi-source digests, and a single-source
+    candidate's text is not even read for it."""
+    calls = []
+
+    def fake_mistral(prompt):
+        calls.append(prompt)
+        return dict(MULTI_ANSWER)
+
+    patches = ((config, "GEMINI_API_KEY", ""), (config, "OLLAMA_API_KEY", ""), (config, "MISTRAL_API_KEY", "k"),
+               (enrich, "mistral_block", lambda conn=None, **kw: None), (enrich, "call_mistral", fake_mistral),
+               (upgrade.time, "sleep", lambda s: None))
+    with fresh_db() as eng:
+        seed_story(eng, sources=1, score=0.9)  # a weak single-source summary on a story that mattered
+        with Patch(*patches):
+            stats = upgrade.run()
+        assert calls == [] and stats["upgraded"] == 0, stats
+    with fresh_db() as eng:
+        seed_story(eng)  # three independent sources
+        with Patch(*patches):
+            stats = upgrade.run()
+        assert len(calls) == 1 and stats["multi"] == 1, stats
+        with eng.connect() as conn:
+            lead = conn.execute(select(db.articles).where(db.articles.c.id == 1)).mappings().first()
+        assert lead["enrich_model"] == f"mistral:{config.MISTRAL_MODEL}+u3"
 
 
 def test_upgrade_checks_its_own_answer_against_the_sources():

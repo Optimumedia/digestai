@@ -1,5 +1,6 @@
-"""Step 4: one LLM call per article. Gemini Flash (free tier) first, Groq as fallback,
-a heuristic path when neither key is configured so the pipeline always completes."""
+"""Step 4: one LLM call per article. Gemini Flash (free tier) first, then Ollama Cloud, Groq,
+Cloudflare Workers AI (daily neurons) and Mistral (Ministral 8B, capped by monthly spend), then a
+local model; a heuristic path when no key is configured so the pipeline always completes."""
 from __future__ import annotations
 
 import json
@@ -7,6 +8,7 @@ import logging
 import math
 import re
 import time
+from datetime import datetime, timedelta, timezone
 
 import requests
 from sqlalchemy import func, select, update
@@ -205,9 +207,17 @@ def usage_today(conn, provider: str) -> tuple[int, bool]:
     return (row.requests, row.exhausted) if row else (0, False)
 
 
+# Providers whose call function counts its own requests (call_mistral and call_cloudflare: they are
+# held by money or neurons, and also called from steps that record nothing, howto and simplify). A
+# caller's count for them is dropped here so nothing is counted twice; an "exhausted" mark goes through.
+SELF_COUNTING = frozenset({"mistral", "cloudflare"})
+
+
 def record_usage(eng, provider: str, n: int = 1, exhausted: bool = False) -> None:
     from sqlalchemy import insert, update
 
+    if provider in SELF_COUNTING and not exhausted:
+        return
     with eng.begin() as conn:
         row = conn.execute(
             select(db.llm_usage.c.id).where(db.llm_usage.c.day == _today(), db.llm_usage.c.provider == provider)
@@ -260,7 +270,7 @@ def spare(conn, provider: str) -> int:
 
 # ----------------------------------------------------------------- queue order
 # Which article the strongest model gets. The providers are tried in order (Gemini, then Ollama
-# Cloud, then Groq, then the local model), each with its share of the run, so whatever stands at
+# Cloud, then Groq, then Cloudflare, then Mistral, then the local model), each with its share of the run, so whatever stands at
 # the front of the queue is what the best model reads. Before this, that was whatever arrived
 # first, which on most mornings meant an arXiv listing rather than a lab's own announcement.
 
@@ -535,6 +545,429 @@ def call_ollama_cloud(prompt: str) -> dict:
     raise last or QuotaExhausted("ollama cloud: no model available")
 
 
+# ----------------------------------------------------------------- Mistral (paid by the token, capped)
+# The Free plan's $10 a month is spent by the token, so Mistral is held by money, not by a request
+# count: every call's cost (usage tokens x price) is added to a month-to-date total kept in
+# llm_usage beside the daily request counts, and no call starts once the total plus what the call
+# could cost would pass MISTRAL_MONTHLY_CAP_USD. The month is the UTC calendar month, as Mistral's.
+#
+# Rows, one per UTC day (llm_usage has no cost column, and a row per day is what it already holds):
+#   provider "mistral"          requests = calls that day
+#   provider "mistral_microusd" requests = that day's spend in millionths of a dollar
+#   provider "mistral_pause"    requests = the minute (since the epoch) a plan-level pause ends
+# The month-to-date figures come from one grouped query: three short rows, read once a run.
+
+MISTRAL_SPEND = "mistral_microusd"
+MISTRAL_PAUSE = "mistral_pause"
+MISTRAL_ROWS = ("mistral", MISTRAL_SPEND, MISTRAL_PAUSE)
+MISTRAL_ANSWER_TOKENS = 3000
+# What a summary call costs at most, for sizing a run's share: the longest prompt (LLM_INPUT_WORDS of
+# article, ~9,500 tokens) and ~1,200 tokens out at $0.15 per million. Measured on 21 Sep 2026: an
+# 818-word article took 3,559 tokens in and 469 out, $0.0006.
+MISTRAL_TYPICAL_CALL_USD = 0.0016
+
+
+class SpendCapReached(QuotaExhausted):
+    """The month's spend cap would be passed: no more calls until the 1st."""
+
+
+_mistral: dict = {}      # month-to-date state, loaded from llm_usage once a run (_mistral_state)
+_mistral_run: dict = {"calls": 0, "paused": None}  # this run (one process): calls sent, why it sat out
+
+
+def mistral_reset() -> None:
+    """Forget the loaded state and the run's count (each run is a new process; tests call this)."""
+    _mistral.clear()
+    _mistral_run.update(calls=0, paused=None)
+
+
+def _month_start(day):
+    return day.replace(day=1)
+
+
+def mistral_usage(conn) -> dict:
+    """Mistral's calls today and this month, spend month-to-date and any plan pause, from llm_usage.
+
+    One grouped query over the month's rows (and yesterday's, for a pause set on the last day of a
+    month): three short result rows whatever the day of the month."""
+    from sqlalchemy import case
+
+    now = db.utcnow()
+    today = now.date()
+    month = _month_start(today).isoformat()
+    since = min(month, (today - timedelta(days=1)).isoformat())
+    u = db.llm_usage.c
+    rows = conn.execute(
+        select(u.provider,
+               func.sum(case((u.day == today.isoformat(), u.requests), else_=0)).label("today"),
+               func.sum(case((u.day >= month, u.requests), else_=0)).label("month"),
+               func.max(u.requests).label("top"))
+        .where(u.provider.in_(MISTRAL_ROWS), u.day >= since)
+        .group_by(u.provider)).all()
+    got = {r.provider: r for r in rows}
+
+    def val(provider, field):
+        r = got.get(provider)
+        return int(getattr(r, field) or 0) if r else 0
+
+    return {
+        "day": today.isoformat(), "month": month[:7],
+        "callsToday": val("mistral", "today"), "callsMonth": val("mistral", "month"),
+        "spentMicro": val(MISTRAL_SPEND, "month"),
+        "pausedUntil": val(MISTRAL_PAUSE, "top") * 60.0,  # epoch seconds; 0 when never paused
+    }
+
+
+def _mistral_state(conn=None) -> dict:
+    """The month-to-date state, read once a run and kept current in memory after each call. Read
+    again when the UTC day changes, so a run that crosses midnight on the 1st starts the new month.
+    A failed read fails closed: no Mistral call is made on a spend figure that could not be read."""
+    today = db.utcnow().date().isoformat()
+    if _mistral.get("day") != today:
+        try:
+            if conn is not None:
+                fresh = mistral_usage(conn)
+            else:
+                with db.engine().connect() as c:
+                    fresh = mistral_usage(c)
+            fresh["error"] = None
+        except Exception as exc:  # noqa: BLE001
+            log.warning("mistral: month-to-date spend could not be read (%s); not using it", str(exc)[:120])
+            fresh = {"day": None, "error": str(exc)[:120], "spentMicro": 0, "pausedUntil": 0.0,
+                     "callsToday": 0, "callsMonth": 0, "month": today[:7]}
+        _mistral.clear()
+        _mistral.update(fresh)
+    return _mistral
+
+
+def mistral_spent_usd(state: dict | None = None) -> float:
+    return (state if state is not None else _mistral_state()).get("spentMicro", 0) / 1e6
+
+
+def mistral_cost(prompt_tokens: int, completion_tokens: int) -> float:
+    return (prompt_tokens * config.MISTRAL_PRICE_IN_PER_M + completion_tokens * config.MISTRAL_PRICE_OUT_PER_M) / 1e6
+
+
+def mistral_block(conn=None, prompt: str | None = None, answer_tokens: int = MISTRAL_ANSWER_TOKENS) -> str | None:
+    """Why Mistral may not be called now, or None. With a prompt, the cap check includes what this
+    call could cost at most (its prompt plus a full answer), so the cap is never crossed."""
+    if not config.MISTRAL_API_KEY:
+        return "no key"
+    if _mistral_run["paused"]:
+        return f"paused for this run ({_mistral_run['paused']})"
+    if _mistral_run["calls"] >= config.MISTRAL_MAX_PER_RUN:
+        return f"the run's {config.MISTRAL_MAX_PER_RUN} calls are used"
+    st = _mistral_state(conn)
+    if st.get("error"):
+        return "month-to-date spend could not be read"
+    if st.get("pausedUntil", 0) > db.utcnow().timestamp():
+        return "model not available on this plan (paused until " + datetime.fromtimestamp(st["pausedUntil"], timezone.utc).strftime("%Y-%m-%d %H:%M UTC") + ")"
+    worst = mistral_cost(estimated_tokens(prompt), answer_tokens) if prompt is not None else MISTRAL_TYPICAL_CALL_USD
+    if mistral_spent_usd(st) + worst > config.MISTRAL_MONTHLY_CAP_USD:
+        return f"monthly cap reached (${mistral_spent_usd(st):.2f} of ${config.MISTRAL_MONTHLY_CAP_USD:.2f})"
+    return None
+
+
+def mistral_allowance(conn=None) -> int:
+    """Calls this run's enrich step may give Mistral: bounded by the run's cap, the step's own cap,
+    and what is left of the month's money at a typical call's cost."""
+    if mistral_block(conn):
+        return 0
+    left_usd = config.MISTRAL_MONTHLY_CAP_USD - mistral_spent_usd()
+    return max(0, min(config.MAX_ENRICH_PER_RUN, config.MISTRAL_MAX_PER_RUN - _mistral_run["calls"],
+                      int(left_usd // MISTRAL_TYPICAL_CALL_USD)))
+
+
+def _usage_add(values: dict[str, int], keep_max: bool = False) -> None:
+    """Add to (or, with keep_max, raise to) today's llm_usage rows for these providers: one short
+    transaction (Mistral's and Cloudflare's own bookkeeping)."""
+    from sqlalchemy import insert
+
+    day = _today()
+    u = db.llm_usage.c
+    with db.engine().begin() as conn:
+        have = {r.provider: r for r in conn.execute(
+            select(u.id, u.provider, u.requests).where(u.day == day, u.provider.in_(list(values)))).all()}
+        for provider, n in values.items():
+            row = have.get(provider)
+            if row is None:
+                conn.execute(insert(db.llm_usage).values(day=day, provider=provider, requests=int(n), exhausted=False))
+            elif keep_max:
+                conn.execute(update(db.llm_usage).where(u.id == row.id).values(requests=max(int(row.requests or 0), int(n))))
+            else:
+                conn.execute(update(db.llm_usage).where(u.id == row.id).values(requests=u.requests + int(n)))
+
+
+def _mistral_charge(cost_usd: float) -> None:
+    """Count one answered call and its cost, in memory at once and in llm_usage."""
+    micro = max(0, round(cost_usd * 1e6))
+    st = _mistral_state()
+    st["spentMicro"] = st.get("spentMicro", 0) + micro
+    st["callsToday"] = st.get("callsToday", 0) + 1
+    st["callsMonth"] = st.get("callsMonth", 0) + 1
+    try:
+        _usage_add({"mistral": 1, MISTRAL_SPEND: micro})
+    except Exception as exc:  # noqa: BLE001 - the in-memory total still holds this run to the cap
+        log.warning("mistral: spend not stored (%s)", str(exc)[:120])
+
+
+def _mistral_pause_for_plan() -> None:
+    until = db.utcnow().timestamp() + config.MISTRAL_PLAN_PAUSE_HOURS * 3600
+    _mistral_state()["pausedUntil"] = until
+    try:
+        _usage_add({MISTRAL_PAUSE: int(until // 60)}, keep_max=True)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("mistral: pause not stored (%s)", str(exc)[:120])
+
+
+def call_mistral(prompt: str) -> dict:
+    """Ministral 8B on Mistral's Free plan. Refuses before sending when the month's spend cap, the
+    run's call cap or a pause stands in the way. 429 or 402: Mistral sits out the rest of this run.
+    429 with x-ratelimit-limit-req-minute 0: the model is not on this plan, paused for 24 hours."""
+    reason = mistral_block(prompt=prompt)
+    if reason:
+        raise (SpendCapReached if reason.startswith("monthly cap") else ProviderPaused)(f"mistral: {reason}")
+    model = config.MISTRAL_MODEL
+    _mistral_run["calls"] += 1
+    resp = requests.post(
+        f"{config.MISTRAL_URL}/chat/completions",
+        headers={"Authorization": f"Bearer {config.MISTRAL_API_KEY}"},
+        json={
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,
+            "response_format": {"type": "json_object"},
+            "max_tokens": MISTRAL_ANSWER_TOKENS,
+        },
+        timeout=_request_timeout(90),
+    )
+    if resp.status_code == 429 and str(resp.headers.get("x-ratelimit-limit-req-minute", "")).strip() == "0":
+        _mistral_pause_for_plan()
+        _mistral_run["paused"] = "model not available on this plan"
+        log.warning("Mistral model not available on this plan (%s): paused for %g hours", model, config.MISTRAL_PLAN_PAUSE_HOURS)
+        raise QuotaExhausted(f"mistral {model}: model not available on this plan")
+    if resp.status_code in (401, 402, 403, 429):
+        _mistral_run["paused"] = f"http {resp.status_code}"
+        raise ProviderPaused(f"mistral {model} http {resp.status_code}: {resp.text[:120]}")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"mistral {model} http {resp.status_code}: {resp.text[:160]}")
+    data = resp.json()
+    content = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+    usage = data.get("usage") or {}
+    # Tokens were spent whether or not the answer parses, so the cost is booked first.
+    tokens_in = int(usage.get("prompt_tokens") or estimated_tokens(prompt))
+    tokens_out = int(usage.get("completion_tokens") or estimated_tokens(content))
+    _mistral_charge(mistral_cost(tokens_in, tokens_out))
+    return _parse_json(content)
+
+
+# ----------------------------------------------------------------- Cloudflare Workers AI (daily neurons)
+# The Workers Free plan gives 10,000 "neurons" a day (reset 00:00 UTC), spent by the token. Each
+# answer reports what it cost (usage.neurons); the day's total is kept in llm_usage beside the
+# request counts, and no call starts once the total plus what the call could cost would pass the
+# limit for its purpose: CLOUDFLARE_DAILY_NEURONS for upgrade.py, which Cloudflare is first choice
+# for, and CLOUDFLARE_FALLBACK_SHARE of it for the fallback uses (enrich, howto, simplify), which run
+# earlier in each run and must not eat the rewrites' neurons.
+#
+# Rows, one per UTC day:
+#   provider "cloudflare"          requests = calls that day
+#   provider "cloudflare_neurons"  requests = neurons that day (each answer's figure rounded up)
+#   provider "cfpause_<8 hex>"     requests = the minute (since the epoch) a model's 403 pause ends
+# Read once a run with one grouped query over today's and yesterday's rows.
+
+CF_CALLS, CF_NEURONS, CF_PAUSE = "cloudflare", "cloudflare_neurons", "cfpause_"
+CF_ANSWER_TOKENS = 2000
+# Nemotron 3 120B without thinking, measured 21 Sep 2026: 3,572 tokens in and 389 out cost 213.6
+# neurons, and 2,645 out (with thinking) 520.5, so ~0.045 a token in and ~0.136 a token out.
+CF_NEURONS_PER_IN = 0.045
+CF_NEURONS_PER_OUT = 0.136
+CF_TYPICAL_CALL_NEURONS = 300.0  # an enrich-size call; a multi-source rewrite is ~450
+# Models that think before answering unless told not to; thinking tripled the neurons of a summary
+# and, at 3,000 tokens, used the whole answer on it.
+CF_THINKING = ("nemotron", "qwen")
+_HARMONY = re.compile(r"<\|(?:start|end|message|channel|return|call)\|>(?:assistant|final|analysis)?")
+
+_cf: dict = {}
+_cf_run: dict = {"calls": 0, "paused": None, "dead": set()}
+
+
+def cloudflare_reset() -> None:
+    _cf.clear()
+    _cf_run.update(calls=0, paused=None, dead=set())
+
+
+def _cf_pause_key(model: str) -> str:
+    import hashlib
+
+    return CF_PAUSE + hashlib.md5(model.encode("utf-8")).hexdigest()[:8]
+
+
+def cloudflare_usage(conn) -> dict:
+    """Cloudflare's calls and neurons today and any model pauses, from llm_usage: one grouped query
+    over today's and yesterday's rows (a pause may have been set yesterday)."""
+    from sqlalchemy import case, or_
+
+    today = db.utcnow().date()
+    u = db.llm_usage.c
+    rows = conn.execute(
+        select(u.provider,
+               func.sum(case((u.day == today.isoformat(), u.requests), else_=0)).label("today"),
+               func.max(u.requests).label("top"))
+        .where(or_(u.provider.in_((CF_CALLS, CF_NEURONS)), u.provider.like(CF_PAUSE.rstrip("_") + "%")),
+               u.day >= (today - timedelta(days=1)).isoformat())
+        .group_by(u.provider)).all()
+    got = {r.provider: r for r in rows}
+    return {
+        "day": today.isoformat(),
+        "calls": int(getattr(got.get(CF_CALLS), "today", 0) or 0),
+        "neurons": int(getattr(got.get(CF_NEURONS), "today", 0) or 0),
+        "paused": {p: int(r.top or 0) * 60.0 for p, r in got.items() if p.startswith(CF_PAUSE)},
+    }
+
+
+def _cf_state(conn=None) -> dict:
+    """Today's state, read once a run (again when the UTC day changes); fails closed like Mistral's."""
+    today = db.utcnow().date().isoformat()
+    if _cf.get("day") != today:
+        try:
+            if conn is not None:
+                fresh = cloudflare_usage(conn)
+            else:
+                with db.engine().connect() as c:
+                    fresh = cloudflare_usage(c)
+            fresh["error"] = None
+        except Exception as exc:  # noqa: BLE001
+            log.warning("cloudflare: today's neurons could not be read (%s); not using it", str(exc)[:120])
+            fresh = {"day": None, "error": str(exc)[:120], "calls": 0, "neurons": 0, "paused": {}}
+        _cf.clear()
+        _cf.update(fresh)
+    return _cf
+
+
+def _cf_models() -> list[str]:
+    return [config.CLOUDFLARE_AI_MODEL, *config.CLOUDFLARE_AI_FALLBACK_MODELS]
+
+
+def _cf_open_models(st: dict) -> list[str]:
+    now = db.utcnow().timestamp()
+    return [m for m in _cf_models() if m not in _cf_run["dead"] and st["paused"].get(_cf_pause_key(m), 0) <= now]
+
+
+def cloudflare_limit(purpose: str = "fallback") -> float:
+    return config.CLOUDFLARE_DAILY_NEURONS * (1.0 if purpose == "upgrade" else config.CLOUDFLARE_FALLBACK_SHARE)
+
+
+def cloudflare_block(conn=None, purpose: str = "fallback", prompt: str | None = None) -> str | None:
+    """Why Cloudflare may not be called now for this purpose, or None."""
+    if not (config.CLOUDFLARE_ACCOUNT_ID and config.CLOUDFLARE_AI_TOKEN):
+        return "no credentials"
+    if _cf_run["paused"]:
+        return f"paused for this run ({_cf_run['paused']})"
+    if _cf_run["calls"] >= config.CLOUDFLARE_MAX_PER_RUN:
+        return f"the run's {config.CLOUDFLARE_MAX_PER_RUN} calls are used"
+    st = _cf_state(conn)
+    if st.get("error"):
+        return "today's neurons could not be read"
+    if not _cf_open_models(st):
+        return "no model available on this plan"
+    worst = (estimated_tokens(prompt) * CF_NEURONS_PER_IN + CF_ANSWER_TOKENS * CF_NEURONS_PER_OUT
+             if prompt is not None else CF_TYPICAL_CALL_NEURONS)
+    limit = cloudflare_limit(purpose)
+    if st["neurons"] + worst > limit:
+        return f"daily neurons reached ({st['neurons']:,} of {limit:,.0f} for {purpose})"
+    return None
+
+
+def cloudflare_allowance(conn=None) -> int:
+    """Calls this run's enrich step may give Cloudflare, within the fallback share of the day."""
+    if cloudflare_block(conn):
+        return 0
+    left = cloudflare_limit("fallback") - _cf_state(conn)["neurons"]
+    return max(0, min(config.MAX_ENRICH_PER_RUN, config.CLOUDFLARE_MAX_PER_RUN - _cf_run["calls"],
+                      int(left // CF_TYPICAL_CALL_NEURONS)))
+
+
+def _cf_charge(neurons: float) -> None:
+    whole = max(0, math.ceil(neurons))
+    st = _cf_state()
+    st["neurons"] = st.get("neurons", 0) + whole
+    st["calls"] = st.get("calls", 0) + 1
+    try:
+        _usage_add({CF_CALLS: 1, CF_NEURONS: whole})
+    except Exception as exc:  # noqa: BLE001 - the in-memory total still holds this run to the limit
+        log.warning("cloudflare: neurons not stored (%s)", str(exc)[:120])
+
+
+def _cf_pause_model(model: str) -> None:
+    until = db.utcnow().timestamp() + config.CLOUDFLARE_MODEL_PAUSE_HOURS * 3600
+    _cf_state()["paused"][_cf_pause_key(model)] = until
+    try:
+        _usage_add({_cf_pause_key(model): int(until // 60)}, keep_max=True)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("cloudflare: pause not stored (%s)", str(exc)[:120])
+
+
+def call_cloudflare(prompt: str, purpose: str = "fallback") -> dict:
+    """Workers AI, Nemotron 3 120B first. 403 "not available on the Workers Free plan": that model is
+    skipped for 24 hours and the next one tried. 429 (the day's free neurons, or a rate limit) or
+    401: Cloudflare sits out the rest of this run. Refuses before sending when the day's neurons for
+    this purpose, or the run's call cap, would be passed."""
+    reason = cloudflare_block(purpose=purpose, prompt=prompt)
+    if reason:
+        raise ProviderPaused(f"cloudflare: {reason}")
+    url = f"https://api.cloudflare.com/client/v4/accounts/{config.CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions"
+    last: Exception | None = None
+    for model in _cf_open_models(_cf_state()):
+        if cloudflare_block(purpose=purpose, prompt=prompt):
+            break
+        body = {"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3,
+                "response_format": {"type": "json_object"}, "max_tokens": CF_ANSWER_TOKENS}
+        if any(t in model for t in CF_THINKING):
+            body["chat_template_kwargs"] = {"enable_thinking": False}
+        _cf_run["calls"] += 1
+        resp = requests.post(url, headers={"Authorization": f"Bearer {config.CLOUDFLARE_AI_TOKEN}"}, json=body,
+                             timeout=_request_timeout(120))
+        if resp.status_code == 403:
+            _cf_pause_model(model)
+            log.warning("Cloudflare model %s not available on this plan: skipped for %g hours", model,
+                        config.CLOUDFLARE_MODEL_PAUSE_HOURS)
+            last = QuotaExhausted(f"cloudflare {model} 403")
+            continue
+        if resp.status_code in (401, 429):
+            _cf_run["paused"] = f"http {resp.status_code}"
+            raise ProviderPaused(f"cloudflare http {resp.status_code}: {resp.text[:120]}")
+        if resp.status_code == 404:
+            _cf_run["dead"].add(model)
+            last = QuotaExhausted(f"cloudflare {model} 404")
+            continue
+        if resp.status_code >= 500:
+            last = RuntimeError(f"cloudflare {model} http {resp.status_code}")
+            continue
+        if resp.status_code >= 400:
+            # Often a parameter this model does not take; the next model may.
+            last = RuntimeError(f"cloudflare {model} http {resp.status_code}: {resp.text[:120]}")
+            continue
+        data = resp.json()
+        usage = data.get("usage") or {}
+        message = ((data.get("choices") or [{}])[0].get("message") or {})
+        content = _HARMONY.sub(" ", message.get("content") or "")
+        neurons = usage.get("neurons")
+        if neurons is None:  # not reported: estimate from the tokens, so the day's total still grows
+            neurons = (int(usage.get("prompt_tokens") or estimated_tokens(prompt)) * CF_NEURONS_PER_IN
+                       + int(usage.get("completion_tokens") or estimated_tokens(content)) * CF_NEURONS_PER_OUT)
+        _cf_charge(float(neurons))
+        # A bad answer is not retried on another model: every try costs neurons.
+        return _parse_json(content)
+    if isinstance(last, QuotaExhausted) or last is None:
+        raise ProviderPaused(f"cloudflare: no model available ({last})")
+    raise last
+
+
+def call_cloudflare_upgrade(prompt: str) -> dict:
+    """call_cloudflare with the whole day's neurons: what upgrade.py uses."""
+    return call_cloudflare(prompt, purpose="upgrade")
+
+
 def call_ollama(prompt: str) -> dict:
     resp = requests.post(
         f"{config.OLLAMA_URL}/api/chat",
@@ -801,7 +1234,23 @@ def run() -> dict:
             budgets["groq"] = allowance(conn, "groq")
             if budgets["groq"] > 0:
                 providers.append((f"groq:{config.GROQ_MODEL}", call_groq))
-    keyed = bool(config.GEMINI_API_KEY or config.GROQ_API_KEY or config.OLLAMA_API_KEY)
+        # Cloudflare Workers AI, within the share of its daily neurons that upgrade.py leaves over.
+        if config.CLOUDFLARE_ACCOUNT_ID and config.CLOUDFLARE_AI_TOKEN:
+            budgets["cloudflare"] = cloudflare_allowance(conn)
+            if budgets["cloudflare"] > 0:
+                providers.append((f"cloudflare:{config.CLOUDFLARE_AI_MODEL}", call_cloudflare))
+            else:
+                stats["cloudflare"] = cloudflare_block(conn) or "no share this run"
+        # Mistral fills the gaps the free providers leave, before the weak local model. It is paid
+        # by the token: its share is bounded by the month's spend cap and the run's call cap.
+        if config.MISTRAL_API_KEY:
+            budgets["mistral"] = mistral_allowance(conn)
+            if budgets["mistral"] > 0:
+                providers.append((f"mistral:{config.MISTRAL_MODEL}", call_mistral))
+            else:
+                stats["mistral"] = mistral_block(conn) or "no share this run"
+    keyed = bool(config.GEMINI_API_KEY or config.GROQ_API_KEY or config.OLLAMA_API_KEY or config.MISTRAL_API_KEY
+                 or (config.CLOUDFLARE_ACCOUNT_ID and config.CLOUDFLARE_AI_TOKEN))
     # The local model is the safety net: it takes over when the keyed providers are out of quota
     # (for the day, or mid-run), so a run never leaves the site without fresh stories.
     if ollama_available():
@@ -862,7 +1311,7 @@ def run() -> dict:
             if provider in budgets and spent.get(provider, 0) >= budgets[provider]:
                 continue  # this provider's share for the run is spent; try the next one
             # Shorter input and shorter examples for the CPU model (speed) and for Groq (its
-            # tokens-per-minute window); the rest get the full prompt.
+            # tokens-per-minute window); the rest, Mistral's 128k-token model included, get the full prompt.
             prompt = build_prompt(row, text, provider, local_only)
             try:
                 result = fn(prompt)

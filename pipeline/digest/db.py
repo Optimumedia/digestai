@@ -216,7 +216,11 @@ llm_usage = Table(
     metadata,
     Column("id", Integer, primary_key=True),
     Column("day", String(10), nullable=False),  # UTC date
-    Column("provider", String(20), nullable=False),  # gemini | groq | ollama
+    # gemini | cloud | groq | mistral | cloudflare | upgrade, plus bookkeeping rows (enrich.py):
+    # mistral_microusd (requests = that day's spend in millionths of a dollar), cloudflare_neurons
+    # (that day's neurons), and mistral_pause / cfpause_<hash> (requests = the minute, since the
+    # epoch, a plan-level pause of Mistral or of one Cloudflare model ends).
+    Column("provider", String(20), nullable=False),
     Column("requests", Integer, nullable=False, default=0),
     Column("exhausted", Boolean, nullable=False, default=False),
 )

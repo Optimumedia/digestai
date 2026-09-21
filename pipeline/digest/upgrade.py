@@ -13,7 +13,8 @@ paraphrasing whichever article happened to arrive first.
 
 What holds it in check:
 - it only runs on allowance the day is ahead of pace on (enrich.spare), so the queue always comes
-  first, and it stands aside entirely while articles are waiting to be summarised;
+  first, and it stands aside entirely while articles are waiting to be summarised; Mistral, the
+  fallback after the strong providers, is held by its monthly spend cap and per-run call cap instead;
 - at most UPGRADE_MAX_PER_RUN stories per run and UPGRADE_DAILY_MAX a day, counted in llm_usage;
 - a story is never written twice for the same material: the article's enrich_model records how many
   sources the upgrade used, and only UPGRADE_NEW_SOURCES more make it worth writing again;
@@ -155,9 +156,16 @@ def candidates(conn, now) -> list[SimpleNamespace]:
 
 
 def _providers(conn) -> list[tuple[str, object]]:
-    """The strong providers that are ahead of their daily pace, best first."""
+    """The strong providers with room, in STRONG_PROVIDERS order (Cloudflare first, on its daily
+    neurons; Gemini and Ollama Cloud when they are ahead of their daily pace), then Mistral as the
+    fallback when the month's spend cap and the run's call cap leave room (enrich.mistral_block)."""
     out = []
     for name in config.STRONG_PROVIDERS:
+        if name == "cloudflare":
+            # Held by its daily neurons, not by a request budget: the whole day's are for this step.
+            if enrich.cloudflare_block(conn, purpose="upgrade") is None:
+                out.append((f"cloudflare:{config.CLOUDFLARE_AI_MODEL}", enrich.call_cloudflare_upgrade))
+            continue
         if name == "gemini" and config.GEMINI_API_KEY:
             fn, model = enrich.call_gemini, config.GEMINI_MODEL
         elif name == "cloud" and config.OLLAMA_API_KEY:
@@ -166,6 +174,8 @@ def _providers(conn) -> list[tuple[str, object]]:
             continue
         if enrich.spare(conn, name) > 0 and enrich.allowance(conn, name) > 0:
             out.append((f"{name}:{model}", fn))
+    if config.MISTRAL_API_KEY and "mistral" not in config.STRONG_PROVIDERS and enrich.mistral_block(conn) is None:
+        out.append((f"mistral:{config.MISTRAL_MODEL}", enrich.call_mistral))
     return out
 
 
@@ -270,6 +280,11 @@ def run() -> dict:
         picked = candidates(conn, now)
         stats["candidates"] = len(picked)
         jobs = []
+        strong = any(name.split(":")[0] in config.STRONG_PROVIDERS for name, _fn in providers)
+        if not strong:
+            # Only the fallback has room: it writes multi-source digests only (see below), so the
+            # single-source candidates' text is not read.
+            picked = [c for c in picked if c.sources >= config.UPGRADE_MIN_SOURCES]
         for cand in picked[:room]:
             multi = cand.sources >= config.UPGRADE_MIN_SOURCES
             rows = _story_rows(conn, cand, config.UPGRADE_MULTI_ARTICLES if multi else 1)
@@ -296,6 +311,10 @@ def run() -> dict:
             result, model_used, used = None, None, None
             for name, fn in providers:
                 provider = name.split(":")[0]
+                if provider not in config.STRONG_PROVIDERS and not multi:
+                    # A single-article rewrite exists to put a stronger model on the story; the
+                    # fallback (Mistral's 8B model) is not one, so it only writes multi-source digests.
+                    continue
                 try:
                     result = fn(prompt)
                     model_used, used = name, (fn, prompt, provider)

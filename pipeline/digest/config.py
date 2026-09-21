@@ -155,9 +155,14 @@ CHECK_RETRY_MAX_PER_RUN = int(os.environ.get("CHECK_RETRY_MAX_PER_RUN") or "4")
 # --- second pass: stories that turned out to matter get a better summary (upgrade.py) ---
 UPGRADE_SUMMARIES = os.environ.get("UPGRADE_SUMMARIES", "1") == "1"
 # Providers worth upgrading to, best first; a summary already written by one of them is not redone.
-STRONG_PROVIDERS = [p.strip() for p in (os.environ.get("STRONG_PROVIDERS") or "gemini,cloud").split(",") if p.strip()]
+# Cloudflare (Nemotron 3 120B on its own daily neurons) first: Gemini and Ollama Cloud only have
+# what the queue leaves them.
+STRONG_PROVIDERS = [p.strip() for p in (os.environ.get("STRONG_PROVIDERS") or "cloudflare,gemini,cloud").split(",") if p.strip()]
 UPGRADE_MAX_PER_RUN = int(os.environ.get("UPGRADE_MAX_PER_RUN") or "2")
-UPGRADE_DAILY_MAX = int(os.environ.get("UPGRADE_DAILY_MAX") or "12")
+# At 12 a day, runs reported "daily upgrade limit reached" (Sep 2026): at 2 a run the day's cap is
+# used by the sixth of 24 runs, so the cap, not the providers, held the rewrites back. Cloudflare's neurons (~400 a multi-source rewrite, 9,000 a day of which at least
+# 60% are kept for this step) carry 13-22 a day on their own, so 20 stays inside what it can pay for.
+UPGRADE_DAILY_MAX = int(os.environ.get("UPGRADE_DAILY_MAX") or "20")
 # A story has to have proved itself: this many independent sources, or this score (the top fifth
 # of the front page), or readers engaging with it.
 UPGRADE_MIN_SOURCES = int(os.environ.get("UPGRADE_MIN_SOURCES") or "3")
@@ -183,6 +188,40 @@ OLLAMA_CLOUD_URL = (os.environ.get("OLLAMA_CLOUD_URL") or "https://ollama.com").
 OLLAMA_CLOUD_MODEL = os.environ.get("OLLAMA_CLOUD_MODEL") or "gpt-oss:120b"
 OLLAMA_CLOUD_FALLBACK_MODELS = [m.strip() for m in (os.environ.get("OLLAMA_CLOUD_FALLBACK_MODELS") or "nemotron-3-ultra,gemma4:31b").split(",") if m.strip()]
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL") or "qwen2.5:3b"
+# Mistral (checked 21 Sep 2026): the Free plan gives $10 of API usage a month, reset on the 1st, with
+# pay-as-you-go off. Of its models only Ministral 8B answers (188 requests and 625,000 tokens a
+# minute); mistral-small and mistral-medium return 429 with x-ratelimit-limit-req-minute: 0. It is
+# the last keyed provider before the local 3B model, and it is paid for by the token, so it has a
+# hard monthly spend cap (month-to-date spend in llm_usage, enrich.call_mistral) instead of a daily
+# request budget. $9 of the $10 leaves $1 for the owner's own use of the key.
+MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
+MISTRAL_URL = (os.environ.get("MISTRAL_URL") or "https://api.mistral.ai/v1").rstrip("/")
+MISTRAL_MODEL = os.environ.get("MISTRAL_MODEL") or "ministral-8b-latest"
+MISTRAL_PRICE_IN_PER_M = float(os.environ.get("MISTRAL_PRICE_IN_PER_M") or "0.15")    # USD per 1M input tokens
+MISTRAL_PRICE_OUT_PER_M = float(os.environ.get("MISTRAL_PRICE_OUT_PER_M") or "0.15")  # USD per 1M output tokens
+MISTRAL_MONTHLY_CAP_USD = float(os.environ.get("MISTRAL_MONTHLY_CAP_USD") or "9")
+# Requests one run may send, across every step (enrich, upgrade, howto, simplify): a run that goes
+# wrong cannot burn the month. At ~$0.0015 a summary, 60 calls cost about $0.09.
+MISTRAL_MAX_PER_RUN = int(os.environ.get("MISTRAL_MAX_PER_RUN") or "60")
+# A 429 whose x-ratelimit-limit-req-minute is 0 means the model is not on this plan: pause this long.
+MISTRAL_PLAN_PAUSE_HOURS = float(os.environ.get("MISTRAL_PLAN_PAUSE_HOURS") or "24")
+# Cloudflare Workers AI (checked 21 Sep 2026): the Workers Free plan gives 10,000 "neurons" a day,
+# reset at 00:00 UTC, spent by the token at a rate that depends on the model. Free-plan models that
+# answer: Nemotron 3 120B (the strongest), Qwen 3.8 27B, Llama 3.3 70B, gpt-oss 120B (harmony tags in
+# its text). DeepSeek v4, GLM 5.x and Kimi K2.6 return 403 "not available on the Workers Free plan".
+# First choice for upgrade.py's rewrites, then a fallback after Groq in enrich, howto and simplify.
+CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+CLOUDFLARE_AI_TOKEN = os.environ.get("CLOUDFLARE_AI_TOKEN", "")
+CLOUDFLARE_AI_MODEL = os.environ.get("CLOUDFLARE_AI_MODEL") or "@cf/nvidia/nemotron-3-120b-a12b"
+CLOUDFLARE_AI_FALLBACK_MODELS = [m.strip() for m in (os.environ.get("CLOUDFLARE_AI_FALLBACK_MODELS") or "@cf/qwen/qwen3.8-27b,@cf/meta/llama-3.3-70b-instruct-fp8-fast").split(",") if m.strip()]
+# Neurons the pipeline spends a day (usage.neurons of each answer, kept in llm_usage), under the 10,000.
+CLOUDFLARE_DAILY_NEURONS = float(os.environ.get("CLOUDFLARE_DAILY_NEURONS") or "9000")
+# The share of the day's neurons the fallback uses (enrich, howto, simplify) may spend; the rest is
+# kept for upgrade.py, which runs later in each run and is what Cloudflare is here for.
+CLOUDFLARE_FALLBACK_SHARE = float(os.environ.get("CLOUDFLARE_FALLBACK_SHARE") or "0.4")
+CLOUDFLARE_MAX_PER_RUN = int(os.environ.get("CLOUDFLARE_MAX_PER_RUN") or "20")
+# A model that answers 403 "not available on the Workers Free plan" is skipped this long.
+CLOUDFLARE_MODEL_PAUSE_HOURS = float(os.environ.get("CLOUDFLARE_MODEL_PAUSE_HOURS") or "24")
 MAX_ENRICH_LOCAL_PER_RUN = int(os.environ.get("MAX_ENRICH_LOCAL_PER_RUN") or "10")
 # The local model answers inside a 4,096-token context (num_ctx in call_ollama) and writes up to
 # 900 of them, so prompt and article together have to stay near 3,000: the guidance it gets is the

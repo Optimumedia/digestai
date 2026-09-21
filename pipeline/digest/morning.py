@@ -257,10 +257,15 @@ def budget_facts(admin: dict, now: datetime) -> dict:
     out_of = [{"provider": u["provider"], "requests": u["requests"], "budget": budgets.get(u["provider"])}
               for u in (admin.get("llm") or {}).get("usage") or []
               if u.get("day") == yesterday and u.get("exhausted") and u.get("provider") in budgets]
+    # Mistral is paid by the token against a monthly cap: named only once it has spent 80% of it.
+    m = (admin.get("llm") or {}).get("mistral") or {}
+    mistral = None
+    if m.get("capUSD") and (m.get("spentUSD") or 0) >= MISTRAL_NOTE_SHARE * m["capUSD"]:
+        mistral = {"spentUSD": round(float(m["spentUSD"]), 2), "capUSD": round(float(m["capUSD"]), 2)}
     return {"readMB": round(kb / 1024, 1) if kb else None, "runs": len(runs),
             "monthlyMB": reads.get("monthlyMB"), "quotaMB": reads.get("quotaMB") or config.SUPABASE_EGRESS_GB * 1024,
             "projectedMB": cycle.get("projectedMB"), "measuredMB": cycle.get("measuredMB"), "cycleEnd": cycle.get("end"),
-            "exhausted": out_of}
+            "exhausted": out_of, "mistral": mistral}
 
 
 def growth_facts(admin: dict, pairs: list[tuple], now: datetime) -> dict:
@@ -404,10 +409,26 @@ def with_work(sentence: str, c: dict | None) -> str:
     return sentence[:-1] + clause + "." if clause and sentence.endswith(".") else sentence
 
 
-PROVIDER_NAMES = {"gemini": "Gemini", "groq": "Groq", "cloud": "Ollama Cloud"}
+PROVIDER_NAMES = {"gemini": "Gemini", "groq": "Groq", "cloud": "Ollama Cloud", "mistral": "Mistral"}
+MISTRAL_NOTE_SHARE = 0.8  # the budget sentence names Mistral from this share of its monthly cap
+
+
+def mistral_clause(m: dict | None) -> str:
+    if not m:
+        return ""
+    if m["spentUSD"] >= m["capUSD"] - 0.01:  # calls stop a call's cost short of the cap
+        return f"; Mistral has spent its ${m['capUSD']:.2f} monthly cap and stays off until the 1st"
+    return f"; Mistral has spent ${m['spentUSD']:.2f} of its ${m['capUSD']:.2f} monthly cap"
 
 
 def s_budget(b: dict) -> str:
+    """The budget sentence, with Mistral's spend added as a clause once it passes 80% of its cap."""
+    sentence = _s_budget(b)
+    clause = mistral_clause(b.get("mistral"))
+    return sentence[:-1] + clause + "." if clause and sentence.endswith(".") else sentence
+
+
+def _s_budget(b: dict) -> str:
     quota, projected = b["quotaMB"], b.get("projectedMB")
     if projected and quota and projected > quota:
         return (f"Database reads are on course for {mb(projected)} MB this billing cycle, over the {n(quota)} MB "

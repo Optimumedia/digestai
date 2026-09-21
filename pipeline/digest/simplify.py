@@ -23,7 +23,7 @@ What holds it in check (the same shape as howto.py):
 - only cards of the last WINDOW_DAYS days, those on the hub and the home page first (the featured
   pick, the briefing, then newest first);
 - at most MAX_CARDS cards a run, BATCH cards per model call, inside TIME_BUDGET_SECONDS; the free
-  providers in the usual order (howto.ask_model: Gemini, Groq, Ollama Cloud);
+  providers in the usual order (howto.ask_model: Gemini, Groq, Ollama Cloud, Cloudflare, Mistral);
 - a batch no model answered is tried again after RETRY_HOURS (runner cache), never in a loop.
 """
 from __future__ import annotations
