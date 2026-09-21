@@ -1,0 +1,102 @@
+---
+/* One practical item, as AI at Work's own pages show it (the home page and the story page keep
+   WorkCard.astro). Two shapes of the same card:
+
+   - "card", collapsed: the tool, the outcome as the headline, cost / time / who chips, the catch in
+     one calm line, and "How to use it" folded underneath when there is something to unfold.
+   - "feature", expanded: the same with every block open, for the hub's one thing to try.
+
+   The expanded blocks (use it for, steps, a prompt to copy, before and after) each render only when
+   the card has that data; steps, prompt and example are not in the export yet (lib/work.ts). The
+   catch is never folded away: the pipeline drops a card without one (pipeline/digest/work.py). */
+import type { Story } from "../lib/data";
+import { shortDate, sourceNames } from "../lib/data";
+import type { WorkCard } from "../lib/work";
+import WorkChips from "./WorkChips.astro";
+
+interface Props {
+  story: Story;
+  card: WorkCard;
+  level?: "h2" | "h3";
+  variant?: "card" | "feature";
+  /** A position in a ranked list ("most useful first"), shown as a numeral. */
+  number?: number;
+}
+const { story, card, level = "h3", variant = "card", number } = Astro.props;
+const Heading = level;
+const { names } = sourceNames(story, 2);
+const limits = card.limits || [];
+const steps = card.steps?.filter(Boolean) || [];
+const example = card.example && card.example.before && card.example.after ? card.example : null;
+const hasMore = card.useFor.length > 0 || steps.length > 0 || Boolean(card.prompt) || Boolean(example);
+const feature = variant === "feature";
+const date = story.firstPublishedAt || story.updatedAt;
+const promptId = `prompt-${story.id}`;
+// Open on the featured card; folded (and only when there is something inside) everywhere else.
+const More = feature ? "div" : "details";
+---
+
+<article
+  class:list={["wk-card", { "is-feature": feature, "has-more": hasMore, "is-skip": Boolean(card.skip) }]}
+  data-jobs={card.jobs.join(" ")}
+  data-cost={card.costKind}
+>
+  <div class="wk-card-main">
+    <p class="wk-card-tool">
+      {number !== undefined && <span class="wk-card-num" aria-label={`Number ${number}`}>{String(number).padStart(2, "0")}</span>}
+      <span class="wk-tape">{card.tool}</span>
+      {card.maker && <span class="wk-maker">by {card.maker}</span>}
+      <time class="mono" datetime={date || undefined} data-static>{shortDate(date)}</time>
+    </p>
+
+    <Heading class="wk-card-title"><a href={`/story/${story.slug}`}>{card.whatItDoes}</a></Heading>
+
+    <WorkChips cost={card.cost} costKind={card.costKind} effort={card.effort} whoFor={card.whoFor} />
+
+    <p class="wk-watch"><b>Watch out</b> <span>{card.watchOut}</span></p>
+    {limits.length > 0 && <p class="wk-limits"><b>Not for everyone</b> {limits.join(" · ")}</p>}
+  </div>
+
+  {hasMore && (
+    <More class="wk-card-more">
+      {!feature && <summary>{steps.length || card.prompt || example ? "How to use it" : "What to use it for"}</summary>}
+      {card.useFor.length > 0 && (
+        <div class="wk-block">
+          <p class="wk-block-h">Use it for</p>
+          <ul class="wk-check" role="list">{card.useFor.map((u) => <li>{u}</li>)}</ul>
+        </div>
+      )}
+      {steps.length > 0 && (
+        <div class="wk-block">
+          <p class="wk-block-h">Steps</p>
+          <ol class="wk-steps" role="list">{steps.map((s) => <li>{s}</li>)}</ol>
+        </div>
+      )}
+      {card.prompt && (
+        <figure class="wk-block wk-prompt">
+          <figcaption class="wk-block-h" id={`${promptId}-h`}>Prompt to copy</figcaption>
+          <pre id={promptId} tabindex="0" aria-labelledby={`${promptId}-h`}><code>{card.prompt}</code></pre>
+          <div class="wk-copy-row">
+            <button type="button" class="wk-copy" data-copy={promptId}>Copy prompt</button>
+            <span class="wk-copy-status" role="status" aria-live="polite"></span>
+          </div>
+        </figure>
+      )}
+      {example && (
+        <div class="wk-block">
+          <p class="wk-block-h">Before and after</p>
+          <div class="wk-ba">
+            <div class="wk-ba-side"><b>Before</b><p>{example.before}</p></div>
+            <div class="wk-ba-side is-after"><b>After</b><p>{example.after}</p></div>
+          </div>
+        </div>
+      )}
+    </More>
+  )}
+
+  <div class="wk-card-foot">
+    {card.link && <a class="wk-btn" href={card.link} rel="noopener nofollow" target="_blank" data-source-link>Try it<span aria-hidden="true"> ↗</span><span class="sr-only"> (opens the maker's site)</span></a>}
+    <a class="wk-thread" href={`/story/${story.slug}`}>What happened{names.length > 0 && <span class="wk-thread-src"> · {names.join(", ")}</span>}</a>
+    {card.skip && <span class="wk-skip-tag">Leave for now: {card.skip}</span>}
+  </div>
+</article>

@@ -1,6 +1,8 @@
 ---
 import Work from "../../../layouts/Work.astro";
-import WorkCard from "../../../components/WorkCard.astro";
+import WorkEntry from "../../../components/WorkEntry.astro";
+import WorkRow from "../../../components/WorkRow.astro";
+import WorkNext from "../../../components/WorkNext.astro";
 import ListenPlayer from "../../../components/ListenPlayer.astro";
 import { WORK_MIN_ITEMS, formatDate, meta, weekMonday } from "../../../lib/data";
 import { weekStories, work, workEpisodeFor, workWeeks } from "../../../lib/work";
@@ -33,11 +35,21 @@ const jsonLd = {
   author: { "@type": "Organization", name: "Digest AI", url: meta.siteUrl },
   mainEntityOfPage: `${meta.siteUrl}/work/week/${week}`,
 };
+const newer = idx > 0 ? workWeeks[idx - 1] : null;
+const older = idx < workWeeks.length - 1 ? workWeeks[idx + 1] : null;
+// A long playbook gets a table of contents in a side rail (desktop only); a short one reads fine without.
+const toc = [
+  ...(tryThis.length ? [{ id: "try-h", label: "What to try", n: tryThis.length }] : []),
+  ...(skip.length ? [{ id: "skip-h", label: "What to leave for now", n: skip.length }] : []),
+  ...(changed.length ? [{ id: "changed-h", label: "Everything that changed", n: changed.length }] : []),
+  ...(episode ? [{ id: "listen-h", label: "Listen", n: 0 }] : []),
+];
+const long = changed.length >= 10;
 ---
 
 <Work title={`AI at Work playbook, ${range}`} description={description} current="week" jsonLd={jsonLd} thin={changed.length < WORK_MIN_ITEMS}>
-  <header class="page-head work-head">
-    <div class="eyebrow">Playbook · week {week}</div>
+  <header class="wk-head">
+    <p class="wk-eyebrow">Playbook · week {week}</p>
     <h1>{current ? "What to do about AI this week" : "What to do about AI that week"}</h1>
     <p>
       {changed.length} practical {changed.length === 1 ? "item" : "items"} across {tools} {tools === 1 ? "tool" : "tools"}, {range}.
@@ -45,62 +57,74 @@ const jsonLd = {
     </p>
   </header>
 
-  {episode && (
-    <ListenPlayer
-      episode={episode}
-      heading={`This week, read aloud: ${range}`}
-      edition={`Weekly · ${week}`}
-      note="The same week read aloud, if you would rather listen than read."
-      moreHref="/listen#work"
-      moreLabel="All AI at Work episodes →"
-      album="AI at Work"
-    />
-  )}
+  <div class:list={["wk-playbook", { "has-toc": long }]}>
+    {long && (
+      <nav class="wk-toc" aria-label="On this page">
+        <p class="wk-toc-h">On this page</p>
+        <ol role="list">
+          {toc.map((t) => <li><a href={`#${t.id}`}>{t.label}{t.n > 0 && <span class="mono"> {t.n}</span>}</a></li>)}
+        </ol>
+      </nav>
+    )}
 
-  {changed.length === 0 && <p class="muted" style="padding: 32px 0">Nothing practical was covered that week.</p>}
+    <div class="wk-playbook-main">
+      {changed.length === 0 && <p class="wk-empty">Nothing practical was covered that week.</p>}
 
-  {changed.length > 0 && (
-    <section aria-labelledby="changed-h">
-      <div class="dayhead"><h2 id="changed-h">What changed</h2></div>
-      <ul class="coverage">
-        {changed.map((s) => (
-          <li>
-            <a class="t" href={`/story/${s.slug}`}><b>{s.workCard.tool}</b>: {s.workCard.whatItDoes}</a>
-            <span class="mono muted"><time datetime={s.firstPublishedAt || undefined} data-static>{formatDate(s.firstPublishedAt, { day: "numeric", month: "short" })}</time></span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  )}
+      {tryThis.length > 0 && (
+        <section class="wk-sec" aria-labelledby="try-h">
+          <div class="wk-h2row"><h2 id="try-h">What to try</h2><span class="wk-h2-side">most useful first</span></div>
+          <p class="wk-note">No waitlist and no developer needed. Where a country or a plan is left out, the card says so.</p>
+          <div class="wk-grid">
+            {tryThis.map((s, i) => <WorkEntry story={s} card={s.workCard} level="h3" number={i + 1} />)}
+          </div>
+        </section>
+      )}
 
-  {tryThis.length > 0 && (
-    <section aria-labelledby="try-h">
-      <div class="dayhead"><h2 id="try-h">What to try</h2><span class="eyebrow">most useful first</span></div>
-      <p class="muted work-note">No waitlist and no developer needed. Where a country or a plan is left out, the card says so.</p>
-      <div class="workgrid">
-        {tryThis.map((s) => <WorkCard story={s} card={s.workCard} level="h3" />)}
-      </div>
-    </section>
-  )}
+      {skip.length > 0 && (
+        <section class="wk-sec" aria-labelledby="skip-h">
+          <div class="wk-h2row"><h2 id="skip-h">What to leave for now</h2></div>
+          <p class="wk-note">Not a verdict on the tool — only on this week. Each line says what is in the way.</p>
+          <ul class="wk-rows" role="list">
+            {skip.map((s) => <WorkRow story={s} card={s.workCard} note={s.workCard.skip} />)}
+          </ul>
+        </section>
+      )}
 
-  {skip.length > 0 && (
-    <section aria-labelledby="skip-h">
-      <div class="dayhead"><h2 id="skip-h">What to leave for now</h2></div>
-      <p class="muted work-note">Not a verdict on the tool — only on this week. Each line says what is in the way.</p>
-      <ul class="coverage workskip">
-        {skip.map((s) => (
-          <li>
-            <a class="t" href={`/story/${s.slug}`}><b>{s.workCard.tool}</b>: {s.workCard.whatItDoes}</a>
-            <span class="mono muted">{s.workCard.skip}</span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  )}
+      {changed.length > 0 && (
+        <section class="wk-sec" aria-labelledby="changed-h">
+          <div class="wk-h2row"><h2 id="changed-h">Everything that changed</h2><span class="wk-h2-side">newest first</span></div>
+          <ul class="wk-rows" role="list">
+            {changed.map((s) => <WorkRow story={s} card={s.workCard} />)}
+          </ul>
+        </section>
+      )}
 
-  <nav class="meta-row" style="padding: 24px 0" aria-label="Playbook navigation">
-    {idx < workWeeks.length - 1 && <a href={`/work/week/${workWeeks[idx + 1]}`}>← {workWeeks[idx + 1]}</a>}
-    <a href="/work" style="margin-left:auto">AI at Work</a>
-    {idx > 0 && <a href={`/work/week/${workWeeks[idx - 1]}`}>{workWeeks[idx - 1]} →</a>}
-  </nav>
+      {episode && (
+        <section class="wk-sec" aria-labelledby="listen-h">
+          <div class="wk-h2row"><h2 id="listen-h">This week, read aloud</h2></div>
+          <ListenPlayer
+            episode={episode}
+            heading={`This week, read aloud: ${range}`}
+            edition={`Weekly · ${week}`}
+            note="The same week read aloud, if you would rather listen than read."
+            moreHref="/listen#work"
+            moreLabel="All AI at Work episodes →"
+            album="AI at Work"
+          />
+        </section>
+      )}
+
+      <nav class="wk-weeknav" aria-label="Playbook navigation">
+        {older && <a href={`/work/week/${older}`}><span aria-hidden="true">← </span>{older}</a>}
+        <a href="/work" class="wk-weeknav-home">AI at Work</a>
+        {newer && <a href={`/work/week/${newer}`}>{newer}<span aria-hidden="true"> →</span></a>}
+      </nav>
+
+      {newer ? (
+        <WorkNext href={`/work/week/${newer}`} label={`The playbook for ${newer}`} why="The week after this one: what changed, what to try." />
+      ) : (
+        <WorkNext href="/work/tools" label="The tool directory" why="Every tool the desk has covered, with what it costs, how long it takes and the catch." />
+      )}
+    </div>
+  </div>
 </Work>

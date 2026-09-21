@@ -1,10 +1,11 @@
 ---
-/* The frame every AI at Work page sits in: its own wordmark under the masthead, its own sub-menu,
-   its own accent colour and a way back to the news desk. The accent is set on the wrapper, so every
-   component inside (chips, buttons, the "why it matters" box) picks it up without a second set of
-   styles. */
+/* The frame every AI at Work page sits in. The section is a publication inside the site: the site's
+   masthead, menu and footer stay as they are, and everything between them has the section's own
+   look (site/docs/work-design.md). `section="work"` puts data-section on <body>, where the section's
+   tokens live for both themes; .work-theme maps them onto the site's tokens, so shared components
+   inside (the listen player, lists, the tools table) follow without a second copy of their styles. */
 import Base from "./Base.astro";
-import { workEpisodes, workWeeks } from "../lib/work";
+import { SECTION_TAGLINE, workEpisodes, workWeeks } from "../lib/work";
 
 interface Props {
   title: string;
@@ -23,19 +24,42 @@ const links: { href: string; label: string; key: string }[] = [
 ];
 ---
 
-<Base title={title} description={description} jsonLd={jsonLd} thin={thin} canonical={canonical}>
-  <div class="work-section">
-    <div class="work-band">
-      <a class="work-wordmark" href="/work">AI at <b>Work</b></a>
-      <nav class="work-nav" aria-label="AI at Work">
+<Base title={title} description={description} jsonLd={jsonLd} thin={thin} canonical={canonical} section="work">
+  <link slot="head" rel="preload" href="/fonts/archivo-semicondensed-700-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <div class="work-theme">
+    <header class="wk-band">
+      <div class="wk-band-top">
+        <a class="wk-mark" href="/work">
+          <span class="wk-mark-kicker">Digest AI</span>
+          <span class="wk-mark-name">AI at <u>Work</u></span>
+        </a>
+        <p class="wk-band-tag">{SECTION_TAGLINE}</p>
+        <a class="wk-back" href="/"><span aria-hidden="true">← </span>News desk</a>
+      </div>
+      <nav class="wk-tabs" aria-label="AI at Work">
         {links.map((l) => (
           <a href={l.href} aria-current={current === l.key ? "page" : undefined}>{l.label}</a>
         ))}
         {workEpisodes.length > 0 && <a href="/listen#work">Podcast</a>}
         <a href="/work/rss.xml">RSS</a>
       </nav>
-      <a class="work-back" href="/">← AI news desk</a>
-    </div>
+    </header>
     <slot />
+    {/* Copy a card's prompt (components/WorkEntry.astro). Only cards with a prompt have the button. */}
+    <script is:inline>
+      document.addEventListener("click", async (e) => {
+        const btn = e.target.closest && e.target.closest("[data-copy]");
+        if (!btn) return;
+        const src = document.getElementById(btn.dataset.copy);
+        const status = btn.parentElement && btn.parentElement.querySelector(".wk-copy-status");
+        try {
+          await navigator.clipboard.writeText(src ? src.innerText.trim() : "");
+          if (status) status.textContent = "Copied";
+        } catch {
+          if (status) status.textContent = "Select the text and copy it";
+        }
+        setTimeout(() => { if (status) status.textContent = ""; }, 2500);
+      });
+    </script>
   </div>
 </Base>

@@ -1,0 +1,21 @@
+---
+/* One item as a single line in AI at Work's dense lists: the tool, what you get (linked to the
+   story, where the whole card is), and the cost and time chips. `note` replaces the chips with a
+   reason (the playbook's "what to leave" says what is in the way). */
+import type { Story } from "../lib/data";
+import type { WorkCard } from "../lib/work";
+import WorkChips from "./WorkChips.astro";
+
+interface Props {
+  story: Story;
+  card: WorkCard;
+  note?: string | null;
+}
+const { story, card, note } = Astro.props;
+---
+
+<li class:list={["wk-row", { "is-skip": Boolean(card.skip) }]} data-jobs={card.jobs.join(" ")}>
+  <span class="wk-row-tool">{card.tool}</span>
+  <a class="wk-row-what" href={`/story/${story.slug}`}>{card.whatItDoes}</a>
+  {note ? <span class="wk-row-note">{note}</span> : <WorkChips cost={card.cost} costKind={card.costKind} effort={card.effort} compact />}
+</li>

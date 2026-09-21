@@ -4,7 +4,9 @@
    tools are the same ones /work and /work/tools show, filtered to the job; the page is noindex until
    the job has three cards or three tools behind it (indexing.mjs, jobIndexable). */
 import Work from "../../layouts/Work.astro";
-import WorkCard from "../../components/WorkCard.astro";
+import WorkEntry from "../../components/WorkEntry.astro";
+import WorkRow from "../../components/WorkRow.astro";
+import WorkNext from "../../components/WorkNext.astro";
 import { dateTime, formatDate, meta } from "../../lib/data";
 import { COST_LABELS, JOBS, jobThin, sectionStories, toolSlug, work, workWeeks, weekStories, type Job } from "../../lib/work";
 
@@ -57,67 +59,66 @@ const jsonLd = [
   },
 ];
 const cost = (c: string | null, kind: string | null) => (c && c !== "unknown" && kind !== "unknown" ? c : COST_LABELS[kind || "unknown"]);
+// One next step: the next job in the menu's order, round to the first.
+const nextJob = JOBS[(JOBS.findIndex((j) => j.key === job.key) + 1) % JOBS.length];
 ---
 
 <Work title={title} description={description} current="job" jsonLd={jsonLd} thin={jobThin(job.key)}>
-  <header class="page-head work-head">
-    <div class="eyebrow">Practical AI · {job.label}</div>
+  <header class="wk-head">
+    <p class="wk-eyebrow">Practical AI · {job.label}</p>
     <h1>{heading}</h1>
-    <p class="intro">{job.covers}</p>
+    <p class="wk-intro">{job.covers}</p>
     <p>
       An item lands here when the desk covers a tool or a new feature a small team can use for this job. The job comes
       from who the tool is for and what it does, never from payment: nothing here is sponsored, and nothing has been tested
       by us. Every card gives the cost and the catch as the coverage reported them, newest first.
     </p>
-    <p class="mono muted">Updated <time datetime={updated} data-static>{dateTime(updated)}</time></p>
+    <p class="wk-meta mono">Updated <time datetime={updated} data-static>{dateTime(updated)}</time></p>
   </header>
 
-  <section class="work-lead" aria-labelledby="week-h">
-    <h2 id="week-h">What changed this week</h2>
+  <section class="wk-sec" aria-labelledby="week-h">
+    <div class="wk-h2row">
+      <h2 id="week-h">What changed this week</h2>
+      {thisWeek && <a class="wk-h2-side" href={`/work/week/${thisWeek}`}>The whole week's playbook →</a>}
+    </div>
     {newThisWeek.length > 0 ? (
       <>
-        <p class="work-lead-line">
+        <p class="wk-lede">
           {plural(newThisWeek.length, "new item")} across {plural(weekTools, "tool")} this week.
           {free > 0 && (cards.length === 1 ? <> It costs nothing to start.</> : <> {free} of the {cards.length} on this page cost nothing to start.</>)}
         </p>
-        <ul class="work-lead-list">
-          {newThisWeek.slice(0, 5).map((s) => (
-            <li>
-              <a href={`/story/${s.slug}`}><b>{s.workCard.tool}</b> {s.workCard.whatItDoes}</a>
-              <span class="mono muted">{s.workCard.effort || "effort not stated"} · {cost(s.workCard.cost, s.workCard.costKind)}</span>
-            </li>
-          ))}
+        <ul class="wk-rows" role="list">
+          {newThisWeek.slice(0, 8).map((s) => <WorkRow story={s} card={s.workCard} />)}
         </ul>
       </>
     ) : (
-      <p class="work-lead-line">
+      <p class="wk-lede">
         Nothing new for this job this week.
         {latest ? <> The latest item is from {formatDate(latest.firstPublishedAt || latest.updatedAt, { day: "numeric", month: "long" })}: <a href={`/story/${latest.slug}`}>{latest.workCard.tool}</a>.</> : <> Items appear as soon as the desk covers something a small team can use for it.</>}
       </p>
     )}
-    {thisWeek && <a class="eyebrow" href={`/work/week/${thisWeek}`}>The whole week's playbook →</a>}
   </section>
 
   {shown.length > 0 && (
-    <section aria-labelledby="cards-h">
-      <div class="dayhead">
+    <section class="wk-sec" aria-labelledby="cards-h">
+      <div class="wk-h2row">
         <h2 id="cards-h">{job.label}: {plural(cards.length, "item")}</h2>
-        {cards.length > shown.length && <span class="eyebrow">newest {shown.length}</span>}
+        {cards.length > shown.length && <span class="wk-h2-side">newest {shown.length}</span>}
       </div>
-      <div class="workgrid">
-        {shown.map((s) => <WorkCard story={s} card={s.workCard} level="h3" />)}
+      <div class="wk-grid">
+        {shown.map((s) => <WorkEntry story={s} card={s.workCard} level="h3" />)}
       </div>
     </section>
   )}
 
   {tools.length > 0 && (
-    <section aria-labelledby="tools-h">
-      <div class="dayhead"><h2 id="tools-h">{plural(tools.length, "tool")} for this job</h2><a class="eyebrow" href="/work/tools">Tool directory →</a></div>
-      <ul class="coverage jobtools">
+    <section class="wk-sec" aria-labelledby="tools-h">
+      <div class="wk-h2row"><h2 id="tools-h">{plural(tools.length, "tool")} for this job</h2><a class="wk-h2-side" href="/work/tools">Tool directory →</a></div>
+      <ul class="wk-toollist" role="list">
         {tools.map((t) => (
           <li>
-            <a class="t" href={`/work/tools#${toolSlug(t)}`}><b>{t.tool}</b>{t.maker && <span class="muted"> by {t.maker}</span>}: {t.whatItDoes}</a>
-            <span class="mono muted">{cost(t.cost, t.costKind)}{t.lastChange && <> · last change {formatDate(t.lastChange, { day: "numeric", month: "short" })}</>}</span>
+            <a href={`/work/tools#${toolSlug(t)}`}><b>{t.tool}</b>{t.maker && <span class="wk-maker"> by {t.maker}</span>}<span class="wk-toollist-what">{t.whatItDoes}</span></a>
+            <span class="mono">{cost(t.cost, t.costKind)}{t.lastChange && <> · last change {formatDate(t.lastChange, { day: "numeric", month: "short" })}</>}</span>
           </li>
         ))}
       </ul>
@@ -125,18 +126,13 @@ const cost = (c: string | null, kind: string | null) => (c && c !== "unknown" &&
   )}
 
   {cards.length === 0 && tools.length === 0 && (
-    <p class="muted" style="padding: 24px 0">
+    <p class="wk-empty">
       Nothing for this job yet. The <a href="/work">section front</a> and the <a href="/work/tools">tool directory</a> have everything covered so far.
     </p>
   )}
 
-  <nav class="jobnav" aria-label="Other jobs">
-    <div class="dayhead"><h2>Other jobs</h2></div>
-    <ul class="taglist">
-      {others.map((j) => <li><a href={`/work/${j.slug}`} title={j.blurb}>{j.label}</a></li>)}
-    </ul>
-    <p class="mono muted">
-      <a href="/work">This week in AI at Work</a> · <a href="/work/tools">Tool directory</a>{thisWeek && <> · <a href={`/work/week/${thisWeek}`}>Weekly playbook</a></>}
-    </p>
-  </nav>
+  <WorkNext href={`/work/${nextJob.slug}`} label={`AI tools ${nextJob.task}`} why={nextJob.blurb} />
+  <p class="wk-alljobs">
+    Every job: {JOBS.map((j, i) => <>{i > 0 && " · "}{j.key === job.key ? <b aria-current="page">{j.label}</b> : <a href={`/work/${j.slug}`}>{j.label}</a>}</>)}
+  </p>
 </Work>
