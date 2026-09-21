@@ -10,6 +10,9 @@ cards of stories from the last OG_PAGES_DAYS days (when links get shared) are al
 site/public/og and served by Pages; older stories fall back to the default card. Thread and topic
 cards live there too, re-rendered when their counts change. site/public/og is kept between runs
 by a cache the workflow saves once a day; anything missing is rendered again.
+
+When a story's primary source is the company's own announcement and its picture is at least 1200 px
+wide, the story page uses that picture as its share image instead of the card (primary_images below).
 """
 from __future__ import annotations
 
@@ -21,6 +24,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import requests
 from PIL import Image, ImageDraw, ImageFont
@@ -255,6 +259,185 @@ def make_thumbnails(stories: list[dict], fetch=None, budget_seconds: float = THU
     return stats
 
 
+# ---- the company's own share image ------------------------------------------------------
+# When a story's primary source is the company's own announcement (openai.com, blog.google, ...), the
+# picture that page declares is a press image the company publishes to be shared, so the story page
+# may use it as its og:image instead of our card. Never a news outlet's photo (those are usually
+# licensed from agencies), and only when it is big enough for a large link preview. The picture stays
+# on the company's server: the page links to it and this step only reads its header for the size and
+# checks it still answers (a failure puts our card back on the next build).
+
+PRIMARY_FILE = "primary-images.json"   # site/src/data: slug -> {url, width, height, ideal}
+PRIMARY_MIN_WIDTH = 1200               # og and Discover both ask for 1200 px or more
+PRIMARY_IDEAL_RATIO = (1.5, 2.1)       # close to 1.91:1; any other shape is cropped by the networks
+PRIMARY_RECHECK_HOURS = 24             # a picture that answered is checked again a day later
+PRIMARY_RETRY_HOURS = 24               # and one that failed is tried again a day later
+MAX_PRIMARY_CHECKS_PER_RUN = 30
+PRIMARY_TIME_BUDGET_SECONDS = 30
+PRIMARY_HEAD_BYTES = 512_000           # the size is in the first bytes; nothing more is downloaded
+PRIMARY_TIMEOUT = (5, 10)
+
+# The makers' own sites. The primary domains that are not a company (arXiv, GitHub, governments) are
+# left out, and a few company sites the feeds do not tag as primary yet are added, so they count
+# the day they are. An article qualifies only when the export also marked it primary.
+NOT_COMPANY = frozenset({"arxiv.org", "github.com", "qwenlm.github.io", "europa.eu", "whitehouse.gov",
+                         "gov.uk", "nist.gov", "ftc.gov", "sec.gov"})
+COMPANY_DOMAINS = frozenset((config.PRIMARY_DOMAINS - NOT_COMPANY) | {
+    "google", "amazon.com", "aboutamazon.com", "canva.com", "hubspot.com", "shopify.com", "adobe.com",
+    "salesforce.com", "ibm.com", "intel.com", "amd.com", "samsung.com", "qualcomm.com", "oracle.com",
+})
+# Hosts on a company domain whose pages are not the company speaking: model cards, Spaces and
+# datasets on Hugging Face are uploaded by anyone, so only its blog counts.
+COMPANY_PATHS = {"huggingface.co": "/blog/"}
+
+
+def _on_domain(host: str, domains) -> str | None:
+    host = (host or "").lower().removeprefix("www.")
+    for d in domains:
+        if host == d or host.endswith("." + d):
+            return d
+    return None
+
+
+def company_announcement(article: dict) -> bool:
+    """True when the article is the company's own announcement: marked primary by the export and on
+    one of the makers' own domains (not a preprint, a repository, a government or a news outlet)."""
+    if article.get("sourceType") != "primary":
+        return False
+    host = (article.get("domain") or urlsplit(article.get("url") or "").netloc or "").lower()
+    d = _on_domain(host, COMPANY_DOMAINS)
+    if not d:
+        return False
+    need = COMPANY_PATHS.get(d)
+    return not need or need in urlsplit(article.get("url") or "").path
+
+
+def primary_candidate(story: dict) -> dict | None:
+    """The company announcement among the story's articles that has an https picture, lead first."""
+    arts = sorted(story.get("articles") or [], key=lambda a: not a.get("isLead"))
+    for a in arts:
+        url = (a.get("imageUrl") or "").strip()
+        if url.lower().startswith("https://") and company_announcement(a):
+            return a
+    return None
+
+
+def probe_image(url: str, fetch=None) -> dict:
+    """Does the picture answer (https, 200, an image type), and how big is it? Reads only the header.
+    {"ok": bool, "width": int, "height": int, "type": str, "error": str}. `fetch(url)` in tests returns
+    (status, content_type, bytes, final_url)."""
+    if not url.lower().startswith("https://"):
+        return {"ok": False, "error": "not https"}
+    try:
+        if fetch is not None:
+            status, ctype, head, final = fetch(url)
+        else:
+            headers = {"User-Agent": config.USER_AGENT, "Accept": "image/*,*/*;q=0.5"}
+            with requests.get(url, headers=headers, timeout=PRIMARY_TIMEOUT, stream=True, allow_redirects=True) as r:
+                status, ctype, final = r.status_code, r.headers.get("Content-Type") or "", r.url
+                head, size = b"", None
+                if status == 200:
+                    for chunk in r.iter_content(16384):
+                        head += chunk
+                        size = _image_size(head)
+                        if size or len(head) >= PRIMARY_HEAD_BYTES:
+                            break
+        ctype = (ctype or "").split(";")[0].strip().lower()
+        if status != 200:
+            return {"ok": False, "error": f"HTTP {status}"}
+        if not (final or url).lower().startswith("https://"):
+            return {"ok": False, "error": "redirected off https"}
+        if not ctype.startswith("image/") or ctype == "image/svg+xml":
+            return {"ok": False, "error": f"not an image ({ctype or 'no type'})"}
+        size = _image_size(head)
+        if not size:
+            return {"ok": False, "error": "size unreadable"}
+        return {"ok": True, "width": size[0], "height": size[1], "type": ctype}
+    except Exception as exc:  # noqa: BLE001 - a picture that fails means our card, never a crash
+        return {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:60]}"}
+
+
+def _image_size(head: bytes) -> tuple[int, int] | None:
+    """Width and height from the first bytes of a picture (PIL reads only the header), or None."""
+    try:
+        with Image.open(io.BytesIO(head)) as img:
+            return img.size
+    except Exception:  # noqa: BLE001 - not enough bytes yet, or not a format PIL knows
+        return None
+
+
+def primary_choice(url: str, entry: dict | None) -> dict | None:
+    """What the site gets for a probed picture: {url, width, height, ideal}, or None for our card."""
+    if not entry or not entry.get("ok"):
+        return None
+    w, h = int(entry.get("width") or 0), int(entry.get("height") or 0)
+    if w < PRIMARY_MIN_WIDTH or h <= 0:
+        return None
+    lo, hi = PRIMARY_IDEAL_RATIO
+    return {"url": url, "width": w, "height": h, "ideal": lo <= w / h <= hi}
+
+
+def _hours_since(stamp: str | None, now: datetime) -> float:
+    try:
+        return (now - datetime.fromisoformat((stamp or "").replace("Z", "+00:00"))).total_seconds() / 3600
+    except ValueError:
+        return float("inf")
+
+
+def primary_images(stories: list[dict], now: datetime, fetch=None, cache_path: Path | None = None,
+                   out_path: Path | None = None, limit: int = MAX_PRIMARY_CHECKS_PER_RUN,
+                   budget_seconds: float = PRIMARY_TIME_BUDGET_SECONDS) -> dict:
+    """Write site/src/data/primary-images.json for the stories whose company announcement has a picture
+    that answers and is at least 1200 px wide. Results are kept by URL in the runner cache, so a picture
+    is measured once and re-checked once a day, newest stories first, within the run's budget. A story
+    whose picture has not been checked yet, or failed its last check, keeps our card."""
+    cache_path = cache_path or config.CACHE_DIR / PRIMARY_FILE
+    out_path = out_path or config.SITE_DATA_DIR / PRIMARY_FILE
+    try:
+        cache = json.loads(cache_path.read_text(encoding="utf-8"))
+        if not isinstance(cache, dict):
+            cache = {}
+    except (OSError, ValueError):
+        cache = {}
+    stats = {"candidates": 0, "checked": 0, "failed": 0, "used": 0, "ideal": 0}
+    t0 = time.time()
+    out: dict[str, dict] = {}
+    live_urls = set()
+    for s in sorted(stories, key=lambda s: s.get("firstPublishedAt") or "", reverse=True):
+        art = primary_candidate(s)
+        if not art:
+            continue
+        url = art["imageUrl"].strip()
+        live_urls.add(url)
+        stats["candidates"] += 1
+        entry = cache.get(url)
+        wait = PRIMARY_RECHECK_HOURS if entry and entry.get("ok") else PRIMARY_RETRY_HOURS
+        due = entry is None or _hours_since(entry.get("checked"), now) >= wait
+        if due and stats["checked"] < limit and time.time() - t0 <= budget_seconds:
+            probed = probe_image(url, fetch)
+            entry = {**(entry or {}), **probed, "checked": now.isoformat()[:19] + "Z"}
+            if probed.get("ok"):
+                entry.pop("error", None)
+            cache[url] = entry
+            stats["checked"] += 1
+            stats["failed"] += int(not probed.get("ok"))
+        choice = primary_choice(url, entry)
+        if choice:
+            out[s["slug"]] = choice
+            stats["used"] += 1
+            stats["ideal"] += int(choice["ideal"])
+    # The cache keeps only the pictures of stories still in the export.
+    cache = {u: e for u, e in cache.items() if u in live_urls}
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(cache, separators=(",", ":")), encoding="utf-8")
+    except OSError as exc:
+        log.warning("primary image cache not saved: %s", exc)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(out, indent=0, sort_keys=True), encoding="utf-8")
+    return stats
+
+
 # ---- step -----------------------------------------------------------------------------
 
 def _recent(story: dict, now: datetime, days: float = OG_PAGES_DAYS) -> bool:
@@ -345,6 +528,10 @@ def run(fetch=None, now: datetime | None = None) -> dict:
 
     stats["thumbs"] = make_thumbnails(stories, fetch)
     media.save_manifest()
+    try:
+        stats["primary"] = primary_images(stories, now)
+    except Exception as exc:  # noqa: BLE001 - without the file every story keeps our card
+        log.warning("primary share images failed: %s", exc)
 
     threads_file = config.SITE_DATA_DIR / "threads.json"
     live = set()

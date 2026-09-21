@@ -151,7 +151,9 @@ if (heldCount > 0) {
 // ---- Share today (pipeline/digest/share.py): the day's stories for LinkedIn and X, posted by hand.
 type ShareItem = { id: number; slug: string; headline: string; category: string; categoryName: string; kind: string; reason: string;
   publishers: number; url: string; links: { linkedin: string; x: string }; linkedin: string; x: string; xLength: number;
-  done: Record<string, { at: string; url: string }> };
+  done: Record<string, { at: string; url: string }>;
+  /** Pictures the story's sources declare (share.source_images): shown for downloading by hand. */
+  sourceImages?: { url: string; outlet: string; domain: string; articleUrl: string; primary: boolean }[] };
 const shareToday: { day: string; items: ShareItem[]; week: Record<string, number>; file: string; bluesky?: Record<string, number> } | null = admin?.share?.items?.length ? admin.share : null;
 const shareData = JSON.stringify(shareToday ? { day: shareToday.day, file: shareToday.file, week: shareToday.week, bluesky: shareToday.bluesky || {},
   items: shareToday.items.map((i) => ({ id: i.id, slug: i.slug, links: i.links, done: i.done })) } : null).replace(/</g, "\\u003c");
@@ -419,6 +421,30 @@ const homeData = JSON.stringify({
                           <p class="share-why"><span class="share-cat">{it.categoryName}</span> {it.reason}</p>
                           <p class="share-doneline" data-share-doneline hidden>Live on LinkedIn and X ✓ <button type="button" class="tb share-fold" data-share-fold hidden aria-expanded="false">Show</button></p>
                         </div>
+                        {(it.sourceImages?.length ?? 0) > 0 && (
+                          <details class="share-src">
+                            <summary>Source image{it.sourceImages!.length > 1 ? "s" : ""} <span class="muted">({it.sourceImages!.length})</span></summary>
+                            <p class="share-hint">For attaching by hand. Nothing here changes what gets posted automatically.</p>
+                            {it.sourceImages!.map((im, n) => (
+                              <figure class="share-src-item">
+                                <a class="share-src-thumb" href={im.url} target="_blank" rel="noopener noreferrer" aria-label={`Open source image ${n + 1} in a new tab`}>
+                                  <img src={im.url} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-src-img />
+                                </a>
+                                <figcaption>
+                                  <p class:list={["share-src-who", { own: im.primary }]}>{im.primary
+                                    ? `From ${im.outlet}'s own announcement.`
+                                    : `Photo by ${im.outlet}: check you may reuse it before attaching it to a post.`}</p>
+                                  <p class="share-src-size" data-src-size>Size: loading…</p>
+                                  <p class="share-src-links">
+                                    <a href={im.url} target="_blank" rel="noopener noreferrer">Open source image ↗</a>
+                                    <a href={im.url} download={`${it.slug.slice(0, 60)}-source-${n + 1}`} target="_blank" rel="noopener noreferrer" data-src-dl>Download</a>
+                                  </p>
+                                  <p class="share-hint" data-src-hint hidden>This site does not allow a direct download: the picture opened in a new tab. Right-click it (long-press on a phone) → Save image.</p>
+                                </figcaption>
+                              </figure>
+                            ))}
+                          </details>
+                        )}
                       </div>
                       <div class="share-tabs" role="tablist" aria-label="Network">
                         <button type="button" role="tab" class="share-tab" aria-selected="true" data-tab-net="linkedin">LinkedIn<span class="share-tick" data-tick="linkedin" hidden> ✓</span></button>
@@ -1630,6 +1656,44 @@ const homeData = JSON.stringify({
     }).catch(() => {});
   });
 </script>
+<script is:inline>
+  // Share tab, "Source image": the picture's real size once it loads, and a Download that works where
+  // the publisher allows it. A cross-origin <a download> is ignored by browsers, so the click first tries
+  // to fetch the picture (only possible when the site sends CORS headers) and saves it from a blob;
+  // otherwise the picture opens in a new tab, with a hint to save it from there.
+  document.querySelectorAll(".share-src-item").forEach((fig) => {
+    const img = fig.querySelector("[data-src-img]"), size = fig.querySelector("[data-src-size]");
+    const show = () => { size.textContent = img.naturalWidth ? `Size: ${img.naturalWidth} × ${img.naturalHeight} px${img.naturalWidth >= 1200 ? "" : " (small for a post)"}` : "Size: unknown"; };
+    img.addEventListener("load", show);
+    img.addEventListener("error", () => { size.textContent = "Could not load the picture: it may have moved."; });
+    if (img.complete && img.naturalWidth) show();
+    const dl = fig.querySelector("[data-src-dl]"), hint = fig.querySelector("[data-src-hint]");
+    dl.addEventListener("click", async (e) => {
+      if (dl.dataset.fallback) return; // already known: let the link open the picture in a new tab
+      e.preventDefault();
+      const ext = (dl.href.split("?")[0].match(/\.(jpe?g|png|webp|gif|avif)$/i) || [, "jpg"])[1].toLowerCase();
+      try {
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 4000); // stay inside the click's window for window.open
+        const r = await fetch(dl.href, { mode: "cors", credentials: "omit", referrerPolicy: "no-referrer", signal: ctl.signal });
+        clearTimeout(timer);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const blob = await r.blob();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `${dl.getAttribute("download") || "source-image"}.${ext}`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      } catch {
+        dl.dataset.fallback = "1";
+        hint.hidden = false;
+        window.open(dl.href, "_blank", "noopener,noreferrer");
+      }
+    });
+  });
+</script>
 </Base>
 
 <style>
@@ -1666,6 +1730,20 @@ const homeData = JSON.stringify({
   .share-url input { width: 100%; box-sizing: border-box; min-height: 40px; padding: 8px 10px; font: inherit; font-size: 14px; font-weight: 400; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
   .share-msg { margin: 8px 0 0; min-height: 1em; font-size: 13px; color: var(--ink-2); }
   .share-msg:empty { display: none; }
+  /* Source image: under the story, across the whole row on a phone. */
+  .share-src { grid-column: 1 / -1; margin-top: 2px; font-size: 13px; color: var(--ink-2); }
+  .share-src > summary { min-height: 36px; display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; color: var(--ink-2); }
+  .share-src > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .share-src-item { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; align-items: start; margin: 8px 0 0; }
+  .share-src-thumb { display: block; }
+  .share-src-thumb img { display: block; width: 120px; height: 80px; object-fit: cover; border-radius: 3px; background: var(--surface-2); border: 1px solid var(--line); }
+  .share-src-item figcaption { min-width: 0; }
+  .share-src-item p { margin: 0 0 3px; line-height: 1.45; overflow-wrap: anywhere; }
+  .share-src-who { color: var(--status-warning, var(--ink-2)); }
+  .share-src-who.own { color: var(--ink-2); }
+  .share-src-size { font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); }
+  .share-src-links { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .share-src-links a { display: inline-flex; align-items: center; min-height: 32px; color: var(--accent); font-weight: 600; }
   @media (min-width: 900px) {
     /* Side by side on a wide screen: the story on the left, the post on the right. */
     .share-item { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); grid-template-rows: auto auto 1fr; column-gap: 20px; }

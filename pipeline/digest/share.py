@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
 
-from . import checks, config, hold
+from . import checks, config, hold, images
 
 SHARED_FILE = Path(__file__).with_name("shared.json")
 NETWORKS = ("linkedin", "x")
@@ -36,6 +36,7 @@ MIN_ITEMS, MAX_ITEMS = 5, 8
 BRIEFING_TAKE = 4
 FRESH_HOURS = 96  # the briefing's widest window; nothing older is offered
 CAMPAIGN = "share-today"
+SOURCE_IMAGES = 3  # source pictures offered per item in the admin (download by hand, never auto-posted)
 
 # One tag for the category, then the story's main company when it is a single word. At most three on
 # LinkedIn and two on X: more reads as stuffing and does nothing for reach.
@@ -322,6 +323,29 @@ def x_post(story: dict) -> str:
     return hook + tail
 
 
+def source_images(story: dict, limit: int = SOURCE_IMAGES) -> list[dict]:
+    """The pictures the story's sources declare, for the admin's "Source image" control: the company's
+    own announcement first, then the lead, then the rest, one per URL, https only (the admin page is https).
+    {"url", "outlet", "domain", "articleUrl", "primary"}: `primary` is True only for the company's own
+    announcement (images.company_announcement), whose picture is published for sharing; any other is a
+    news outlet's photo, usually licensed, that the owner must check before reusing. Nothing here is
+    posted automatically."""
+    arts = sorted(story.get("articles") or [],
+                  key=lambda a: (not images.company_announcement(a), not a.get("isLead")))
+    out, seen = [], set()
+    for a in arts:
+        url = (a.get("imageUrl") or "").strip()
+        if not url.lower().startswith("https://") or url in seen:
+            continue
+        seen.add(url)
+        out.append({"url": url, "outlet": a.get("source") or a.get("domain") or "the publisher",
+                    "domain": a.get("domain") or "", "articleUrl": a.get("url") or "",
+                    "primary": images.company_announcement(a)})
+        if len(out) >= limit:
+            break
+    return out
+
+
 def build(stories: list[dict], briefing: dict | None, work_briefing: dict | None, shared: dict, now: datetime) -> dict:
     """What admin.json carries for the Share today card."""
     items = []
@@ -336,6 +360,7 @@ def build(stories: list[dict], briefing: dict | None, work_briefing: dict | None
             "links": {net: story_url(s["slug"], net) for net in NETWORKS},
             "linkedin": linkedin_post(s), "x": x, "xLength": x_length(x),
             "done": done_for(shared, s["id"]),
+            "sourceImages": source_images(s),
         })
     return {"day": now.date().isoformat(), "items": items, "week": week_counts(shared, now),
             "file": "pipeline/digest/shared.json"}

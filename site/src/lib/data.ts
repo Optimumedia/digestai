@@ -242,10 +242,10 @@ export function shareImage(story: { slug: string }): string {
 }
 
 /* ---- share images with their sizes (Google Discover, og:image:width/height, NewsArticle image) ----
-   Our own cards only: the 1200x630 share card from pipeline/digest/images.py, plus the 16:9, 4:3 and
-   1:1 variants it draws into public/og for recent stories. Publishers' photos are not used here: we do
-   not own them, their size is unknown, and a picture in the structured data is one Google may show as
-   the image of our page. Sizes are read from the files at build time (no database column); a card
+   Our own cards: the 1200x630 share card from pipeline/digest/images.py, plus the 16:9, 4:3 and
+   1:1 variants it draws into public/og for recent stories. News outlets' photos are not used here: we
+   do not own them, and a picture in the structured data is one Google may show as the image of our
+   page. The one exception is the company's own announcement picture (primaryImage below). Sizes are read from the files at build time (no database column); a card
    that lives only in the media store is the renderer's fixed size. */
 export interface ImageInfo {
   url: string;
@@ -291,8 +291,31 @@ export function storyCard(story: { slug: string }): ImageInfo | null {
   return { url, ...(size || CARD_SIZE) };
 }
 
-/** Every card of the story, widest-first share card then the 16:9, 4:3 and 1:1 variants present in
-    this build; only images at least 1200 px wide, the size Discover asks for. */
+/* ---- the company's own share image (pipeline/digest/images.py primary_images) ----
+   When the story's primary source is the company's own announcement (openai.com, blog.google, …) and
+   the picture that page declares is at least 1200 px wide, it is the story's og:image and twitter:image:
+   a press image the company publishes to be shared, linked on the company's server, never copied.
+   News outlets' photos are never used (they are usually licensed from agencies). The pipeline measured
+   the picture and checked it still answers; a story missing from primary-images.json keeps our card.
+   "ideal" means a shape close to 1.91:1 (1.5 to 2.1): then it also leads the NewsArticle images;
+   any other shape is still fine for og (the networks crop) but our card stays first there. */
+export interface PrimaryImage extends ImageInfo {
+  ideal: boolean;
+}
+const primaryImages = readJson<Record<string, PrimaryImage>>("primary-images.json", {});
+
+/** The company's own picture for the story, or null when it has none good enough. */
+export function primaryImage(story: { slug: string }): PrimaryImage | null {
+  const p = primaryImages[story.slug];
+  if (!p || typeof p.url !== "string" || !p.url.startsWith("https://")) return null;
+  if (!(p.width >= 1200) || !(p.height > 0)) return null;
+  const ratio = p.width / p.height;
+  return { url: p.url, width: p.width, height: p.height, ideal: ratio >= 1.5 && ratio <= 2.1 };
+}
+
+/** Every image of the story for structured data and the news sitemap: the share card then the 16:9,
+    4:3 and 1:1 variants present in this build, and the company's own picture (first when its shape is
+    ideal, last otherwise); only images at least 1200 px wide, the size Discover asks for. */
 export function storyImages(story: { slug: string }): ImageInfo[] {
   const card = storyCard(story);
   const out: ImageInfo[] = card ? [card] : [];
@@ -300,7 +323,29 @@ export function storyImages(story: { slug: string }): ImageInfo[] {
     const size = pngSize(path.join(PUBLIC_DIR, "og", `${story.slug}-${v}.png`));
     if (size) out.push({ url: `${meta.siteUrl}/og/${encodeURIComponent(story.slug)}-${v}.png`, ...size });
   }
-  return out.filter((i) => i.width >= 1200);
+  const cards = out.filter((i) => i.width >= 1200);
+  const p = primaryImage(story);
+  if (!p) return cards;
+  const own: ImageInfo = { url: p.url, width: p.width, height: p.height };
+  return p.ideal ? [own, ...cards] : [...cards, own];
+}
+
+/** The NewsArticle image list: never empty, and our card (the story's, else the site's) first unless
+    the company's picture has the ideal shape. */
+export function storyJsonLdImages(story: { slug: string }): ImageInfo[] {
+  const images = storyImages(story);
+  const p = primaryImage(story);
+  if (!images.length) return [defaultImage()];
+  if (p && !p.ideal && images[0].url === p.url) return [defaultImage(), ...images];
+  return images;
+}
+
+/** og:image and twitter:image: the company's own picture when there is one, else our card, else the
+    site's default card; always with its real size. */
+export function storyOgImage(story: { slug: string }): ImageInfo {
+  const p = primaryImage(story);
+  if (p) return { url: p.url, width: p.width, height: p.height };
+  return storyImages(story)[0] || defaultImage();
 }
 
 /** When the story last changed in a way a reader can see: the newest publication time among the

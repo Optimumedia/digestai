@@ -144,6 +144,28 @@ def test_linkedin_post_has_a_hook_substance_and_a_call_to_read():
 
 # ---------------------------------------------------------------------------- the done-state file
 
+def test_build_exports_the_source_images_company_first_and_labelled():
+    s = story(20, hasPrimary=True, domains=("theverge.com", "openai.com"))
+    s["articles"][0].update(source="The Verge", url="https://theverge.com/a", sourceType="press",
+                            imageUrl="https://cdn.vox-cdn.com/photo.jpg")
+    s["articles"][1].update(source="OpenAI", url="https://openai.com/index/x", sourceType="primary",
+                            imageUrl="https://images.ctfassets.net/openai.png")
+    s["articles"].append({"domain": "c.com", "source": "C", "sourceType": "press", "title": "x",
+                          "imageUrl": "http://c.com/insecure.jpg"})  # http: left out
+    s["articles"].append({"domain": "d.com", "source": "D", "sourceType": "press", "title": "x",
+                          "imageUrl": "https://cdn.vox-cdn.com/photo.jpg"})  # same picture: once
+    out = share.build([s, story(21, domains=("a.com",))], {"storyIds": [20, 21]}, {}, {"stories": {}}, NOW)
+    item = next(i for i in out["items"] if i["id"] == 20)
+    imgs = item["sourceImages"]
+    assert [i["url"] for i in imgs] == ["https://images.ctfassets.net/openai.png", "https://cdn.vox-cdn.com/photo.jpg"], imgs
+    assert imgs[0] == {"url": "https://images.ctfassets.net/openai.png", "outlet": "OpenAI", "domain": "openai.com",
+                       "articleUrl": "https://openai.com/index/x", "primary": True}, imgs[0]
+    assert imgs[1]["primary"] is False and imgs[1]["outlet"] == "The Verge"
+    # A story without pictures exports an empty list, and the field is JSON.
+    assert next(i for i in out["items"] if i["id"] == 21)["sourceImages"] == []
+    json.dumps(out)
+
+
 def test_the_done_state_file_is_read_and_counted():
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp)
