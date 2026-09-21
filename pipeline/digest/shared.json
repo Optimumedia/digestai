@@ -1,4 +1,12 @@
 {
   "about": "What the owner shared by hand on LinkedIn and X, written by the admin page's Share today card through the GitHub API. Keyed by story id, then network, with when (UTC) and the post's address when pasted. share.py reads it: a story shared on an earlier day leaves the shortlist.",
-  "stories": {}
+  "stories": {
+    "1592": {
+      "slug": "amd-reaches-1-trillion-market-cap-as-shares-rise-9",
+      "linkedin": {
+        "at": "2026-09-21T16:43:14Z",
+        "url": ""
+      }
+    }
+  }
 }
