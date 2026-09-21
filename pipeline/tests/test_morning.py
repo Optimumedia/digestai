@@ -105,7 +105,7 @@ def test_decide_order_and_fallbacks():
     admin["database"]["cycle"]["projectedMB"] = 6200.0
     note = morning.build(admin, BRIEFING, STORIES, EVENTS, PAIRS, PREV, NOW, call=lambda p: {})
     assert note["sentences"][3]["text"].startswith("Database reads are on course for 6,200.0 MB this billing cycle, over the 5,120 MB")
-    assert note["sentences"][5]["text"].startswith("Should the pipeline run every 2 hours")
+    assert note["sentences"][5]["text"].startswith("Should the pipeline run less often")
     # Nothing to report at all: empty data still gives six plain sentences.
     empty = morning.build({}, None, [], {}, [], None, NOW, call=lambda p: {})
     assert len(empty["sentences"]) == 6
