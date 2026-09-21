@@ -1336,3 +1336,12 @@ details.wk-card-more[open] { padding-bottom: 4px; }
 
 /* Admin: the Today tab points to the Share tab. */
 .share-pointer { margin: 12px 0 0; font-weight: 600; }
+
+/* Share tab: an item posted on both networks folds to its top row; Show opens it again. */
+.share-item.is-done:not(.is-open) > :is(.share-tabs, .share-pane, .share-msg) { display: none !important; }
+.share-item.is-done:not(.is-open) .share-img { opacity: .55; }
+.share-item.is-done:not(.is-open) .share-hl { color: var(--ink-3, inherit); }
+.share-doneline { margin: 4px 0 0; font-size: 13px; font-weight: 600; color: var(--status-good); }
+.share-fold { margin-left: 8px; min-height: 36px; font-weight: 500; }
+.share-stats { margin-top: 20px; }
+

@@ -395,6 +395,7 @@ const homeData = JSON.stringify({
                         <div class="share-text">
                           <a class="share-hl" href={`/story/${it.slug}`} target="_blank" rel="noopener">{it.headline}</a>
                           <p class="share-why"><span class="share-cat">{it.categoryName}</span> {it.reason}</p>
+                          <p class="share-doneline" data-share-doneline hidden>Live on LinkedIn and X ✓ <button type="button" class="tb share-fold" data-share-fold hidden aria-expanded="false">Show</button></p>
                         </div>
                       </div>
                       <div class="share-tabs" role="tablist" aria-label="Network">
@@ -424,6 +425,15 @@ const homeData = JSON.stringify({
                   ))}
                 </ol>
                 <script is:inline type="application/json" id="share-data" set:html={shareData}></script>
+              </section>
+              <section class="share share-stats" aria-labelledby="share-stats-title">
+                <div class="share-head">
+                  <h2 id="share-stats-title">Posted per day <span class="muted">last 14 days</span></h2>
+                  <p class="share-progress" data-share-totals></p>
+                </div>
+                <div class="legend"><span><i style="background:var(--series-1)"></i>LinkedIn</span><span><i style="background:var(--series-2)"></i>X</span></div>
+                <div data-share-chart><p class="muted">Loading your ticks…</p></div>
+                <p class="share-sub">From the Mark done ticks, by the day you ticked them (UTC). Bluesky posts go out automatically and are not counted here.</p>
               </section>
             )}
           {!shareToday && <p class="muted">The day's list appears after the next pipeline run.</p>}
@@ -1394,7 +1404,16 @@ const homeData = JSON.stringify({
             const input = li.querySelector(`[data-post-url="${net}"]`);
             if (done?.url && document.activeElement !== input && !input.value) input.value = done.url;
           }
-          li.classList.toggle("is-done", nets === NETS.length);
+          const both = nets === NETS.length;
+          // Posted on both: fold it away (once, when it becomes done), with Show to open it again.
+          if (both && !li.classList.contains("is-done")) li.classList.remove("is-open");
+          li.classList.toggle("is-done", both);
+          const fold = li.querySelector("[data-share-fold]");
+          fold.hidden = !both;
+          const open = li.classList.contains("is-open");
+          fold.textContent = open ? "Hide" : "Show";
+          fold.setAttribute("aria-expanded", open ? "true" : "false");
+          li.querySelector("[data-share-doneline]").hidden = !both;
           if (nets) shared++;
         });
         const total = data.items.length;
@@ -1402,6 +1421,40 @@ const homeData = JSON.stringify({
         const w = weekCounts();
         root.querySelector("[data-share-week]").textContent = `Shared this week: ${w.linkedin} on LinkedIn, ${w.x} on X`;
         root.querySelector("[data-share-store]").innerHTML = storeNote;
+        renderChart();
+      }
+
+      // ---- posted per day, per network: grouped columns for the last 14 days
+      function renderChart() {
+        const box = document.querySelector("[data-share-chart]");
+        if (!box) return;
+        const days = [];
+        for (let i = 13; i >= 0; i--) days.push(new Date(Date.now() - i * 864e5).toISOString().slice(0, 10));
+        const counts = Object.fromEntries(days.map((d) => [d, { linkedin: 0, x: 0 }]));
+        for (const v of Object.values(stories)) for (const n of NETS) { const d = v?.[n]?.at?.slice(0, 10); if (d && counts[d]) counts[d][n]++; }
+        const tot = { linkedin: 0, x: 0 };
+        days.forEach((d) => { tot.linkedin += counts[d].linkedin; tot.x += counts[d].x; });
+        const today = counts[days[days.length - 1]];
+        document.querySelector("[data-share-totals]").textContent =
+          `Today: ${today.linkedin} on LinkedIn, ${today.x} on X · 14 days: ${tot.linkedin} and ${tot.x}`;
+        const w = 700, h = 200, padL = 28, padR = 6, padT = 16, padB = 22, pw = w - padL - padR, ph = h - padT - padB;
+        const max = Math.max(4, ...days.flatMap((d) => [counts[d].linkedin, counts[d].x]));
+        const step = max <= 5 ? 1 : max <= 10 ? 2 : 5, top = Math.ceil(max / step) * step;
+        const y = (v) => padT + ph - (v / top) * ph, band = pw / days.length, bw = Math.min(16, band * 0.32);
+        const label = (d) => { const t = new Date(d + "T12:00:00Z"); return t.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }); };
+        let s = `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Posts per day on LinkedIn and X, last 14 days">`;
+        for (let t = 0; t <= top; t += step) s += `<line class="grid" x1="${padL}" x2="${w - padR}" y1="${y(t)}" y2="${y(t)}"/><text class="tick" x="${padL - 6}" y="${y(t) + 3}" text-anchor="end">${t}</text>`;
+        days.forEach((d, i) => {
+          const cx = padL + band * i + band / 2, c = counts[d];
+          const tip = `${label(d)}: LinkedIn ${c.linkedin}, X ${c.x}`;
+          [["linkedin", "var(--series-1)", -1], ["x", "var(--series-2)", 1]].forEach(([n, color, side]) => {
+            const v = c[n], x = side < 0 ? cx - bw - 1 : cx + 1;
+            if (v > 0) s += `<rect class="mark" x="${x}" y="${y(v)}" width="${bw}" height="${y(0) - y(v)}" rx="2" fill="${color}"><title>${tip}</title></rect><text class="value" x="${x + bw / 2}" y="${y(v) - 4}" text-anchor="middle">${v}</text>`;
+          });
+          if (i % 2 === (days.length - 1) % 2) s += `<text class="tick" x="${cx}" y="${h - 6}" text-anchor="middle">${i === days.length - 1 ? "today" : label(d)}</text>`;
+          s += `<rect class="hit" x="${cx - band / 2}" y="${padT}" width="${band}" height="${ph}"><title>${tip}</title></rect>`;
+        });
+        box.innerHTML = s + "</svg>";
       }
       const say = (li, text, bad) => { const el = li.querySelector("[data-share-msg]"); el.textContent = text; el.classList.toggle("bad", !!bad); };
 
@@ -1499,6 +1552,7 @@ const homeData = JSON.stringify({
           if (copied) copied.then((ok) => say(li, ok ? "Text copied: in the page's post box (Start a post if it is not open), paste it, then tick Mark done." : "Could not copy the text: use Copy text, then paste it into LinkedIn.", !ok));
           else say(li, "X opened with the text and link filled in. Tick Mark done once it is live.");
         }));
+        li.querySelector("[data-share-fold]").addEventListener("click", () => { li.classList.toggle("is-open"); render(); });
         li.querySelector("[data-open-personal]")?.addEventListener("click", () => {
           const copied = copy(li.querySelector('[data-text="linkedin"]').value);
           window.open(personalLinkedIn(item), "_blank", "noopener");
