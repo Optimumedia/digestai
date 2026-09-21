@@ -412,7 +412,7 @@ const homeData = JSON.stringify({
                             <button type="button" class="tb share-btn share-done" data-done={net}>Mark done</button>
                           </div>
                           {net === "linkedin"
-                            ? <p class="share-hint">Post on the page copies the text and opens the Digest AI company page's post box (you post as the page, as its admin): paste, wait for the link preview, post. <button type="button" class="linklike" data-open-personal>Share as yourself instead ↗</button></p>
+                            ? <p class="share-hint">Post on the page copies the text and opens the Digest AI company page's post box (you post as the page, as its admin): paste, wait for the link preview, post. If the post box does not open, use <a href="https://www.linkedin.com/company/111764730/admin/dashboard/" target="_blank" rel="noopener">the page dashboard ↗</a> and press Create, then Start a post. <button type="button" class="linklike" data-open-personal>Share as yourself instead ↗</button></p>
                             : <p class="share-hint">Open X fills in the text and the link. Be signed in to X as @DigestAINews so it posts from the page's account.</p>}
                           <label class="share-url"><span>Link to your post <span class="muted">(optional)</span></span>
                             <input type="url" inputmode="url" data-post-url={net} placeholder={net === "x" ? "https://x.com/DigestAINews/status/…" : "https://www.linkedin.com/feed/update/…"} />
@@ -1466,7 +1466,8 @@ const homeData = JSON.stringify({
         ta.remove();
         return ok;
       }
-      const LINKEDIN_PAGE_COMPOSER = "https://www.linkedin.com/company/digestai-news/admin/page-posts/published/?share=true";
+      // Admin pages only open by the page's number: the public name (digestai-news) gives an error there.
+      const LINKEDIN_PAGE_COMPOSER = "https://www.linkedin.com/company/111764730/admin/page-posts/published/?share=true";
       const storyLink = (text, fallback) => (text.match(/https?:\/\/\S+/g) || []).find((u) => u.includes("/story/")) || fallback;
       const intentUrl = (net, text, item) => {
         // The company page's own post box: whoever administers the page posts as Digest AI, not as themselves.
