@@ -225,7 +225,7 @@ GENERIC_DOES = re.compile(
     r"can|lets you (?:chat|ask)|is an? (?:ai )?(?:chatbot|assistant))\b(?!.*\b(?:new|now|adds?|added|launch\w*|"
     r"introduc\w*|rolls? out|update\w*|feature|mode|integrat\w*|connect\w*|automatic\w*|schedul\w*|agent\w*)\b)", re.I)
 
-VAGUE_OBJECT = re.compile(r"(?:text|responses?|answers?|replies|content|questions|prompts?|anything|ideas|conversations?)", re.I)
+VAGUE_OBJECT = re.compile(r"\b(?:text|responses?|answers?|replies|content|questions|prompts?|anything|ideas|conversations?)\b", re.I)
 
 
 def generic_card(card: dict) -> bool:
