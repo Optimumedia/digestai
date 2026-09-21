@@ -518,6 +518,13 @@ def run() -> dict:
     except Exception as exc:  # noqa: BLE001 - a shortlist must never cost the dashboard
         log.warning("share shortlist failed: %s", str(exc)[:200])
         out["share"] = None
+    # Bluesky posts go out on their own (social.py); the Share tab's chart shows them per day beside the
+    # LinkedIn and X ticks. One grouped count, at most 14 rows.
+    if out["share"] is not None:
+        try:
+            out["share"]["bluesky"] = bluesky_per_day(eng, now)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("bluesky counts failed: %s", str(exc)[:200])
 
     order = {"critical": 0, "warning": 1, "info": 2}
     actions.sort(key=lambda c: order.get(c["level"], 3))
@@ -720,6 +727,16 @@ def run_cards(rows: list[dict], now) -> list[dict]:
     return [_card("runs:earlier", "info", what,
                   "The site kept the previous version and later runs worked, so readers saw no problem.",
                   "No action needed unless it repeats.", at=step["startedAt"], action=link)]
+
+
+def bluesky_per_day(eng, now, days: int = 14) -> dict[str, int]:
+    """Posts the pipeline made on Bluesky per UTC day, the last `days` days: {"2026-09-21": 3}."""
+    since = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    day = func.date(db.social_posts.c.created_at)
+    with eng.connect() as conn:
+        rows = conn.execute(select(day, func.count()).where(db.social_posts.c.network == "bluesky",
+                                                            db.social_posts.c.created_at >= since).group_by(day)).all()
+    return {str(d)[:10]: int(n) for d, n in rows if d}
 
 
 def search_cards(gsc: dict | None, rows: list[dict], now) -> list[dict]:

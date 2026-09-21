@@ -168,6 +168,23 @@ def test_the_done_state_file_is_read_and_counted():
     assert isinstance(share.load_shared()["stories"], dict), "the committed file parses"
 
 
+def test_bluesky_posts_are_counted_per_day():
+    import tempfile
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import create_engine, insert
+
+    from digest import admin, db
+
+    eng = create_engine(f"sqlite:///{tempfile.mkdtemp()}/t.db")
+    db.metadata.create_all(eng)
+    now = datetime(2026, 9, 21, 12, tzinfo=timezone.utc)
+    with eng.begin() as conn:
+        for i, (days_ago, net) in enumerate([(0, "bluesky"), (0, "bluesky"), (1, "bluesky"), (3, "mastodon"), (20, "bluesky")]):
+            conn.execute(insert(db.social_posts).values(network=net, kind="story", key=f"k{i}", created_at=now - timedelta(days=days_ago)))
+    assert admin.bluesky_per_day(eng, now) == {"2026-09-21": 2, "2026-09-20": 1}
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

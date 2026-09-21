@@ -152,8 +152,8 @@ if (heldCount > 0) {
 type ShareItem = { id: number; slug: string; headline: string; category: string; categoryName: string; kind: string; reason: string;
   publishers: number; url: string; links: { linkedin: string; x: string }; linkedin: string; x: string; xLength: number;
   done: Record<string, { at: string; url: string }> };
-const shareToday: { day: string; items: ShareItem[]; week: Record<string, number>; file: string } | null = admin?.share?.items?.length ? admin.share : null;
-const shareData = JSON.stringify(shareToday ? { day: shareToday.day, file: shareToday.file, week: shareToday.week,
+const shareToday: { day: string; items: ShareItem[]; week: Record<string, number>; file: string; bluesky?: Record<string, number> } | null = admin?.share?.items?.length ? admin.share : null;
+const shareData = JSON.stringify(shareToday ? { day: shareToday.day, file: shareToday.file, week: shareToday.week, bluesky: shareToday.bluesky || {},
   items: shareToday.items.map((i) => ({ id: i.id, slug: i.slug, links: i.links, done: i.done })) } : null).replace(/</g, "\\u003c");
 const LEVEL: Record<string, string> ={ critical: "Needs you now", warning: "Worth a look", info: "For your information" };
 const whatParts = (c: Card) => c.what.split("{at}");
@@ -431,9 +431,9 @@ const homeData = JSON.stringify({
                   <h2 id="share-stats-title">Posted per day <span class="muted">last 14 days</span></h2>
                   <p class="share-progress" data-share-totals></p>
                 </div>
-                <div class="legend"><span><i style="background:var(--series-1)"></i>LinkedIn</span><span><i style="background:var(--series-2)"></i>X</span></div>
+                <div class="legend"><span><i style="background:var(--series-1)"></i>LinkedIn</span><span><i style="background:var(--series-2)"></i>X</span><span><i style="background:var(--series-3)"></i>Bluesky (automatic)</span></div>
                 <div data-share-chart><p class="muted">Loading your ticks…</p></div>
-                <p class="share-sub">From the Mark done ticks, by the day you ticked them (UTC). Bluesky posts go out automatically and are not counted here.</p>
+                <p class="share-sub">LinkedIn and X from your Mark done ticks, by the day you ticked them; Bluesky from the posts the pipeline made itself. Days are UTC; Bluesky updates with each pipeline run.</p>
               </section>
             )}
           {!shareToday && <p class="muted">The day's list appears after the next pipeline run.</p>}
@@ -1430,25 +1430,25 @@ const homeData = JSON.stringify({
         if (!box) return;
         const days = [];
         for (let i = 13; i >= 0; i--) days.push(new Date(Date.now() - i * 864e5).toISOString().slice(0, 10));
-        const counts = Object.fromEntries(days.map((d) => [d, { linkedin: 0, x: 0 }]));
+        const counts = Object.fromEntries(days.map((d) => [d, { linkedin: 0, x: 0, bluesky: Number(data.bluesky?.[d]) || 0 }]));
         for (const v of Object.values(stories)) for (const n of NETS) { const d = v?.[n]?.at?.slice(0, 10); if (d && counts[d]) counts[d][n]++; }
-        const tot = { linkedin: 0, x: 0 };
-        days.forEach((d) => { tot.linkedin += counts[d].linkedin; tot.x += counts[d].x; });
+        const tot = { linkedin: 0, x: 0, bluesky: 0 };
+        days.forEach((d) => { tot.linkedin += counts[d].linkedin; tot.x += counts[d].x; tot.bluesky += counts[d].bluesky; });
         const today = counts[days[days.length - 1]];
         document.querySelector("[data-share-totals]").textContent =
-          `Today: ${today.linkedin} on LinkedIn, ${today.x} on X · 14 days: ${tot.linkedin} and ${tot.x}`;
+          `Today: ${today.linkedin} LinkedIn · ${today.x} X · ${today.bluesky} Bluesky — 14 days: ${tot.linkedin} · ${tot.x} · ${tot.bluesky}`;
         const w = 700, h = 200, padL = 28, padR = 6, padT = 16, padB = 22, pw = w - padL - padR, ph = h - padT - padB;
-        const max = Math.max(4, ...days.flatMap((d) => [counts[d].linkedin, counts[d].x]));
+        const max = Math.max(4, ...days.flatMap((d) => [counts[d].linkedin, counts[d].x, counts[d].bluesky]));
         const step = max <= 5 ? 1 : max <= 10 ? 2 : 5, top = Math.ceil(max / step) * step;
-        const y = (v) => padT + ph - (v / top) * ph, band = pw / days.length, bw = Math.min(16, band * 0.32);
+        const y = (v) => padT + ph - (v / top) * ph, band = pw / days.length, bw = Math.min(14, band * 0.26);
         const label = (d) => { const t = new Date(d + "T12:00:00Z"); return t.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }); };
-        let s = `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Posts per day on LinkedIn and X, last 14 days">`;
+        let s = `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Posts per day on LinkedIn, X and Bluesky, last 14 days">`;
         for (let t = 0; t <= top; t += step) s += `<line class="grid" x1="${padL}" x2="${w - padR}" y1="${y(t)}" y2="${y(t)}"/><text class="tick" x="${padL - 6}" y="${y(t) + 3}" text-anchor="end">${t}</text>`;
         days.forEach((d, i) => {
           const cx = padL + band * i + band / 2, c = counts[d];
-          const tip = `${label(d)}: LinkedIn ${c.linkedin}, X ${c.x}`;
-          [["linkedin", "var(--series-1)", -1], ["x", "var(--series-2)", 1]].forEach(([n, color, side]) => {
-            const v = c[n], x = side < 0 ? cx - bw - 1 : cx + 1;
+          const tip = `${label(d)}: LinkedIn ${c.linkedin}, X ${c.x}, Bluesky ${c.bluesky}`;
+          [["linkedin", "var(--series-1)", -1], ["x", "var(--series-2)", 0], ["bluesky", "var(--series-3)", 1]].forEach(([n, color, side]) => {
+            const v = c[n], x = cx - bw / 2 + side * (bw + 2);
             if (v > 0) s += `<rect class="mark" x="${x}" y="${y(v)}" width="${bw}" height="${y(0) - y(v)}" rx="2" fill="${color}"><title>${tip}</title></rect><text class="value" x="${x + bw / 2}" y="${y(v) - 4}" text-anchor="middle">${v}</text>`;
           });
           if (i % 2 === (days.length - 1) % 2) s += `<text class="tick" x="${cx}" y="${h - 6}" text-anchor="middle">${i === days.length - 1 ? "today" : label(d)}</text>`;
