@@ -95,7 +95,7 @@ const cost = (c: string | null, kind: string | null) => (c && c !== "unknown" &&
         {latest ? <> The latest item is from {formatDate(latest.firstPublishedAt || latest.updatedAt, { day: "numeric", month: "long" })}: <a href={`/story/${latest.slug}`}>{latest.workCard.tool}</a>.</> : <> Items appear as soon as the desk covers something a small team can use for it.</>}
       </p>
     )}
-    {thisWeek && <a class="eyebrow" href={`/work/week/${thisWeek}`}>The whole week's playbook →</a>}
+    {thisWeek && <a class="eyebrow" href={`/work/week/${thisWeek}`} data-work-next="playbook">The whole week's playbook →</a>}
   </section>
 
   {shown.length > 0 && (

@@ -71,7 +71,7 @@ const jsonLd = {
                 <td>{r.cost && r.cost !== "unknown" && r.costKind !== "unknown" ? r.cost : COST_LABELS[r.costKind || "unknown"]}</td>
                 <td>{r.effort || ""}</td>
                 <td class="num">{formatDate(r.lastChange, { day: "numeric", month: "short", year: "numeric" })}</td>
-                <td>{r.link ? <a href={r.link} rel="noopener nofollow" target="_blank" data-source-link>Site ↗</a> : r.changes[0] ? <a class="muted" href={`/story/${r.changes[0].slug}`} title="The coverage names no official page">Coverage</a> : ""}</td>
+                <td>{r.link ? <a href={r.link} rel="noopener nofollow" target="_blank" data-source-link data-work-try={r.tool}>Site ↗</a> : r.changes[0] ? <a class="muted" href={`/story/${r.changes[0].slug}`} title="The coverage names no official page">Coverage</a> : ""}</td>
               </tr>
             ))}
           </tbody>
@@ -103,7 +103,7 @@ const jsonLd = {
                 </li>
               ))}
             </ul>
-            {r.link && <a class="work-btn" href={r.link} rel="noopener nofollow" target="_blank" data-source-link>Open {r.tool} ↗</a>}
+            {r.link && <a class="work-btn" href={r.link} rel="noopener nofollow" target="_blank" data-source-link data-work-try={r.tool}>Open {r.tool} ↗</a>}
           </section>
         ))}
       </div>

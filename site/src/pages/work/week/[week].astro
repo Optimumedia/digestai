@@ -101,6 +101,6 @@ const jsonLd = {
   <nav class="meta-row" style="padding: 24px 0" aria-label="Playbook navigation">
     {idx < workWeeks.length - 1 && <a href={`/work/week/${workWeeks[idx + 1]}`}>← {workWeeks[idx + 1]}</a>}
     <a href="/work" style="margin-left:auto">AI at Work</a>
-    {idx > 0 && <a href={`/work/week/${workWeeks[idx - 1]}`}>{workWeeks[idx - 1]} →</a>}
+    {idx > 0 && <a href={`/work/week/${workWeeks[idx - 1]}`} data-work-next="next-week">{workWeeks[idx - 1]} →</a>}
   </nav>
 </Work>

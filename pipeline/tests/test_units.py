@@ -497,7 +497,7 @@ def test_events_policy_and_guard_allow_new_reader_events():
     assert "DROP POLICY IF EXISTS" in policy and "'full_text'" in policy and "value <= 100" in policy
     assert "length(coalesce(new.detail, '')) > 100" in db.EVENTS_GUARD_SQL and "regexp_replace" in db.EVENTS_GUARD_SQL
     schema = (Path(__file__).resolve().parents[2] / "supabase" / "schema.sql").read_text(encoding="utf-8")
-    assert "'listen', 'search', 'depth')" in schema and "length(coalesce(new.detail, '')) > 100" in schema
+    assert "'listen', 'search', 'depth', 'try', 'copy_prompt', 'expand', 'next_click')" in schema and "length(coalesce(new.detail, '')) > 100" in schema
     assert db.events.c.detail.type.length == 100
 
 

@@ -51,7 +51,7 @@ const limits = card.limits || [];
   {limits.length > 0 && <p class="worklimits"><b>Not for everyone</b> {limits.join(" · ")}</p>}
 
   <div class="workcard-foot">
-    {card.link && <a class="work-btn" href={card.link} rel="noopener nofollow" target="_blank" data-source-link>Try it ↗</a>}
+    {card.link && <a class="work-btn" href={card.link} rel="noopener nofollow" target="_blank" data-source-link data-work-try={card.tool}>Try it ↗</a>}
     <a class="work-link" href={`/story/${story.slug}`}>What happened{names.length > 0 && <span class="muted"> · {names.join(", ")}</span>}</a>
     {card.jobs.length > 0 && (
       <span class="worktags">{card.jobs.map((j) => <span class="worktag">{JOB_LABELS[j] || j}</span>)}</span>

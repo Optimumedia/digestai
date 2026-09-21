@@ -58,22 +58,31 @@
   // Not the admin page, and not "page not found": old addresses from the previous site are mostly
   // crawlers checking links that no longer exist.
   if (!location.pathname.startsWith("/admin") && !document.title.startsWith("Page not found")) send("view", 1);
-  if (storyId) {
-    // Time on story = time the tab was actually visible. Each time the page is hidden or left,
+  // AI at Work pages (/work, /work/<job>, /work/tools, /work/week/<week>) are not stories: their time
+  // on page and read depth are sent with no story_id, under the page key (the path without ".html"
+  // or a trailing slash), which the events guard accepts.
+  const workKey = (() => {
+    const p = location.pathname.replace(/\.html$/, "").replace(/\/+$/, "") || "/";
+    return p === "/work" || p.startsWith("/work/") ? p.slice(0, 200) : null;
+  })();
+  if (storyId || workKey) {
+    // Time on page = time the tab was actually visible. Each time the page is hidden or left,
     // the seconds since it became visible are sent; the server adds them up.
+    const pageExtra = workKey ? { path: workKey } : undefined;
     let visibleSince = document.visibilityState === "visible" ? Date.now() : null;
     const flush = () => {
       if (visibleSince == null) return;
       const secs = Math.round((Date.now() - visibleSince) / 1000);
       visibleSince = null;
-      if (secs >= 1) send("dwell", Math.min(secs, 3600));
+      if (secs >= 1) send("dwell", Math.min(secs, 3600), pageExtra);
     };
     addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") flush();
       else if (visibleSince == null) visibleSince = Date.now();
     });
     addEventListener("pagehide", flush);
-    document.querySelectorAll("a[data-source-link]").forEach((a) => a.addEventListener("click", () => send("click_source", 1)));
+    // A source click credits a story's article (the ranker reads it); /work has its own "try" event.
+    if (storyId) document.querySelectorAll("a[data-source-link]").forEach((a) => a.addEventListener("click", () => send("click_source", 1)));
 
     // How far the story was read: the deepest point that reached the bottom of the screen, as a
     // percent of the story (headline to the end of the full text, or of the summary when there is
@@ -82,11 +91,14 @@
     // credited before the page has been visible for 4 seconds, and a page that fits the screen
     // counts as read to the end only after 15 seconds or a scroll. Sent when the page is hidden or
     // left, and again only if the reader later gets to a further stage (at most four per page view).
+    // On a /work page the measure is the page's main column, and the stages are only "top" and "end"
+    // (reached its last line): the percent is what the admin line averages.
     const STAGES = ["top", "summary", "full_text", "end"];
-    const sumEl = document.querySelector('[data-read="summary"]');
-    const fullEl = document.querySelector('[data-read="full_text"]');
-    const endEl = fullEl || sumEl;
-    const art = endEl && endEl.closest("article");
+    const sumEl = workKey ? null : document.querySelector('[data-read="summary"]');
+    const fullEl = workKey ? null : document.querySelector('[data-read="full_text"]');
+    const workMain = workKey ? document.querySelector("main") : null;
+    const endEl = workMain || fullEl || sumEl;
+    const art = workMain || (endEl && endEl.closest("article"));
     if (art && endEl) {
       let shownMs = 0, shownSince = document.visibilityState === "visible" ? Date.now() : null;
       let scrolled = false, rank = 0, pct = 0, sentRank = -1, queued = false;
@@ -99,7 +111,7 @@
         const bottom = scrollY + innerHeight;
         const start = docY(art, "top"), end = docY(endEl, "bottom");
         let r = 0;
-        if (bottom >= docY(sumEl || endEl, "top")) r = 1;
+        if (!workKey && bottom >= docY(sumEl || endEl, "top")) r = 1;
         if (fullEl) {
           const top = docY(fullEl, "top");
           if (bottom >= top + Math.min(600, (end - top) / 4)) r = 2;
@@ -120,7 +132,7 @@
         if (shownSince != null) { shownMs += Date.now() - shownSince; shownSince = null; }
         if (rank <= sentRank) return;
         sentRank = rank;
-        send("depth", Math.round(pct), { detail: STAGES[rank] });
+        send("depth", Math.round(pct), { detail: STAGES[rank], ...(pageExtra || {}) });
       };
       addEventListener("visibilitychange", () => {
         if (document.visibilityState === "hidden") report();
@@ -128,6 +140,48 @@
       });
       addEventListener("pagehide", report);
     }
+  }
+
+  /* ---------- AI at Work: what readers do with a card ---------- */
+  // Delegated, so it works for cards rendered by any component, now or later, keyed on these
+  // attributes (the value is what lands in the event's detail, at most 100 characters):
+  //   [data-work-try="<tool>"]        the card's "Try it" link              -> try
+  //   [data-work-copy]                the "copy prompt" button              -> copy_prompt
+  //   <details data-work-howto>       "How to use it" opened                -> expand
+  //   [data-work-next="<label>"]      the page's next-step link             -> next_click
+  // The tool is read from the element's own value, else from the nearest [data-work-tool] or the
+  // card's "Try it" link. On a /work page the event is filed under the page key; on a story page it
+  // carries the story as every other event does.
+  {
+    const workExtra = (detail) => ({ detail: detail || undefined, ...(workKey ? { path: workKey } : {}) });
+    const toolOf = (el, own) => {
+      const v = (el.getAttribute(own) || "").trim();
+      if (v) return v;
+      const holder = el.closest("[data-work-tool]");
+      if (holder) return holder.getAttribute("data-work-tool");
+      const card = el.closest(".workcard, article");
+      const tryLink = card && card.querySelector("[data-work-try]");
+      return tryLink ? tryLink.getAttribute("data-work-try") : "";
+    };
+    document.addEventListener("click", (e) => {
+      const t = e.target instanceof Element ? e.target : null;
+      if (!t) return;
+      const tryEl = t.closest("[data-work-try]");
+      if (tryEl) { send("try", 1, workExtra(toolOf(tryEl, "data-work-try"))); return; }
+      const copyEl = t.closest("[data-work-copy]");
+      if (copyEl) { send("copy_prompt", 1, workExtra(toolOf(copyEl, "data-work-copy"))); return; }
+      const nextEl = t.closest("[data-work-next]");
+      if (nextEl) send("next_click", 1, workExtra(nextEl.getAttribute("data-work-next") || nextEl.textContent.trim()));
+    }, true);
+    // "toggle" does not bubble, so it is caught on the way down. Only opening counts, once per
+    // details element per page view.
+    const opened = new WeakSet();
+    document.addEventListener("toggle", (e) => {
+      const d = e.target;
+      if (!(d instanceof HTMLDetailsElement) || !d.open || opened.has(d) || !d.matches("[data-work-howto]")) return;
+      opened.add(d);
+      send("expand", 1, workExtra(toolOf(d, "data-work-howto")));
+    }, true);
   }
 
   /* ---------- site searches ---------- */

@@ -20,6 +20,8 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta, timezone
 
+from . import checks
+from .textutil import STOPWORDS
 from .trackers import _plain, org_key
 
 # Who a card is for, as the model may answer.
@@ -177,7 +179,7 @@ MAKER_DOMAINS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     "anthropic": ("Anthropic", ("anthropic", "claude", "claude ai"), ("anthropic.com", "claude.ai", "claude.com")),
     "openai": ("OpenAI", ("openai", "open ai", "chatgpt"), ("openai.com", "chatgpt.com")),
     "google": ("Google", ("google", "alphabet", "google deepmind", "deepmind", "gemini", "google workspace"),
-               ("google.com", "blog.google", "googleblog.com", "withgoogle.com", "youtube.com", "android.com")),
+               ("google.com", "blog.google", "gemini.google", "googleblog.com", "withgoogle.com", "youtube.com", "android.com")),
     "microsoft": ("Microsoft", ("microsoft", "microsoft copilot", "copilot"),
                   ("microsoft.com", "office.com", "microsoft365.com", "bing.com", "live.com", "linkedin.com")),
     "meta": ("Meta", ("meta", "meta platforms", "facebook", "instagram", "whatsapp"),
@@ -235,11 +237,16 @@ def generic_card(card: dict) -> bool:
     return bool(ASSISTANTS.match(tool) and GENERIC_DOES.match(does) and VAGUE_OBJECT.search(does))
 
 
-def screen_card(value) -> tuple[dict | None, str | None]:
+def screen_card(value, source: str | None = None) -> tuple[dict | None, str | None]:
     """(card, None) for a card that belongs on the section; (None, why) for one the rules drop, with
     why in "developer", "course"; (None, None) for one that never was a card. The reason is what the
-    export and the enrich step count, so the admin page can say how much the rules keep out."""
+    export and the enrich step count, so the admin page can say how much the rules keep out.
+
+    With the article's text (`source`), the teaching fields are also grounded in it (ground_card).
+    enrich.verify does that before a card is stored; the export re-screens stored cards without it."""
     card = _clamp_card(value)
+    if card is not None and source is not None:
+        card = ground_card(card, source)
     if card is None:
         return None, None
     reason = developer_only(card)
@@ -280,18 +287,213 @@ def _clamp_card(value) -> dict | None:
     link = _text(value.get("link"), 500)
     if not link.startswith(("http://", "https://")):
         link = ""
+    maker = _text(value.get("maker"), 120) or None
     return {
         "fits": True,
         "tool": tool,
-        "maker": _text(value.get("maker"), 120) or None,
+        "maker": maker,
+        "headline": card_headline(value.get("headline"), tool, what, maker),
         "what_it_does": what,
         "who_for": who[:4],
         "use_for": uses,
         "cost": _text(value.get("cost"), 60) or "unknown",
+        "included_in": _included_in(value.get("included_in")),
         "effort": _effort(value.get("effort")),
         "watch_out": watch,
         "link": link or None,
+        "prompt": _prompt(value.get("prompt")),
+        "steps": _steps(value.get("steps")),
+        "example": _example(value.get("example")),
     }
+
+
+# ---------------------------------------------------------------------------- the teaching fields
+#
+# What turns a card from a description into something a reader can do: an outcome headline, a
+# starter prompt, the steps and a before/after. The model fills them only when the article gives
+# them; the rules below clamp them (here, without the article) and ground them (ground_card, with the
+# article), so an invented step, a made-up time saving or a UI path nobody wrote can never reach a
+# page. Anything that fails is dropped whole: half a list of steps teaches the wrong thing.
+
+HEADLINE_MAX = 80        # the prompt asks for 70; a few characters of slack before the fallback
+PROMPT_MAX = 300
+STEP_MAX = 140
+STEPS_MIN, STEPS_MAX = 2, 4
+EXAMPLE_MAX = 220
+EMPTY_ANSWERS = {"", "none", "null", "n/a", "na", "not stated", "unknown", "not applicable", "-", "no"}
+
+
+def _empty(text: str) -> bool:
+    return text.strip().strip(".").lower() in EMPTY_ANSWERS
+
+
+def _cut_words(text: str, limit: int) -> str:
+    """Cut at the last whole word inside the limit, with an ellipsis when anything was cut."""
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1].rsplit(" ", 1)[0].rstrip(" ,;:-–—")
+    return cut + "…"
+
+
+def fallback_headline(tool: str, what: str) -> str:
+    """The tool's name plus what it does: "Canva Magic Studio writes and lays out social posts".
+    A sentence that already starts with the tool keeps its own wording; one that starts with a verb
+    ("Writes ...") reads on from the name; anything else gets a colon."""
+    what = (what or "").strip().rstrip(".")
+    if not what:
+        return _cut_words(tool, HEADLINE_MAX)
+    if what.lower().startswith(tool.lower()):
+        line = what
+    elif re.match(r"[A-Z][a-z]+s\b", what) and not re.match(r"(?:This|Its|Is|Has|Was|Does|Analytics|News)\b", what):
+        line = f"{tool} {what[0].lower()}{what[1:]}"
+    else:
+        line = f"{tool}: {what}"
+    return _cut_words(line, HEADLINE_MAX + 10)
+
+
+def card_headline(value, tool: str, what: str, maker: str | None = None) -> str:
+    """What the reader gets, in plain words ("Turn 20 customer reviews into three ad angles"), run
+    through the same headline rules as the news (checks.discipline_headline); the tool's name plus
+    what it does when the model gave none, gave a long one, or one the rules cannot rescue."""
+
+    text = _text(value, 200).strip().strip("\"“”'").strip()
+    if text and not _empty(text) and len(text) <= HEADLINE_MAX:
+        fixed, _changed = checks.discipline_headline(text, None, [n for n in (tool, maker) if n])
+        fixed = fixed.rstrip(".").strip()
+        if checks.usable_headline(fixed) and len(fixed) <= HEADLINE_MAX and not re.search(r"[!]", fixed):
+            return fixed
+    return fallback_headline(tool, what)
+
+
+def _prompt(value) -> str:
+    """One starter prompt, at most PROMPT_MAX characters. A longer one is cut back to its last whole
+    sentence when that leaves something usable, and dropped otherwise: a prompt cut mid-sentence is
+    worse than none."""
+    text = _text(value, 2000).strip().strip("\"“”'").strip()
+    if _empty(text) or len(text) < 20:
+        return ""
+    if len(text) <= PROMPT_MAX:
+        return text
+    head = text[:PROMPT_MAX]
+    end = max(head.rfind(". "), head.rfind("? "), head.rfind(": "))
+    if head.endswith((".", "?")):
+        end = len(head) - 1
+    return head[: end + 1].rstrip(" :") if end >= 120 else ""
+
+
+def _steps(value) -> list[str]:
+    """2-4 short steps, or none. The article check is ground_card's."""
+    out: list[str] = []
+    for s in _list(value):
+        s = re.sub(r"^(?:step\s*)?\d{1,2}[.):]\s*", "", _text(s, 400), flags=re.I).strip()
+        if not s or _empty(s):
+            continue
+        if len(s) > STEP_MAX:
+            return []  # a paragraph is not a step; cutting it would change what it says
+        if s.lower() not in {x.lower() for x in out}:
+            out.append(s)
+    if len(out) < STEPS_MIN:
+        return []
+    return out[:STEPS_MAX]
+
+
+def _example(value) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    before, after = _text(value.get("before"), 400), _text(value.get("after"), 400)
+    if _empty(before) or _empty(after) or len(before) < 8 or len(after) < 8:
+        return None
+    if len(before) > EXAMPLE_MAX or len(after) > EXAMPLE_MAX or before.lower() == after.lower():
+        return None
+    return {"before": before, "after": after}
+
+
+def _included_in(value) -> str:
+    text = _text(value, 120).strip().strip("\"“”'").rstrip(".").strip()
+    if _empty(text) or len(text) > 80 or len(text) < 3:
+        return ""
+    return text
+
+
+# Words that say how to do something rather than what: every step has them, so they prove nothing.
+STEP_FILLER = {"open", "click", "select", "choose", "pick", "then", "next", "first", "go", "tap", "press", "enter",
+               "type", "paste", "copy", "use", "using", "make", "sure", "button", "menu", "option", "options",
+               "page", "screen", "your", "want", "need", "like", "once", "done", "start", "find", "turn",
+               "text", "field", "section", "tool", "into", "onto", "each", "every", "some", "any"}
+PLAN_FILLER = {"plan", "plans", "tier", "tiers", "subscription", "subscriptions", "edition", "editions", "account",
+               "accounts", "customers", "users", "subscribers", "included", "all"}
+# A UI path the step names: "Settings > Billing", "File → Export", "Tools › AI".
+UI_PATH = re.compile(r"[^.;,]*?\s(?:>|→|›|»)\s[^.;,]*")
+
+
+def _stem(word: str) -> str:
+    for suffix in ("ing", "ed", "es", "s"):
+        if len(word) - len(suffix) >= 4 and word.endswith(suffix):
+            return word[: -len(suffix)]
+    return word
+
+
+def _content_words(text: str) -> set[str]:
+
+    return {_stem(w) for w in re.findall(r"[a-z][a-z0-9'+-]*", (text or "").lower())
+            if len(w) >= 4 and w not in STOPWORDS and w not in STEP_FILLER}
+
+
+def step_grounded(step: str, source_words: set[str], source_flat: str, source: str) -> bool:
+    """A step the article supports: at least two of its meaningful words (its only one, for a short
+    step like "Ask for ad angles"), and at least half of them, are in the article; every part of a UI
+    path it names is in the article as written; and every figure it uses is the article's."""
+    words = _content_words(step)
+    shared = words & source_words
+    if not words or len(shared) < min(2, len(words)) or len(shared) < 0.5 * len(words):
+        return False
+    for path in UI_PATH.findall(" " + step):
+        for part in re.split(r"\s(?:>|→|›|»)\s", path):
+            part = re.sub(r"^(?:\s*(?:go to|open|click|select|choose|tap|in|then|and|under)\s+)+", "", part.strip(), flags=re.I)
+            part = part.strip(" \"“”'")
+            if part and re.sub(r"[^a-z0-9]+", "", part.lower()) not in source_flat:
+                return False
+    return not checks.unsupported_figures(step, source)
+
+
+def ground_card(card: dict | None, source: str | None) -> dict | None:
+    """The card with only what the article supports: steps that share meaningful words with it (or
+    no steps at all), a before/after whose figures are its own, a plan it names, and a headline with
+    no figure it lacks. Without enough article text to check against, those fields go: they are the
+    ones a model is tempted to make up."""
+    if not card:
+        return card
+
+    card = dict(card)
+    source = source or ""
+    enough = len(source) >= checks.MIN_SOURCE_CHARS
+    source_words = _content_words(source)
+    source_flat = re.sub(r"[^a-z0-9]+", "", source.lower())
+
+    steps = card.get("steps") or []
+    if steps and not (enough and all(step_grounded(s, source_words, source_flat, source) for s in steps)):
+        card["steps"] = []
+
+    example = card.get("example")
+    if example:
+        both = f"{example.get('before', '')} {example.get('after', '')}"
+        if (not enough or checks.unsupported_figures(both, source)
+                or len(_content_words(both) & source_words) < 2):
+            card["example"] = None
+
+    plan = card.get("included_in") or ""
+    if plan:
+        # Every word of the plan's name is the article's own: "Business Standard" must be written
+        # there, not inferred from "Workspace customers".
+        source_tokens = set(re.findall(r"[a-z0-9]+", source.lower()))
+        words = {w for w in re.findall(r"[a-z0-9]+", plan.lower()) if w not in STOPWORDS and w not in PLAN_FILLER}
+        if not enough or not words or not words <= source_tokens:
+            card["included_in"] = ""
+
+    headline = card.get("headline") or ""
+    if headline and enough and checks.unsupported_figures(headline, source):
+        card["headline"] = fallback_headline(card["tool"], card["what_it_does"])
+    return card
 
 
 def jobs_for(card: dict) -> list[str]:
@@ -394,6 +596,55 @@ def limits(card: dict) -> list[str]:
     return out
 
 
+# Hosts that are a conversation or a code dump, not a publisher: a story only they cover has not been
+# reported by anyone, and a "try it" link there is not an official product page.
+COMMUNITY_HOSTS = ("reddit.com", "redd.it", "news.ycombinator.com", "ycombinator.com", "github.com", "gitlab.com",
+                   "x.com", "twitter.com", "lobste.rs", "bsky.app", "mastodon.social", "discord.com", "discord.gg")
+# A forum handle: "u/name", "@name", one word ending in three or more digits (Reddit's generated
+# names: "MoistTonight3997"), or one word with an underscore ("jane_doe").
+HANDLE = re.compile(r"^(?:/?u/|@)\S+$|^[A-Za-z][A-Za-z-]*\d{3,}$|^[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+$")
+
+
+def _community_article(a: dict) -> bool:
+    """A forum post or a code page: the article's own host is one of COMMUNITY_HOSTS. A Reddit or HN
+    item that links to a publisher carries the publisher's domain and counts as the publisher."""
+    host = (a.get("domain") or _host(a.get("url"))).lower().removeprefix("www.")
+    return _on(host, COMMUNITY_HOSTS)
+
+
+def username_maker(maker: str | None, story: dict | None = None) -> bool:
+    """The card's maker is a person's forum handle rather than a company or a named person: it looks
+    like a handle, or it is the author of one of the story's Reddit or Hacker News posts."""
+    name = (maker or "").strip()
+    if not name:
+        return False
+    if HANDLE.match(name):
+        return True
+    for a in (story or {}).get("articles") or []:
+        author = (a.get("author") or "").strip().removeprefix("u/").removeprefix("/u/")
+        if author and author.lower() == name.lower().removeprefix("u/") and _community_article(a):
+            return True
+    return False
+
+
+def publisher_coverage(story: dict) -> bool:
+    """At least one article in the story comes from a publisher rather than a forum or a code host."""
+    return any(not _community_article(a) for a in story.get("articles") or [])
+
+
+def featurable(story: dict) -> bool:
+    """Whether a card can be the section's featured pick ("one thing to try"): a known maker that is
+    not a forum handle, an official link that is not a forum or code-host page, and coverage by a
+    real publisher. Reads the exported story (card_out shape under "workCard")."""
+    card = story.get("workCard") or {}
+    maker, link = card.get("maker"), card.get("link")
+    if not maker or username_maker(maker, story):
+        return False
+    if not link or _on(_host(link), COMMUNITY_HOSTS):
+        return False
+    return publisher_coverage(story)
+
+
 EFFORT_POINTS = {"minutes": 1.0, "an afternoon": 0.6, "needs a developer": 0.0}
 COST_POINTS = {"free": 0.8, "free tier": 0.7, "included": 0.6, "paid": 0.3, "unknown": 0.1}
 
@@ -411,7 +662,8 @@ def usefulness(card: dict, story: dict | None = None) -> float:
     score += EFFORT_POINTS.get(card.get("effort") or "", 0.2)
     score += COST_POINTS.get(cost_kind(card.get("cost") or ""), 0.1)
     score += 0.3 * min(len(card.get("who_for") or []), 3)
-    score += 0.4 if card.get("maker") else 0.0
+    # A maker that is a forum handle ("MoistTonight3997") is not a company standing behind a tool.
+    score += 0.4 if card.get("maker") and not username_maker(card.get("maker"), story) else 0.0
     if skip_reason(card):
         score -= 0.6
     if story:
@@ -426,9 +678,11 @@ def usefulness(card: dict, story: dict | None = None) -> float:
 
 def card_out(card: dict, story: dict | None = None) -> dict:
     """The card as the site reads it, with the facts the pages derive from it."""
-    return {
+    out = {
         "tool": card["tool"],
         "maker": card.get("maker"),
+        # What the reader gets; cards stored before the field existed get the tool plus what it does.
+        "headline": card.get("headline") or fallback_headline(card["tool"], card["what_it_does"]),
         "whatItDoes": card["what_it_does"],
         "whoFor": card.get("who_for") or [],
         "useFor": card.get("use_for") or [],
@@ -441,7 +695,18 @@ def card_out(card: dict, story: dict | None = None) -> dict:
         "skip": skip_reason(card),
         "limits": limits(card),
         "usefulness": usefulness(card, story),
+        # The plan it already comes with ("Google Workspace Business Standard"), or "".
+        "includedIn": card.get("included_in") or "",
     }
+    # The teaching fields, only when present: the site's WorkCard (site/src/lib/work.ts) renders
+    # `steps`, `prompt` and `example` only when the export carries them, under exactly these names.
+    if card.get("steps"):
+        out["steps"] = list(card["steps"])
+    if card.get("prompt"):
+        out["prompt"] = card["prompt"]
+    if card.get("example"):
+        out["example"] = {"before": card["example"]["before"], "after": card["example"]["after"]}
+    return out
 
 
 def _completeness(card: dict) -> int:
@@ -571,6 +836,11 @@ def weeks(stories: list[dict]) -> dict[str, dict]:
     for bucket in out.values():
         bucket["changed"].sort(key=lambda s: s.get("firstPublishedAt") or "", reverse=True)
         bucket["try"].sort(key=lambda s: -(s["workCard"]["usefulness"]))
+        # The week's first "try" leads the playbook page and titles the weekly episode (audio.py):
+        # the same rule as the daily featured pick.
+        first = next((s for s in bucket["try"] if featurable(s)), None)
+        if first is not None:
+            bucket["try"] = [first] + [s for s in bucket["try"] if s is not first]
         bucket["skip"].sort(key=lambda s: -(s["workCard"]["usefulness"]))
         bucket["tools"] = len({tool_key(s["workCard"]["tool"], s["workCard"].get("maker")) for s in bucket["changed"]})
         # The lists below are cut to what a page shows; the counts are the week's own.
@@ -620,6 +890,17 @@ def build_briefing(stories: list[dict], now) -> dict:
             seen.add(key)
             unique.append(s)
     fresh = unique
+    # The first card is the featured pick ("one thing to try"). It has to be a real product: a known
+    # maker, an official link and a publisher's coverage. A Reddit user's hobby project can stay in
+    # the list, never in front of it; when nothing qualifies, a card whose maker is not a forum
+    # handle leads, and the briefing says there is no featured pick.
+    featured = next((s for s in fresh if featurable(s)), None)
+    if featured is None:
+        lead = next((s for s in fresh if not username_maker(s["workCard"].get("maker"), s)), None)
+    else:
+        lead = featured
+    if lead is not None:
+        fresh = [lead] + [s for s in fresh if s is not lead]
     top = fresh[:BRIEFING_SIZE]
     also = fresh[BRIEFING_SIZE : BRIEFING_SIZE + BRIEFING_ALSO]
     tools = {tool_key(s["workCard"]["tool"], s["workCard"].get("maker")) for s in top + also}
@@ -630,6 +911,8 @@ def build_briefing(stories: list[dict], now) -> dict:
         "windowHours": window,
         "storyIds": [s["id"] for s in top],
         "alsoIds": [s["id"] for s in also],
+        # The featured pick, always storyIds[0] when set; None when no card qualifies (featurable).
+        "featuredId": featured["id"] if featured is not None else None,
         "stats": {
             "items": len(fresh),
             "tools": len(tools),

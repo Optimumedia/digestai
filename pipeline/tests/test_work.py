@@ -584,6 +584,240 @@ def test_generic_assistant_cards_are_not_news():
         assert card is not None, (tool, does, why)
 
 
+# ---------------------------------------------------------------------------- the teaching fields
+
+ARTICLE = (
+    "Canva said on Tuesday that Magic Studio can now turn customer reviews into ad copy. To try it, open "
+    "Magic Studio from the Canva home page, paste up to 20 customer reviews into the Magic Write panel, and "
+    "ask for ad angles. Canva says one bakery cut the time it spends writing a week of social posts from "
+    "3 hours to 40 minutes. The feature is included in Canva Pro and in Canva Teams at no extra cost, and a "
+    "free tier gets 50 uses. Exports from the free tier carry a watermark. The update rolls out worldwide "
+    "this week, the company said, starting with English-language accounts."
+)
+
+
+def test_the_teaching_fields_are_clamped():
+    long_prompt = ("Here are 20 reviews of my bakery. Find three angles a Facebook ad could use, each with a headline. "
+                   "Keep each under 12 words. " * 6)
+    out = work.clean_card(card(prompt=long_prompt, steps=["1. Open Magic Studio", "Step 2: paste reviews", "Ask for angles",
+                                                        "Pick one", "Publish it"],
+                               example={"before": "3 hours", "after": "40 minutes"}, included_in="Canva Pro",
+                               headline="Turn 20 customer reviews into three ad angles"))
+    assert out["prompt"] and len(out["prompt"]) <= work.PROMPT_MAX, len(out["prompt"])
+    assert out["prompt"].endswith((".", "?")), "cut back to a whole sentence, never mid-word"
+    assert out["steps"] == ["Open Magic Studio", "paste reviews", "Ask for angles", "Pick one"], "numbering off, four at most"
+    assert out["headline"] == "Turn 20 customer reviews into three ad angles"
+    assert out["included_in"] == "Canva Pro"
+    # One long unbroken prompt cannot be cut back to a sentence: it goes.
+    assert work.clean_card(card(prompt="word " * 120))["prompt"] == ""
+    assert work.clean_card(card(prompt="None"))["prompt"] == "" and work.clean_card(card(prompt=None))["prompt"] == ""
+    # A single step, a paragraph for a step, or half an example is none at all.
+    assert work.clean_card(card(steps=["Open it"]))["steps"] == []
+    assert work.clean_card(card(steps=["Open it", "x " * 100]))["steps"] == []
+    assert work.clean_card(card(example={"before": "3 hours", "after": ""}))["example"] is None
+    assert work.clean_card(card(example="faster"))["example"] is None
+    assert work.clean_card(card(included_in="not stated"))["included_in"] == ""
+    # Older stored cards have none of it and still export, with nothing the site has to guard against.
+    plain = work.card_out(work.clean_card(card()))
+    assert "steps" not in plain and "prompt" not in plain and "example" not in plain and plain["includedIn"] == ""
+
+
+def test_the_exported_card_uses_the_names_the_site_reads():
+    out = work.card_out(work.ground_card(work.clean_card(card(
+        prompt="Here are my customer reviews. Suggest three ad angles, each with a one-line headline.",
+        steps=["Open Magic Studio from the Canva home page", "Paste up to 20 customer reviews into Magic Write"],
+        example={"before": "3 hours writing a week of social posts", "after": "40 minutes"},
+        included_in="Canva Pro", headline="Turn 20 customer reviews into three ad angles")), ARTICLE))
+    assert out["steps"] == ["Open Magic Studio from the Canva home page", "Paste up to 20 customer reviews into Magic Write"]
+    assert out["prompt"].startswith("Here are my customer reviews")
+    assert out["example"] == {"before": "3 hours writing a week of social posts", "after": "40 minutes"}
+    assert out["includedIn"] == "Canva Pro" and out["headline"] == "Turn 20 customer reviews into three ad angles"
+
+
+def test_steps_the_article_does_not_describe_are_dropped_whole():
+    grounded = work.clean_card(card(steps=["Open Magic Studio from the Canva home page",
+                                           "Paste customer reviews into the Magic Write panel",
+                                           "Ask for ad angles"]))
+    assert len(work.ground_card(grounded, ARTICLE)["steps"]) == 3
+    # One invented step takes the others with it: half a how-to teaches the wrong thing.
+    invented = work.clean_card(card(steps=["Open Magic Studio from the Canva home page",
+                                           "Connect your Shopify store under Integrations and sync inventory"]))
+    assert work.ground_card(invented, ARTICLE)["steps"] == []
+    # A UI path the article never wrote is invented, however plausible its words.
+    path = work.clean_card(card(steps=["Go to Settings > Brand Kit > Reviews", "Paste customer reviews into Magic Write"]))
+    assert work.ground_card(path, ARTICLE)["steps"] == []
+    # A figure the article does not have ("50 reviews") fails the step too.
+    figure = work.clean_card(card(steps=["Paste 45 customer reviews into Magic Write", "Ask for ad angles from the reviews"]))
+    assert work.ground_card(figure, ARTICLE)["steps"] == []
+    # Without the article's text there is nothing to check against, so the steps go.
+    assert work.ground_card(grounded, "Canva launches a thing.")["steps"] == []
+    # The same check runs on the way in (screen_card with the source) and in enrich.verify.
+    assert work.screen_card(card(steps=["Connect Shopify under Integrations", "Sync inventory nightly"]), ARTICLE)[0]["steps"] == []
+
+
+def test_an_example_with_an_invented_figure_is_dropped():
+    real = work.clean_card(card(example={"before": "3 hours on a week of social posts", "after": "40 minutes"}))
+    assert work.ground_card(real, ARTICLE)["example"] == {"before": "3 hours on a week of social posts", "after": "40 minutes"}
+    made_up = work.clean_card(card(example={"before": "3 hours on a week of social posts", "after": "15 minutes"}))
+    assert work.ground_card(made_up, ARTICLE)["example"] is None
+    off_topic = work.clean_card(card(example={"before": "Manual invoices every month", "after": "Automatic payroll runs"}))
+    assert work.ground_card(off_topic, ARTICLE)["example"] is None, "a before/after the article never mentions"
+
+
+def test_the_plan_it_comes_with_must_be_named_in_the_article():
+    assert work.ground_card(work.clean_card(card(included_in="Canva Pro")), ARTICLE)["included_in"] == "Canva Pro"
+    assert work.ground_card(work.clean_card(card(included_in="Canva Enterprise")), ARTICLE)["included_in"] == ""
+    assert work.ground_card(work.clean_card(card(included_in="Google Workspace Business Standard")), ARTICLE)["included_in"] == ""
+
+
+def test_the_outcome_headline_falls_back_to_the_tool_and_what_it_does():
+    base = dict(tool="Canva Magic Studio", what_it_does="Writes and lays out social posts from a short brief.")
+    # No headline (an older stored card, or the model left it out): the tool reads on into what it does.
+    assert work.clean_card(card(**base))["headline"] == "Canva Magic Studio writes and lays out social posts from a short brief"
+    assert work.card_out({**work.clean_card(card(**base)), "headline": None})["headline"].startswith("Canva Magic Studio writes")
+    # Too long, hype the rules cannot rescue, or an empty answer: the same fallback.
+    assert work.clean_card(card(**base, headline="Turn reviews into ads " * 6))["headline"].startswith("Canva Magic Studio writes")
+    assert work.clean_card(card(**base, headline="None"))["headline"].startswith("Canva Magic Studio writes")
+    assert work.clean_card(card(**base, headline="WOW!"))["headline"].startswith("Canva Magic Studio writes")
+    # Hype words come out through the same rules as news headlines.
+    h = work.clean_card(card(**base, headline="Revolutionary way to turn reviews into ad angles"))["headline"]
+    assert "evolutionary" not in h.lower() and "ad angles" in h, h
+    # A sentence that does not start with a verb gets a colon; one naming the tool keeps its words.
+    assert work.fallback_headline("Zapier Agents", "An assistant for routing leads.") == "Zapier Agents: An assistant for routing leads"
+    assert work.fallback_headline("Zapier Agents", "Zapier Agents routes new leads.") == "Zapier Agents routes new leads"
+    assert len(work.fallback_headline("T", "Writes " + "very " * 40 + "long things.")) <= work.HEADLINE_MAX + 10
+    # A headline figure the article does not have goes back to the fallback.
+    wrong = work.clean_card(card(**base, headline="Turn 35 customer reviews into three ad angles"))
+    assert work.ground_card(wrong, ARTICLE)["headline"].startswith("Canva Magic Studio writes")
+    right = work.clean_card(card(**base, headline="Turn 20 customer reviews into three ad angles"))
+    assert work.ground_card(right, ARTICLE)["headline"] == "Turn 20 customer reviews into three ad angles"
+
+
+def test_enrich_verify_grounds_the_card_even_with_checks_off():
+    from types import SimpleNamespace
+
+    from digest import config, enrich
+
+    clean = {"headline": "Canva adds review-to-ad writing to Magic Studio", "summary_md": ARTICLE, "key_points": [],
+             "why_it_matters": "", "entities": {}, "work_card": work.clean_card(card(
+                 steps=["Connect Shopify under Integrations", "Sync inventory nightly"],
+                 example={"before": "3 hours", "after": "15 minutes"}))}
+    was = config.CHECK_SUMMARIES
+    try:
+        for on in (True, False):
+            config.CHECK_SUMMARIES = on
+            out, _note = enrich.verify(None, SimpleNamespace(id=1, title="Canva"), ARTICLE, clean, None, {}, {},
+                                       {"checked": 0, "flagged": 0, "retried": 0, "edited": 0})
+            assert out["work_card"]["steps"] == [] and out["work_card"]["example"] is None, on
+    finally:
+        config.CHECK_SUMMARIES = was
+
+
+def test_the_prompt_asks_for_the_teaching_fields_and_still_fits_the_local_window():
+    from types import SimpleNamespace
+
+    from digest import config, enrich
+
+    row = SimpleNamespace(title="T", source_name="S", published_at=None)
+    for provider in ("gemini", "groq", "ollama"):
+        p = enrich.build_prompt(row, "word " * 20000, provider)
+        for field in ('"headline": what the reader gets', '"prompt"', '"steps"', '"example"', '"included_in"'):
+            assert field in p, (provider, field)
+        cap = config.PROMPT_TOKEN_BUDGET.get(provider)
+        assert cap is None or enrich.estimated_tokens(p) <= cap, (provider, enrich.estimated_tokens(p))
+
+
+def test_google_s_gemini_domain_keeps_google_as_the_maker():
+    # The Gemini for Windows card (blog.google, 16 Sep) credited "gemini.google" because the link's
+    # domain was not on Google's list.
+    assert work.check_maker({"maker": "Google", "link": "https://gemini.google/desktop"}) == ("Google", False)
+
+
+# ---------------------------------------------------------------------------- the featured pick
+
+def _community_story(sid: int, maker: str, **over) -> dict:
+    s = with_card(sid, {sid: work.clean_card(card(tool="Veloop", maker=maker, link="https://github.com/x/veloop",
+                                                  what_it_does="Fakes an attentive webcam feed during video calls.",
+                                                  cost="free", effort="minutes"))}, **over)
+    s["articles"] = [{"id": sid, "domain": "reddit.com", "via": "r/SideProject", "author": maker}]
+    return s
+
+
+def test_a_forum_handle_can_never_be_the_featured_pick():
+    hobby = _community_story(1, "MoistTonight3997")
+    real = with_card(2, {2: work.clean_card(card(tool="Canva Magic Studio", cost="paid from $15 a month", effort="an afternoon"))})
+    real["articles"] = [{"id": 2, "domain": "techcrunch.com", "via": None, "author": "Jane Reporter"}]
+    assert work.username_maker("MoistTonight3997") and work.username_maker("u/somebody") and work.username_maker("jane_doe")
+    assert not work.username_maker("Canva") and not work.username_maker("Google DeepMind") and not work.username_maker("3M")
+    assert work.username_maker("sidequest", hobby | {"articles": [{"domain": "reddit.com", "author": "sidequest"}]})
+    assert not work.featurable(hobby) and work.featurable(real)
+    out = work.build_briefing([hobby, real], NOW)
+    assert out["storyIds"][0] == 2 and out["featuredId"] == 2, out
+    assert 1 in out["storyIds"], "the hobby project stays in the list, just not in front"
+    # No link, or only a Reddit post as coverage: no featured pick, but a named maker still leads.
+    no_link = with_card(3, {3: work.clean_card(card(tool="Quiet Tool", maker="Quiet Co", link=None))})
+    only_forum = with_card(4, {4: work.clean_card(card(tool="Forum Tool", maker="Forum Co"))})
+    only_forum["articles"] = [{"id": 4, "domain": "reddit.com", "via": "r/marketing"}]
+    out = work.build_briefing([hobby, no_link, only_forum], NOW)
+    assert out["featuredId"] is None and out["storyIds"][0] != 1, out
+    # The week's first "try" follows the same rule.
+    week = work.weeks([hobby, real])[work.week_key(hobby["firstPublishedAt"])]
+    assert week["try"][0] == 2
+
+
+# ---------------------------------------------------------------------------- reader events on /work
+
+def test_the_work_events_are_accepted_by_the_database_rules():
+    from digest import db as dbm
+
+    for t in ("try", "copy_prompt", "expand", "next_click"):
+        assert t in dbm.PUBLIC_EVENT_TYPES and t in dbm.DETAIL_EVENT_TYPES
+    policy = "\n".join(dbm.EVENTS_POLICY_SQL)
+    assert "'try', 'copy_prompt', 'expand', 'next_click'" in policy
+    assert "detail IS NULL OR type IN ('search', 'depth', 'try', 'copy_prompt', 'expand', 'next_click')" in policy
+    # A /work page sends no story: the guard only checks a story_id that is given.
+    assert "new.story_id is not null and not exists" in dbm.EVENTS_GUARD_SQL
+    schema = (Path(__file__).resolve().parents[2] / "supabase" / "schema.sql").read_text(encoding="utf-8")
+    assert "'search', 'depth', 'try', 'copy_prompt', 'expand', 'next_click')" in schema
+    assert "detail is null or type in ('search', 'depth', 'try', 'copy_prompt', 'expand', 'next_click')" in schema
+    # The site sends them under these attributes (site/public/app.js).
+    js = (Path(__file__).resolve().parents[2] / "site" / "public" / "app.js").read_text(encoding="utf-8")
+    for attr in ("data-work-try", "data-work-copy", "data-work-howto", "data-work-next"):
+        assert attr in js, attr
+    for t in ('"try"', '"copy_prompt"', '"expand"', '"next_click"'):
+        assert f"send({t}" in js, t
+
+
+def test_the_admin_work_engagement_line_is_one_narrow_query():
+    import test_reads as tr
+    from sqlalchemy import insert
+
+    from digest import admin
+
+    now = datetime.now(timezone.utc)
+    with tr.fresh_db() as (eng, _tmp):
+        rows = [
+            {"type": "view", "path": "/work", "value": 1},
+            {"type": "view", "path": "/work/tools", "value": 1},
+            {"type": "view", "path": "/story/x", "value": 1, "story_id": None},  # not a /work page
+            {"type": "view", "path": "/workshop", "value": 1},                   # nor this one
+            {"type": "depth", "path": "/work", "value": 40, "detail": "top"},
+            {"type": "depth", "path": "/work/week/2026-W38", "value": 100, "detail": "end"},
+            {"type": "dwell", "path": "/work", "value": 30},
+            {"type": "try", "path": "/work", "value": 1, "detail": "Canva Magic Studio"},
+            {"type": "try", "path": "/story/x", "value": 1, "detail": "Canva Magic Studio"},  # a card on a story page
+            {"type": "copy_prompt", "path": "/work", "value": 1, "detail": "Canva Magic Studio"},
+            {"type": "expand", "path": "/work", "value": 1, "detail": "Canva Magic Studio"},
+            {"type": "try", "path": "/work", "value": 1, "created_at": now - timedelta(days=9)},  # outside the window
+        ]
+        with eng.begin() as conn:
+            conn.execute(insert(db.events), [{"session": f"s{i}", "created_at": now, **r} for i, r in enumerate(rows)])
+        with eng.connect() as conn:
+            got = admin.work_engagement(conn, now - timedelta(days=7))
+    assert got == {"views": 2, "depthAvg": 70, "depthReads": 2, "tries": 2, "copies": 1, "expands": 1, "nextClicks": 0}, got
+    assert admin.work_engagement_summary([])["depthAvg"] is None
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

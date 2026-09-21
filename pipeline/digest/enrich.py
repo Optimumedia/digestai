@@ -30,7 +30,7 @@ Read the article below and return ONLY a JSON object with these fields:
 - "is_ai_news": true if the article is substantially about artificial intelligence, machine learning, robotics, or AI hardware; false otherwise.
 - "model_release": null unless the article announces a new AI model or a new model version. Then: {{"name": the model's full official name including version number as the lab writes it (e.g. "GPT-6 Astra", "WeatherNext 3", not "GPT-6" or "WeatherNext"), "lab": organisation, "kind": one of "llm", "multimodal", "image", "video", "audio", "code", "embedding", "robotics", "other", "availability": one of "api", "open_weights", "consumer", "research", "unknown", "license": license name or null, "context": context window such as "1M tokens" or null, "link": official URL mentioned or null}}.
 - "funding": null unless the article reports a funding round, acquisition, or valuation for an AI company. Then: {{"company": name, "amount_usd": approximate number in US dollars (convert euros, pounds or other currencies at current rates; e.g. €3B is about 3300000000) or null, "round": one of "seed", "series_a", "series_b", "series_c", "series_d_plus", "acquisition", "ipo", "debt", "other", "investors": [names], "valuation_usd": number or null}}.
-- "work_card": null unless a marketer, a small-business owner or a small team can act on this today: a tool they can use, a feature or price change in a tool they already use, a how-to, or a policy change that affects their work. Industry news, funding rounds, research papers, model benchmarks, opinion pieces, developer or cloud tools and courses get null, however interesting. Then: {{"fits": true, "tool": the product's name, "maker": the company behind it, "what_it_does": one plain sentence, max 25 words, no marketing words, "who_for": one or more of "marketer", "sales", "founder", "support", "ops", "ecommerce", "use_for": exactly 3 concrete things to use it for, max 12 words each, "cost": one of "free", "free tier", "paid from $X" with the real figure, "included in a tool you already have", or "not stated", "effort": one of "minutes", "an afternoon", "needs a developer", "watch_out": one honest sentence on the catch - a limit, a risk, a cost, a country or plan restriction, or who it is not for; never "none", "link": the official URL if the article names one, else null}}.
+- "work_card": null unless a marketer, a small-business owner or a small team can act on this today: a tool they can use, a feature or price change in a tool they already use, a how-to, or a policy change that affects their work. Industry news, funding, research, benchmarks, opinion, developer or cloud tools and courses get null. Then: {{"fits": true, "tool": the product's name, "maker": the company behind it, "headline": what the reader gets, max 70 characters, e.g. "Turn 20 customer reviews into three ad angles", "what_it_does": one plain sentence, max 25 words, "who_for": one or more of "marketer", "sales", "founder", "support", "ops", "ecommerce", "use_for": exactly 3 concrete uses, max 12 words each, "cost": "free", "free tier", "paid from $X" with the real figure, "included in a tool you already have" or "not stated", "included_in": the plan it comes with, if the article says so, else "","effort": "minutes", "an afternoon" or "needs a developer", "watch_out": one honest sentence on the catch (a limit, risk, cost, region or plan, or who it is not for), never "none", "link": the official URL if the article names one, else null, "prompt": a starter prompt a small business could paste into it, max 300 characters, "" if it takes no text prompts, "steps": 2-4 short steps, only if the article says how, in its words, else [], "example": {{"before": ..., "after": ...}} only if the article shows a concrete before and after, else null}}.
 
 {rules}"""
 
@@ -716,7 +716,18 @@ def verify(eng, row, source_text: str, clean: dict, used, budgets: dict, spent: 
 
     The check itself is free (checks.py is rules only). The one retry costs a request, so it is
     bounded per run and only taken while the provider has budget and the step has time left.
+
+    The AI at Work card's teaching fields (steps, example, the plan it comes with, the outcome
+    headline) are grounded in the article whatever CHECK_SUMMARIES says: they are what a model is
+    most tempted to invent, and a reader acts on them (work.ground_card).
     """
+    safe, note = _verify(eng, row, source_text, clean, used, budgets, spent, check_stats)
+    if safe.get("work_card"):
+        safe = {**safe, "work_card": work.ground_card(safe["work_card"], source_text)}
+    return safe, note
+
+
+def _verify(eng, row, source_text: str, clean: dict, used, budgets: dict, spent: dict, check_stats: dict) -> tuple[dict, dict | None]:
     if not config.CHECK_SUMMARIES:
         return clean, None
     check_stats["checked"] += 1
