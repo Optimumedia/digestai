@@ -567,6 +567,23 @@ def test_the_section_episode_has_its_own_feed_and_leaves_the_news_show_alone():
     assert 'readJson<Episode[]>("work-episodes.json"' in (site / "src" / "lib" / "work.ts").read_text(encoding="utf-8")
 
 
+def test_generic_assistant_cards_are_not_news():
+    from digest import work
+
+    base = {"fits": True, "maker": "OpenAI", "who_for": ["founders"], "cost": "free", "effort": "minutes",
+            "watch_out": "Answers can be wrong.", "use_for": ["ask for dinner ideas"], "link": "https://chatgpt.com"}
+    for tool, does in [("ChatGPT", "generates text responses to user prompts"),
+                       ("ChatGPT", "generates draft text that can be edited into personalized content"),
+                       ("Claude (Anthropic)", "answers questions and writes emails for you")]:
+        card, why = work.screen_card({**base, "tool": tool, "what_it_does": does})
+        assert card is None and why == "nothing new", (tool, does, why)
+    for tool, does in [("ChatGPT", "now schedules tasks and sends you the results each morning"),
+                       ("Gemini", "adds a Help me write button to Gmail replies for Workspace users"),
+                       ("Canva", "generates on-brand social posts from your brand kit")]:
+        card, why = work.screen_card({**base, "tool": tool, "what_it_does": does})
+        assert card is not None, (tool, does, why)
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

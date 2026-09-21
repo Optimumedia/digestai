@@ -214,6 +214,27 @@ def check_maker(card: dict) -> tuple[str | None, bool]:
     return other or host, True
 
 
+# General assistants everyone has heard of. A card about one of them must say what changed ("adds
+# scheduled tasks", "now drafts replies in Gmail"); "ChatGPT generates text responses to user
+# prompts, use it for dinner ideas" is a personal blog post describing the product, not news a small
+# team can act on, and it pushed real launches off the top of /work.
+ASSISTANTS = re.compile(r"^(?:chat ?gpt|claude|gemini|copilot|microsoft copilot|perplexity|grok|meta ai|le chat|"
+                        r"deepseek|computer use|chatgpt and claude|claude and chatgpt)(?:\s*\(.*\))?$", re.I)
+GENERIC_DOES = re.compile(
+    r"^(?:it\s+)?(?:generates?|writes?|creates?|produces?|answers?|responds?(?: to)?|drafts?|helps?(?: you)?|"
+    r"can|lets you (?:chat|ask)|is an? (?:ai )?(?:chatbot|assistant))\b(?!.*\b(?:new|now|adds?|added|launch\w*|"
+    r"introduc\w*|rolls? out|update\w*|feature|mode|integrat\w*|connect\w*|automatic\w*|schedul\w*|agent\w*)\b)", re.I)
+
+VAGUE_OBJECT = re.compile(r"(?:text|responses?|answers?|replies|content|questions|prompts?|anything|ideas|conversations?)", re.I)
+
+
+def generic_card(card: dict) -> bool:
+    """A card that describes a well-known assistant in general terms instead of a change to it."""
+    tool = " ".join((card.get("tool") or "").split())
+    does = " ".join((card.get("what_it_does") or "").split())
+    return bool(ASSISTANTS.match(tool) and GENERIC_DOES.match(does) and VAGUE_OBJECT.search(does))
+
+
 def screen_card(value) -> tuple[dict | None, str | None]:
     """(card, None) for a card that belongs on the section; (None, why) for one the rules drop, with
     why in "developer", "course"; (None, None) for one that never was a card. The reason is what the
@@ -224,6 +245,8 @@ def screen_card(value) -> tuple[dict | None, str | None]:
     reason = developer_only(card)
     if reason:
         return None, reason
+    if generic_card(card):
+        return None, "nothing new"
     card["maker"], _fixed = check_maker(card)
     return card, None
 

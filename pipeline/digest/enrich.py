@@ -637,9 +637,9 @@ def _clean(result: dict, row, category_hint: str | None) -> dict:
     headline = str(result.get("headline") or row.title).strip()[:160]
     # Hype words, clickbait frames and shouting come out (checks.py, rules only); a rewrite that
     # would break the headline falls back to the source's title, then to the answer as written.
-    headline, headline_rules = checks.discipline_headline(headline, getattr(row, "title", None))
-    key_points = [_unbullet(str(k)) for k in _as_list(result.get("key_points")) if _unbullet(str(k))][:3]
     entities = result.get("entities") if isinstance(result.get("entities"), dict) else {}
+    headline, headline_rules = checks.discipline_headline(headline, getattr(row, "title", None), checks.entity_names(entities))
+    key_points = [_unbullet(str(k)) for k in _as_list(result.get("key_points")) if _unbullet(str(k))][:3]
     entities = {
         k: [str(v).strip() for v in _as_list(entities.get(k)) if str(v).strip()][:6]
         for k in ("companies", "models", "people")

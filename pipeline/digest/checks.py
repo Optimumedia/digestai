@@ -363,7 +363,64 @@ def _rules(headline: str, title_hedges: bool) -> tuple[str, list[str]]:
     return _tidy(h), changed
 
 
-def discipline_headline(headline: str | None, title: str | None = None) -> tuple[str, list[str]]:
+_WORD = re.compile(r"[A-Za-z][A-Za-z0-9'’.+&-]*")
+_ALWAYS_UPPER = {"ai", "agi", "api", "apis", "gpu", "gpus", "cpu", "llm", "llms", "us", "uk", "eu", "ceo", "cto", "cfo",
+                 "ipo", "hls", "rtl", "sdk", "saas", "seo", "crm", "nlp", "rag", "tpu", "tpus", "nasa", "fda", "ftc", "sec",
+                 "doj", "gdpr", "hr", "it", "ui", "ux", "vr", "ar", "pc", "iot", "ml", "gb", "tb", "mcp"}
+_NOT_UPPER_WHEN_WORD = {"us", "it"}  # "told us", "made it": only upper case when the title writes them so
+
+
+def entity_names(entities) -> list[str]:
+    """Every name in a story's entities ({"companies": [...], "models": [...], "people": [...]})."""
+    if not isinstance(entities, dict):
+        return []
+    return [str(n) for v in entities.values() if isinstance(v, list) for n in v if n]
+
+
+def restore_case(headline: str, title: str | None = None, names: list[str] | None = None) -> str:
+    """Capitals put back into a headline a model wrote in lower case: words spelled with capitals in
+    the source's title or in the story's names take that spelling, known acronyms go upper case, and
+    the first letter is a capital. A headline that already has capitals only gets its first letter
+    raised (unless the first word is written like "iPhone" or "mini-AGI")."""
+    h = (headline or "").strip()
+    if not h:
+        return h
+    if any(c.isupper() for c in h):
+        first = _WORD.search(h)
+        if first and first.start() == 0 and h[0].islower() and not any(c.isupper() for c in first.group(0)[1:]):
+            return h[0].upper() + h[1:]
+        return h
+    spelled: dict[str, str] = {}
+    words = _WORD.findall(title or "")
+    long_words = [w for w in words if len(w) > 3]
+    # In a Title Case title every word has a capital ("Revolutionize Government AI Operations"), so only
+    # spellings that are not plain title case count: "OpenAI", "AI", the title's first word, a name.
+    title_case = bool(long_words) and sum(w[0].isupper() for w in long_words) >= 0.6 * len(long_words)
+    for i, w in enumerate(words):
+        if not any(c.isupper() for c in w) or w.lower() in spelled:
+            continue
+        if title_case and i > 0 and not any(c.isupper() for c in w[1:]):
+            continue
+        spelled[w.lower()] = w
+    for name in names or []:
+        for w in _WORD.findall(name):
+            if any(c.isupper() for c in w):
+                spelled.setdefault(w.lower(), w)
+    title_words = {w for w in _WORD.findall(title or "")}
+
+    def fix(m: re.Match) -> str:
+        w = m.group(0)
+        if w in spelled:
+            return spelled[w]
+        if w in _ALWAYS_UPPER and (w not in _NOT_UPPER_WHEN_WORD or w.upper() in title_words):
+            return w.upper()
+        return w
+
+    out = _WORD.sub(fix, h)
+    return out[0].upper() + out[1:] if out[0].islower() else out
+
+
+def discipline_headline(headline: str | None, title: str | None = None, names: list[str] | None = None) -> tuple[str, list[str]]:
     """The headline with hype words, clickbait frames, shouting and stray punctuation taken out.
 
     Returns (headline, what changed). Never returns something worse than it was given: when the
@@ -373,6 +430,10 @@ def discipline_headline(headline: str | None, title: str | None = None) -> tuple
     original = (headline or "").strip()
     if not original:
         return original, []
+    cased = restore_case(original, title, names)
+    if cased != original:
+        fixed, changed = discipline_headline(cased, title)
+        return fixed, ["capitals restored", *changed]
     hedges = True
     if title and title.strip():
         from .enrich import title_hedges as _title_hedges  # enrich imports this module

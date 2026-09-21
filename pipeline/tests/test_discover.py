@@ -175,6 +175,25 @@ def test_variants_are_drawn_once_and_kept_by_the_prune():
             images.OUT = old_out
 
 
+def test_lower_case_headlines_get_their_capitals_back():
+    from digest import checks
+
+    fix = lambda h, t=None: checks.discipline_headline(h, t)[0]  # noqa: E731
+    fix = lambda h, t=None, names=None: checks.discipline_headline(h, t, names)[0]  # noqa: E731
+    assert fix("salesforce launches missionforce with openai models for government agencies",
+               "Salesforce and OpenAI Launch Missionforce to Revolutionize Government AI Operations", ["Missionforce"]) == \
+        "Salesforce launches Missionforce with OpenAI models for government agencies"
+    assert fix("researchers report agent-based hls with rtl refinement speeds chip design 2.6×",
+               "Can Agents Design Better Chips with a Higher Level Abstraction?") == \
+        "Researchers report agent-based HLS with RTL refinement speeds chip design 2.6×"
+    assert fix("donald trump announces ai force and plans to appoint ai czar", 'Trump announces "AI Force" and plans for an "AI czar"') == \
+        "Donald Trump announces AI Force and plans to appoint AI czar"
+    assert fix("this looks promising: stepfun-ai/Step-5-Preview-BF16 · Hugging Face") == \
+        "This looks promising: stepfun-ai/Step-5-Preview-BF16 · Hugging Face"
+    assert fix("mini-AGI is a continual learning byte-level model") == "mini-AGI is a continual learning byte-level model"
+    assert fix("the startup told us it made it") == "The startup told us it made it"
+    assert fix("OpenAI ships GPT-6 to all API users") == "OpenAI ships GPT-6 to all API users"
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):
@@ -186,3 +205,4 @@ if __name__ == "__main__":
                 failures += 1
                 print("FAIL", name, type(exc).__name__, exc)
     sys.exit(1 if failures else 0)
+

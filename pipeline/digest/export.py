@@ -324,7 +324,7 @@ def run() -> dict:
                 "sourceKey": src.get("key"),
                 "sourceType": _source_type(src, m.domain),
                 "title": m.title,
-                "headline": checks.discipline_headline(m.headline, m.title)[0] if m.headline else m.headline,
+                "headline": checks.discipline_headline(m.headline, m.title, checks.entity_names(m.entities))[0] if m.headline else m.headline,
                 "author": m.author,
                 "publishedAt": db.iso_z(m.published_at) or db.iso_z(m.fetched_at),
                 "description": m.description,
@@ -363,7 +363,7 @@ def run() -> dict:
             key=lambda d: -(d["points"] or 0),
         )
         # The headline rules (checks.py) again on the way out, for headlines stored before them.
-        story_headline = checks.discipline_headline(s.headline, lead.title)[0] if s.headline else s.headline
+        story_headline = checks.discipline_headline(s.headline, lead.title, checks.entity_names(s.entities))[0] if s.headline else s.headline
         story = {
             "id": s.id,
             "slug": s.slug,
