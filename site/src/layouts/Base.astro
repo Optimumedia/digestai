@@ -246,5 +246,39 @@ const clientConfig = {
       </div>
     </footer>
     {!noindex && <Analytics />}
-  </body>
+      <script is:inline>
+      // Story pictures come from the publishers, and some are small (a 258 px avatar) or broken. Try the
+      // story's pictures in turn and keep the first at least SHARP px wide; if none is, show the widest
+      // at its own size (not stretched), and drop it when even that is under TINY px.
+      (() => {
+        const SHARP = 640, TINY = 360;
+        document.querySelectorAll("figure.figure[data-images]").forEach((fig) => {
+          const img = fig.querySelector("img");
+          let list = [];
+          try { list = JSON.parse(fig.dataset.images || "[]"); } catch {}
+          let i = 0, best = null;
+          const settle = () => {
+            if (best && best.w >= TINY) {
+              if (img.src !== best.src) img.src = best.src;
+              fig.classList.add("figure-small");
+              fig.style.setProperty("--natural-w", best.w + "px");
+            } else fig.hidden = true;
+          };
+          const next = () => {
+            i += 1;
+            if (i >= list.length) return settle();
+            img.src = list[i];
+          };
+          img.addEventListener("error", next);
+          img.addEventListener("load", () => {
+            const w = img.naturalWidth || 0;
+            if (w >= SHARP) { fig.classList.remove("figure-small"); return; }
+            if (!best || w > best.w) best = { src: img.currentSrc || img.src, w };
+            next();
+          });
+          if (img.complete && img.naturalWidth) img.dispatchEvent(new Event("load"));
+        });
+      })();
+    </script>
+</body>
 </html>

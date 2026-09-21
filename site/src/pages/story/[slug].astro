@@ -49,6 +49,10 @@ const typeLabel: Record<string, string> = { primary: "Primary source", press: "P
 // Only our own cards go here (storyImages in data.ts explains why not the publisher's photo); a story
 // whose card is not in this build uses the default card, so every page declares one image of known size.
 const images = storyImages(story);
+// The publisher pictures this story could show, lead first. The page takes the first one that is big
+// enough for the column (see the script under the figure); a small one is shown at its own size and a
+// tiny one (a logo, an avatar) not at all, rather than stretched until it blurs.
+const figureImages = [...new Set([story.imageUrl, ...story.articles.map((a) => a.imageUrl)].filter(Boolean))].slice(0, 5);
 const ogImage = images[0] || defaultImage();
 // Dates: first published, and the newest source the page lists (never updatedAt, which moves when an
 // article is only counted and would make an old story look new).
@@ -204,8 +208,8 @@ const jsonLd = {
             <h2>{full.title}</h2>
             <span class="eyebrow">{full.source || full.domain} · {formatDate(full.publishedAt)}</span>
           </div>
-          {story.imageUrl && (
-            <figure class="figure"><img src={story.imageUrl} alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentElement.style.display='none'" /></figure>
+          {figureImages.length > 0 && (
+            <figure class="figure" data-images={JSON.stringify(figureImages)}><img src={figureImages[0]} alt="" loading="lazy" referrerpolicy="no-referrer" /></figure>
           )}
           {/* data-nosnippet: the reproduced article is the publisher's text; search snippets should quote our digest above. */}
           <div class="article" data-read="full_text" data-nosnippet set:html={renderMarkdown(full.contentMd)} />

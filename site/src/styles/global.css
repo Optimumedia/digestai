@@ -246,6 +246,9 @@ p { margin: 0 0 1em; }
 .ai-note { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line); padding-top: 10px; margin-top: 28px; max-width: 68ch; }
 .figure { margin: 20px 0; max-width: 68ch; border-radius: 4px; overflow: hidden; background: var(--surface-2); aspect-ratio: 16 / 9; }
 .figure img { width: 100%; height: 100%; object-fit: cover; }
+/* A publisher picture smaller than the column: its own size, whole, never stretched. */
+.figure.figure-small { aspect-ratio: auto; width: fit-content; max-width: min(100%, var(--natural-w, 100%)); background: none; }
+.figure.figure-small img { width: auto; max-width: 100%; height: auto; object-fit: contain; }
 
 /* ---- lists of stories on category/topic pages ---- */
 .page-head { padding: 28px 0 16px; border-bottom: 2px solid var(--ink); margin-bottom: 8px; }
