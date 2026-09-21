@@ -2,10 +2,10 @@
 import Base from "../../layouts/Base.astro";
 import Rail from "../../components/Rail.astro";
 
-// The engineering write-up: how the hourly pipeline works and what it costs (nothing). Written for
+// The engineering write-up: how the pipeline works and what it costs (nothing). Written for
 // developers and the curious; kept to what the code in this repository actually does.
 const published = "2026-09-22";
-const title = "How Digest AI runs an hourly AI news desk on free tiers";
+const title = "How Digest AI runs a round-the-clock AI news desk on free tiers";
 const description = "Eighty sources an hour, one sourced page per story, fact checks on every summary and a daily podcast, for $0 a month: the pipeline behind Digest AI and what went wrong building it.";
 const jsonLd = {
   "@context": "https://schema.org",
@@ -27,14 +27,14 @@ const jsonLd = {
       <header class="page-head">
         <div class="eyebrow">Engineering · <time datetime={published}>22 September 2026</time></div>
         <h1>{title}</h1>
-        <p class="lede">Every hour, Digest AI reads about eighty sources, turns what is new into one page per story with every source linked, checks the summaries against those sources, and publishes a static site, a daily podcast and a set of feeds. It costs nothing to run. This is how it works, and what broke on the way.</p>
+        <p class="lede">Every twenty minutes, Digest AI reads about eighty sources, turns what is new into one page per story with every source linked, checks the summaries against those sources, and publishes a static site, a daily podcast and a set of feeds. It costs nothing to run. This is how it works, and what broke on the way.</p>
       </header>
 
       <h2>The problem</h2>
       <p>Following AI news meant opening the same story in six tabs: the lab's announcement, two press write-ups that disagree on a number, a newsletter take and a Hacker News thread. I wanted one page per event that shows what happened, who reported it, and where the reports differ, with a link to every source so nothing has to be taken on trust.</p>
 
       <h2>One run, start to finish</h2>
-      <p>A GitHub Actions workflow starts seven minutes past every hour. Each run is a Python pipeline of small steps, each allowed a bounded amount of work so a slow source or a busy model never holds up the site:</p>
+      <p>A GitHub Actions workflow starts every twenty minutes. Each run is a Python pipeline of small steps, each allowed a bounded amount of work so a slow source or a busy model never holds up the site:</p>
       <ol>
         <li><strong>Fetch.</strong> About eighty feeds: labs and companies (their own blogs count as primary sources), the technology press, newsletters, research, and community sites. New items are stored once; a title seen before is skipped.</li>
         <li><strong>Extract.</strong> The article text is pulled from each page with trafilatura. Pages that block us, or that come back with a few dozen words, are recorded as failures rather than guessed at.</li>
@@ -55,7 +55,7 @@ const jsonLd = {
       <h2>Running on free tiers</h2>
       <p>The whole thing costs $0 a month:</p>
       <ul>
-        <li><strong>Compute:</strong> GitHub Actions, about ten minutes an hour.</li>
+        <li><strong>Compute:</strong> GitHub Actions, a run of five to fifteen minutes every twenty minutes (free for a public repository).</li>
         <li><strong>Hosting:</strong> GitHub Pages, a static site with no server.</li>
         <li><strong>Database:</strong> Supabase's free Postgres.</li>
         <li><strong>Media:</strong> share images and audio are stored as GitHub release assets.</li>

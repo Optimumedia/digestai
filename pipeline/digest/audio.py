@@ -187,7 +187,7 @@ def build_script(briefing: dict, stories: dict[int, dict]) -> tuple[str, list[di
             line += f" {whys[n % len(whys)]} {_as_sentence(why)}"
         lines.append(line.strip())
     lines.append("That's the briefing. Every story, with its sources and the discussion around it, "
-                 "is at digestai.news, and the site updates every hour. Back tomorrow.")
+                 "is at digestai.news, and the site updates every twenty minutes. Back tomorrow.")
     return "\n\n".join(lines), picks
 
 

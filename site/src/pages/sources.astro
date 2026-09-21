@@ -6,13 +6,13 @@ import { sources } from "../lib/data";
 const sorted = [...sources].sort((a, b) => a.name.localeCompare(b.name));
 ---
 
-<Base title="Sources" description="The publications, labs and communities Digest AI reads every hour.">
+<Base title="Sources" description="The publications, labs and communities Digest AI reads every 20 minutes.">
   <div class="grid">
     <div>
       <header class="page-head">
         <div class="eyebrow">Sources</div>
         <h1>Where the news comes from</h1>
-        <p>{sorted.length} curated sources, read every hour. Topics that readers follow closely also get temporary search feeds.</p>
+        <p>{sorted.length} curated sources, read every 20 minutes. Topics that readers follow closely also get temporary search feeds.</p>
       </header>
       <ul class="coverage">
         {sorted.map((s) => (

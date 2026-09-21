@@ -1,6 +1,6 @@
 # Digest AI
 
-> The AI news desk: every important story in artificial intelligence, digested and linked to its sources, updated every hour. Each story page carries a plain-English digest, three key points, why it matters, the list of outlets that reported it with links and dates, and the full text of the lead article, credited. Nothing is published without a named source.
+> The AI news desk: every important story in artificial intelligence, digested and linked to its sources, updated every 20 minutes. Each story page carries a plain-English digest, three key points, why it matters, the list of outlets that reported it with links and dates, and the full text of the lead article, credited. Nothing is published without a named source.
 
 Site: https://digestai.news
 Contact: hello@digestai.news
@@ -9,7 +9,7 @@ Editorial standards: https://digestai.news/about#standards
 
 ## What is where
 
-- Today's briefing (the five stories that matter, updated hourly): https://digestai.news/today
+- Today's briefing (the five stories that matter, updated every 20 minutes): https://digestai.news/today
 - Front page: https://digestai.news/
 - AI at Work (practical AI for marketers and small businesses: what a tool does, who it is for, cost, effort, one caveat): https://digestai.news/work
 - Tool directory (AI tools for marketing and small business, newest change first): https://digestai.news/work/tools
@@ -32,7 +32,7 @@ Add .json or .md to any story address. Both carry the canonical URL, headline, d
 - Newest 50 per category (JSON): https://digestai.news/api/category/<slug>.json (slugs: models, marketing, agents, research, business, policy, hardware, enterprise, robotics, society)
 - Documentation, fields and examples: https://digestai.news/api
 
-Static files rebuilt hourly, no key, CORS open (Access-Control-Allow-Origin: *).
+Static files rebuilt every 20 minutes, no key, CORS open (Access-Control-Allow-Origin: *).
 
 ## Feeds
 

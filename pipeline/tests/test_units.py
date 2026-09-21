@@ -1078,7 +1078,7 @@ def test_audio_script_opens_closes_and_never_numbers_the_stories():
     assert len(picks) == 5 and len(parts) == 7          # the opening, five stories, the close
     assert parts[0] == ("Good morning. This is the Digest AI briefing for Thursday the seventeenth "
                         "of September. Five stories today.")
-    assert "sources" in parts[-1] and "digestai.news" in parts[-1] and "every hour" in parts[-1]
+    assert "sources" in parts[-1] and "digestai.news" in parts[-1] and "every twenty minutes" in parts[-1]
     assert not re.search(r"\bStory \d", text)
     # the news first, then why it matters, and only the first sentence of each
     assert parts[1].endswith("It is the largest private round on record.")

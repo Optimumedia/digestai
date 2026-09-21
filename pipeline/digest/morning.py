@@ -497,7 +497,7 @@ def s_decide(d: dict) -> str:
         return (f"Should another free model key be added, or fewer articles summarised each run? {name} ran out "
                 f"of its free allowance on each of the last {FAILING_DAYS} days.")
     if k == "egress":
-        return (f"Should the pipeline run every 2 hours instead of every hour? Database reads are on course for "
+        return (f"Should the pipeline run less often (RUNS_PER_DAY and the schedule)? Database reads are on course for "
                 f"{mb(i['projectedMB'])} MB this cycle against {n(i['quotaMB'])} MB.")
     if k == "depth":
         return (f"Should the summary of {_q(i['headline'])} be rewritten? It drew {plural(i['views'], 'view')}, but "

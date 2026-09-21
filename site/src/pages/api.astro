@@ -23,7 +23,7 @@ const exampleSlug = sample?.slug || "example-story";
 const categoryList = Object.keys(categories);
 ---
 
-<Base title="API and machine-readable feeds" description="Every Digest AI story as JSON and Markdown, plus the latest stories, today's briefing and each category as small static JSON files. Free, no key, updated every hour.">
+<Base title="API and machine-readable feeds" description="Every Digest AI story as JSON and Markdown, plus the latest stories, today's briefing and each category as small static JSON files. Free, no key, updated every 20 minutes.">
   <div class="grid">
     <div class="article api-page">
       <header class="page-head">
@@ -62,7 +62,7 @@ const categoryList = Object.keys(categories);
 
       <h2 id="cadence">Updates, limits and access</h2>
       <ul>
-        <li><strong>Every hour.</strong> The site and every file here are rebuilt about once an hour; each index file has a <code>generatedAt</code> time. Fetching more often than every 10 minutes gains nothing (the files are cached for 10 minutes).</li>
+        <li><strong>Every 20 minutes.</strong> The site and every file here are rebuilt about every 20 minutes; each index file has a <code>generatedAt</code> time. Fetching more often than every 10 minutes gains nothing (the files are cached for 10 minutes).</li>
         <li><strong>No key, no rate limit of our own.</strong> These are static files on GitHub Pages. Please be gentle: fetch the index files, then only the stories you need, and identify your client in the User-Agent.</li>
         <li><strong>Cross-origin requests work.</strong> Every file is served with <code>Access-Control-Allow-Origin: *</code>, so a browser app can read them directly.</li>
         <li><strong>Stable addresses.</strong> A story keeps its address, and so do its JSON and Markdown. When two stories are merged, the old page redirects to the story that now covers the event, and its JSON is no longer published.</li>

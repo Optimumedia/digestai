@@ -25,7 +25,7 @@ export const GET: APIRoute = () => {
   <link>${site}/listen</link>
   <atom:link href="${site}/podcast.xml" rel="self" type="application/rss+xml" />
   <language>en</language>
-  <description>The five AI stories that matter today, read aloud every morning. Every story is sourced and linked on digestai.news, which is updated every hour.</description>
+  <description>The five AI stories that matter today, read aloud every morning. Every story is sourced and linked on digestai.news, which is updated every 20 minutes.</description>
   <itunes:author>Digest AI</itunes:author>
   <itunes:summary>The five AI stories that matter today, read aloud every morning.</itunes:summary>
   <itunes:owner><itunes:name>Digest AI</itunes:name><itunes:email>hello@digestai.news</itunes:email></itunes:owner>

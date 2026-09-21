@@ -2,11 +2,10 @@ name: Ingest and publish
 
 on:
   schedule:
-    # Hourly (was every 30 minutes): the free plan allows 5 GB of database reads a month and this
-    # billing cycle (to 11 Oct) is already over it. Runs now read only what changed (~1 MB a run,
-    # see the admin Pipeline tab), so */30 would fit (~1.5-2 GB a month); set RUN_MINUTES and
-    # RUNS_PER_DAY below to match if the schedule changes.
-    - cron: "7 * * * *"
+    # Every 20 minutes, so a story reaches the site within about half an hour of its source. Runs
+    # read only what changed (~1 MB a run, see the admin Pipeline tab): 72 a day is about 2.2 GB of
+    # the free plan's 5 GB a month. Keep RUN_MINUTES and RUNS_PER_DAY below in step with this line.
+    - cron: "7,27,47 * * * *"
   workflow_dispatch:
     inputs:
       steps:
@@ -56,8 +55,8 @@ jobs:
       VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
       ADMIN_REVIEW_KEY: ${{ secrets.ADMIN_REVIEW_KEY }}
       HOLD_RISKY_CLAIMS: ${{ vars.HOLD_RISKY_CLAIMS }}
-      RUNS_PER_DAY: "24"
-      RUN_MINUTES: "7"
+      RUNS_PER_DAY: "72"
+      RUN_MINUTES: "7,27,47"
       SUPABASE_CYCLE_DAY: ${{ vars.SUPABASE_CYCLE_DAY || '11' }}
       BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
       BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}

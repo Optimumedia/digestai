@@ -4,7 +4,7 @@ An AI news desk that runs on free tiers: a scheduled Python pipeline gathers, ex
 enriches, clusters and ranks AI news, and a static Astro site publishes it to Cloudflare Pages.
 
 ```
-pipeline/   Python ingestion pipeline (GitHub Actions, hourly)
+pipeline/   Python ingestion pipeline (GitHub Actions, every 20 minutes)
 site/       Astro static site (week 2)
 supabase/   SQL to run once in the Supabase project (indexes, row security, editor views)
 ```

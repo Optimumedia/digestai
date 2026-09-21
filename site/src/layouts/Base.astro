@@ -30,7 +30,7 @@ interface Props {
 
 const {
   title,
-  description = "The AI news desk: every important story in artificial intelligence, digested and linked to its sources, updated every hour.",
+  description = "The AI news desk: every important story in artificial intelligence, digested and linked to its sources, updated every 20 minutes.",
   image,
   imageWidth,
   imageHeight,
@@ -57,7 +57,7 @@ const url = canonical || new URL(cleanPath, site).toString();
 const ogImage = image || `${site}/og-default.png`;
 // The home page owns the brand; /today owns "AI news today" (its title and H1 lead with it), so the
 // two never compete for the same search.
-const fullTitle = title === "Digest AI" ? "Digest AI: Cut through the AI noise. AI news, sourced every hour" : `${title} — Digest AI`;
+const fullTitle = title === "Digest AI" ? "Digest AI: Cut through the AI noise. AI news, sourced every 20 minutes" : `${title} — Digest AI`;
 // Broadcast-style ticker: the hottest stories interleaved with the newest, no repeats. Eight links,
 // rendered after the main content (CSS puts it back under the masthead) so the first thing a
 // crawler reads on every page is the page itself, not the same eight headlines.
@@ -142,7 +142,7 @@ const clientConfig = {
       alternateName: "Digest AI News",
       url: site,
       logo: { "@type": "ImageObject", url: `${site}/logo-512.png`, width: 512, height: 512 },
-      description: "The AI news desk: every important story in artificial intelligence, digested and linked to its sources, updated every hour.",
+      description: "The AI news desk: every important story in artificial intelligence, digested and linked to its sources, updated every 20 minutes.",
       foundingDate: "2026",
       publishingPrinciples: `${site}/about#standards`,
       correctionsPolicy: `${site}/about#corrections`,
@@ -228,7 +228,7 @@ const clientConfig = {
             <span class="footer-mark" aria-hidden="true">D</span>
             <span class="footer-word">Digest<b>AI</b></span>
           </a>
-          <p class="footer-tagline">Cut through the AI noise. Every story sourced, updated every hour.</p>
+          <p class="footer-tagline">Cut through the AI noise. Every story sourced, updated every 20 minutes.</p>
           <p class="footer-follow" id="footer-follow">Follow &amp; subscribe</p>
           <nav aria-labelledby="footer-follow"><SocialLinks variant="footer" /></nav>
         </div>
