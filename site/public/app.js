@@ -186,7 +186,7 @@
       send("expand", 1, workExtra(toolOf(d, "data-work-howto")));
     }, true);
     // Card impressions: what the try rate is measured against.
-    const CARD_VIEW_MAX = 10;
+    const CARD_VIEW_MAX = 12; // rows count too; the database takes 30 events a minute per session, across pages, so a Try is never refused
     const cards = document.querySelectorAll("[data-work-card]");
     if (cards.length && "IntersectionObserver" in window) {
       let viewed = 0;

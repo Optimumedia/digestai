@@ -22,7 +22,7 @@ const { title } = cardTitle(card);
 const labels = cardLabels(card).filter((l) => l.kind !== "ease");
 ---
 
-<li class:list={["wk-row", { "is-skip": Boolean(card.skip) }]} data-jobs={card.jobs.join(" ")} data-work-tool={card.tool}>
+<li class:list={["wk-row", { "is-skip": Boolean(card.skip) }]} data-jobs={card.jobs.join(" ")} data-work-tool={card.tool} data-work-card>
   <a class="wk-row-what" href={`/story/${story.slug}`} data-work-next={track}>{title}<span class="sr-only"> ({card.tool})</span></a>
   {note ? <span class="wk-row-note">{note}</span> : <WorkChips labels={labels} effort={card.effort} costKind={card.costKind} compact />}
   {card.link && !note
