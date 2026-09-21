@@ -435,7 +435,7 @@ const homeData = JSON.stringify({
                             <button type="button" class="tb share-btn share-done" data-done={net}>Mark done</button>
                           </div>
                           {net === "linkedin"
-                            ? <p class="share-hint">Post on the page copies the text and opens the Digest AI company page's post box (you post as the page, as its admin): paste, wait for the link preview, post. If the post box does not open, use <a href="https://www.linkedin.com/company/111764730/admin/dashboard/" target="_blank" rel="noopener">the page dashboard ↗</a> and press Create, then Start a post. <button type="button" class="linklike" data-open-personal>Share as yourself instead ↗</button></p>
+                            ? <p class="share-hint">Post on the page copies the text and opens the Digest AI page's post box. LinkedIn does not let other sites fill in a page post, so press Ctrl+V there (phone: long-press, Paste), wait for the link preview, post. If the post box does not open, use <a href="https://www.linkedin.com/company/111764730/admin/dashboard/" target="_blank" rel="noopener">the page dashboard ↗</a> and press Create, then Start a post. <button type="button" class="linklike" data-open-personal>Share as yourself instead (text filled in) ↗</button></p>
                             : <p class="share-hint">Open X fills in the text and the link. Be signed in to X as @DigestAINews so it posts from the page's account.</p>}
                           <label class="share-url"><span>Link to your post <span class="muted">(optional)</span></span>
                             <input type="url" inputmode="url" data-post-url={net} placeholder={net === "x" ? "https://x.com/DigestAINews/status/…" : "https://www.linkedin.com/feed/update/…"} />
@@ -1552,7 +1552,8 @@ const homeData = JSON.stringify({
         return `https://x.com/intent/post?text=${encodeURIComponent(body)}&url=${encodeURIComponent(link)}`;
       };
       window.__shareIntentUrl = intentUrl; // for checking the built links from the console
-      const personalLinkedIn = (item) => `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(item.links.linkedin)}`;
+      // Your own profile: LinkedIn fills the post box from shareActive + text (a company page has no such link).
+      const personalLinkedIn = (text) => `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(text)}`;
 
       root.querySelectorAll(".share-item").forEach((li) => {
         const item = items[li.dataset.shareId];
@@ -1571,14 +1572,14 @@ const homeData = JSON.stringify({
           // Start the copy inside the click (browsers only allow it there), then open the network.
           const copied = net === "linkedin" ? copy(text) : null;
           window.open(intentUrl(net, text, item), "_blank", "noopener");
-          if (copied) copied.then((ok) => say(li, ok ? "Text copied: in the page's post box (Start a post if it is not open), paste it, then tick Mark done." : "Could not copy the text: use Copy text, then paste it into LinkedIn.", !ok));
+          if (copied) copied.then((ok) => say(li, ok ? "Copied. LinkedIn cannot fill in a page post from another site: in the page's post box (Start a post if it is not open) press Ctrl+V (phone: long-press, Paste), then post and tick Mark done." : "Could not copy the text: use Copy text, then paste it into LinkedIn.", !ok));
           else say(li, "X opened with the text and link filled in. Tick Mark done once it is live.");
         }));
         li.querySelector("[data-share-fold]").addEventListener("click", () => { li.classList.toggle("is-open"); render(); });
         li.querySelector("[data-open-personal]")?.addEventListener("click", () => {
           const copied = copy(li.querySelector('[data-text="linkedin"]').value);
-          window.open(personalLinkedIn(item), "_blank", "noopener");
-          copied.then((ok) => say(li, ok ? "Text copied: paste it into your own LinkedIn post box." : "Could not copy the text: use Copy text.", !ok));
+          window.open(personalLinkedIn(li.querySelector('[data-text="linkedin"]').value), "_blank", "noopener");
+          copied.then((ok) => say(li, ok ? "LinkedIn opens with the post filled in. If the box is empty, press Ctrl+V (on a phone: long-press, Paste)." : "LinkedIn opens with the post filled in; if it is empty, use Copy text.", false));
         });
         li.querySelectorAll("[data-done]").forEach((b) => b.addEventListener("click", () => {
           const net = b.dataset.done, id = li.dataset.shareId, done = stories[id]?.[net];
