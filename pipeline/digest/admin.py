@@ -731,7 +731,11 @@ def search_cards(gsc: dict | None, rows: list[dict], now) -> list[dict]:
     prop = gsc.get("property") or f"sc-domain:{config.SITE_URL.split('//', 1)[-1]}"
 
     def inspect_url(page: str) -> str:
-        return f"https://search.google.com/search-console/inspect?resource_id={quote(prop, safe='')}&id={quote(config.SITE_URL + page, safe='')}"
+        # The inspect deep link (/search-console/inspect?resource_id=…&id=…) answers 404 whenever the
+        # browser's signed-in Google account is not the one that owns this exact property. The
+        # property's home page always opens (with a property picker at worst), and the button copies
+        # the page's address for the "Inspect any URL" bar at the top.
+        return f"https://search.google.com/search-console?resource_id={quote(prop, safe='')}"
 
     errors = [{"headline": m.get("path"), "detail": f"This sitemap entry reports {m.get('errors')} error(s); if it is a typo, remove it in Search Console."}
               for m in maps if str(m.get("errors") or "0") not in ("0", "")]
@@ -742,11 +746,12 @@ def search_cards(gsc: dict | None, rows: list[dict], now) -> list[dict]:
     if missing:
         home_missing = any(c.get("page") == "/" for c in missing)
         items = [{"headline": c["page"], "detail": f"Google: {c.get('state')}.",
-                  "action": {"kind": "link", "url": inspect_url(c["page"]), "label": "Request indexing"}} for c in missing]
+                  "action": {"kind": "link", "url": inspect_url(c["page"]), "label": "Request indexing",
+                             "copy": config.SITE_URL + c["page"]}} for c in missing]
         out.append(_card("search:indexed", "warning" if home_missing else "info",
                          f"Google has indexed {len(checks) - len(missing)} of {len(checks)} key pages checked.",
                          "A page Google has not indexed cannot appear in its results. New sites are indexed a few pages at a time; links from other sites speed it up.",
-                         "Open each page below in Search Console and press \"Request indexing\". Google allows only a few requests a day, so start with pages it does not know yet.",
+                         "Press Request indexing on a page below: it copies the page's address and opens Search Console. Paste the address into the search bar at the top, then press \"Request indexing\" there. Google allows only a few requests a day, so start with pages it does not know yet.",
                          items=items + errors))
     elif errors:
         out.append(_card("search:sitemap", "warning", "A sitemap entry in Search Console reports errors.",

@@ -186,6 +186,7 @@ const homeData = JSON.stringify({
 
     <nav class="tabs" aria-label="Dashboard sections">
       <a href="#today" data-tab="today">Today</a>
+      <a href="#share" data-tab="share">Share</a>
       <a href="#readers" data-tab="readers">Readers</a>
       <a href="#content" data-tab="content">Content</a>
       <a href="#sources" data-tab="sources">Sources</a>
@@ -268,7 +269,7 @@ const homeData = JSON.stringify({
                         {c.items.map((it: any) => (
                           <li>
                             <span class="ac-item-text">{it.slug ? <a href={`/story/${it.slug}`}>{it.headline}</a> : <b>{it.headline}</b>}<span class="muted">{it.detail}</span></span>
-                            {it.action?.kind === "link" && <a class="tb" href={it.action.url} target="_blank" rel="noopener">{it.action.label} ↗</a>}
+                            {it.action?.kind === "link" && <a class="tb" href={it.action.url} target="_blank" rel="noopener" data-copy-url={it.action.copy} title={it.action.copy ? `Copies ${it.action.copy}` : undefined}>{it.action.label} ↗</a>}
                             {it.action?.kind === "unpublish" && <button type="button" class="tb danger" data-mod="unpublish" data-slug={it.action.slug}>Unpublish</button>}
                           </li>
                         ))}
@@ -290,53 +291,7 @@ const homeData = JSON.stringify({
             {qualityRun?.checked && <p class="ac-foot">Content checks ran at <time datetime={qualityRun.checkedAt} data-static data-clock>{String(qualityRun.checkedAt).slice(11, 16)} UTC</time>: {qualityRun.checked.stories} stories, {qualityRun.checked.images} pictures and {qualityRun.checked.links} links checked. They run with every pipeline run, {everyText}.</p>}
           </section>
 
-          {shareToday && (
-            <section class="share" id="share-today" aria-labelledby="share-title">
-              <div class="share-head">
-                <h2 id="share-title">Share today</h2>
-                <p class="share-progress" data-share-progress aria-live="polite">0 of {shareToday.items.length} shared today</p>
-              </div>
-              <p class="share-sub">Stories worth posting on LinkedIn and X today, with the text ready. You post them from your own accounts; nothing here posts for you.</p>
-              <p class="share-sub"><span data-share-week>Shared this week: {shareToday.week.linkedin || 0} on LinkedIn, {shareToday.week.x || 0} on X</span> · <span data-share-store>Checking where your ticks are kept…</span></p>
-              <ol class="share-list">
-                {shareToday.items.map((it) => (
-                  <li class="share-item" data-share-id={it.id}>
-                    <div class="share-top">
-                      <img class="share-img" src={shareImage(it)} alt="" width="120" height="63" loading="lazy" decoding="async" />
-                      <div class="share-text">
-                        <a class="share-hl" href={`/story/${it.slug}`} target="_blank" rel="noopener">{it.headline}</a>
-                        <p class="share-why"><span class="share-cat">{it.categoryName}</span> {it.reason}</p>
-                      </div>
-                    </div>
-                    <div class="share-tabs" role="tablist" aria-label="Network">
-                      <button type="button" role="tab" class="share-tab" aria-selected="true" data-tab-net="linkedin">LinkedIn<span class="share-tick" data-tick="linkedin" hidden> ✓</span></button>
-                      <button type="button" role="tab" class="share-tab" aria-selected="false" data-tab-net="x">X<span class="share-tick" data-tick="x" hidden> ✓</span></button>
-                    </div>
-                    {(["linkedin", "x"] as const).map((net) => (
-                      <div class="share-pane" role="tabpanel" data-pane={net} hidden={net !== "linkedin"}>
-                        <label class="sr-only" for={`share-${it.id}-${net}`}>{net === "x" ? "X" : "LinkedIn"} post text</label>
-                        <textarea id={`share-${it.id}-${net}`} class="share-box" rows={net === "x" ? 7 : 9} data-text={net} spellcheck="true">{net === "x" ? it.x : it.linkedin}</textarea>
-                        {net === "x" && <p class="share-count" data-count>{it.xLength} of 280 characters (a link counts as 23)</p>}
-                        <div class="share-btns">
-                          <button type="button" class="tb share-btn" data-copy={net}>Copy text</button>
-                          <button type="button" class="tb primary share-btn" data-open={net}>{net === "x" ? "Open X" : "Post on the page"} ↗</button>
-                          <button type="button" class="tb share-btn share-done" data-done={net}>Mark done</button>
-                        </div>
-                        {net === "linkedin"
-                          ? <p class="share-hint">Post on the page copies the text and opens the Digest AI company page's post box (you post as the page, as its admin): paste, wait for the link preview, post. <button type="button" class="linklike" data-open-personal>Share as yourself instead ↗</button></p>
-                          : <p class="share-hint">Open X fills in the text and the link. Be signed in to X as @DigestAINews so it posts from the page's account.</p>}
-                        <label class="share-url"><span>Link to your post <span class="muted">(optional)</span></span>
-                          <input type="url" inputmode="url" data-post-url={net} placeholder={net === "x" ? "https://x.com/DigestAINews/status/…" : "https://www.linkedin.com/feed/update/…"} />
-                        </label>
-                      </div>
-                    ))}
-                    <p class="share-msg" data-share-msg aria-live="polite"></p>
-                  </li>
-                ))}
-              </ol>
-              <script is:inline type="application/json" id="share-data" set:html={shareData}></script>
-            </section>
-          )}
+          {shareToday && <p class="share-pointer"><a href="#share" data-tab-link="share">Share today: {shareToday.items.length} stories ready for LinkedIn and X →</a></p>}
 
           <article class="card live" id="live-now" aria-live="polite">
             <div class="live-head"><span class="live-dot" aria-hidden="true"></span><span class="eyebrow" data-live-status>Connecting…</span></div>
@@ -420,6 +375,58 @@ const homeData = JSON.stringify({
               <Fragment set:html={columns(funnel, "day", [{ key: "published", label: "Published", color: C.s1 }])} />
             </article>
           </div>
+        </section>
+
+        <!-- ============ SHARE ============ -->
+        <section class="tab" data-tab="share" hidden>
+            {shareToday && (
+              <section class="share" id="share-today" aria-labelledby="share-title">
+                <div class="share-head">
+                  <h2 id="share-title">Share today</h2>
+                  <p class="share-progress" data-share-progress aria-live="polite">0 of {shareToday.items.length} shared today</p>
+                </div>
+                <p class="share-sub">Stories worth posting on LinkedIn and X today, with the text ready. You post them from your own accounts; nothing here posts for you.</p>
+                <p class="share-sub"><span data-share-week>Shared this week: {shareToday.week.linkedin || 0} on LinkedIn, {shareToday.week.x || 0} on X</span> · <span data-share-store>Checking where your ticks are kept…</span></p>
+                <ol class="share-list">
+                  {shareToday.items.map((it) => (
+                    <li class="share-item" data-share-id={it.id}>
+                      <div class="share-top">
+                        <img class="share-img" src={shareImage(it)} alt="" width="120" height="63" loading="lazy" decoding="async" />
+                        <div class="share-text">
+                          <a class="share-hl" href={`/story/${it.slug}`} target="_blank" rel="noopener">{it.headline}</a>
+                          <p class="share-why"><span class="share-cat">{it.categoryName}</span> {it.reason}</p>
+                        </div>
+                      </div>
+                      <div class="share-tabs" role="tablist" aria-label="Network">
+                        <button type="button" role="tab" class="share-tab" aria-selected="true" data-tab-net="linkedin">LinkedIn<span class="share-tick" data-tick="linkedin" hidden> ✓</span></button>
+                        <button type="button" role="tab" class="share-tab" aria-selected="false" data-tab-net="x">X<span class="share-tick" data-tick="x" hidden> ✓</span></button>
+                      </div>
+                      {(["linkedin", "x"] as const).map((net) => (
+                        <div class="share-pane" role="tabpanel" data-pane={net} hidden={net !== "linkedin"}>
+                          <label class="sr-only" for={`share-${it.id}-${net}`}>{net === "x" ? "X" : "LinkedIn"} post text</label>
+                          <textarea id={`share-${it.id}-${net}`} class="share-box" rows={net === "x" ? 7 : 9} data-text={net} spellcheck="true">{net === "x" ? it.x : it.linkedin}</textarea>
+                          {net === "x" && <p class="share-count" data-count>{it.xLength} of 280 characters (a link counts as 23)</p>}
+                          <div class="share-btns">
+                            <button type="button" class="tb share-btn" data-copy={net}>Copy text</button>
+                            <button type="button" class="tb primary share-btn" data-open={net}>{net === "x" ? "Open X" : "Post on the page"} ↗</button>
+                            <button type="button" class="tb share-btn share-done" data-done={net}>Mark done</button>
+                          </div>
+                          {net === "linkedin"
+                            ? <p class="share-hint">Post on the page copies the text and opens the Digest AI company page's post box (you post as the page, as its admin): paste, wait for the link preview, post. <button type="button" class="linklike" data-open-personal>Share as yourself instead ↗</button></p>
+                            : <p class="share-hint">Open X fills in the text and the link. Be signed in to X as @DigestAINews so it posts from the page's account.</p>}
+                          <label class="share-url"><span>Link to your post <span class="muted">(optional)</span></span>
+                            <input type="url" inputmode="url" data-post-url={net} placeholder={net === "x" ? "https://x.com/DigestAINews/status/…" : "https://www.linkedin.com/feed/update/…"} />
+                          </label>
+                        </div>
+                      ))}
+                      <p class="share-msg" data-share-msg aria-live="polite"></p>
+                    </li>
+                  ))}
+                </ol>
+                <script is:inline type="application/json" id="share-data" set:html={shareData}></script>
+              </section>
+            )}
+          {!shareToday && <p class="muted">The day's list appears after the next pipeline run.</p>}
         </section>
 
         <!-- ============ READERS ============ -->
@@ -1532,6 +1539,19 @@ const homeData = JSON.stringify({
       });
     })();
   </script>
+<script is:inline>
+  // "Request indexing" and other links that carry a page address: copy it on the way out, so it can
+  // be pasted into Search Console's inspect bar.
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest?.("a[data-copy-url]");
+    if (!a || !navigator.clipboard) return;
+    navigator.clipboard.writeText(a.dataset.copyUrl).then(() => {
+      a.dataset.label = a.dataset.label || a.textContent;
+      a.textContent = "Address copied ↗";
+      setTimeout(() => { a.textContent = a.dataset.label; }, 4000);
+    }).catch(() => {});
+  });
+</script>
 </Base>
 
 <style>

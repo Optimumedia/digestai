@@ -75,8 +75,10 @@ def test_banned_jargon_is_rewritten_or_dropped():
         assert work.clean_card(card(you_get=bad))["you_get"] == "", bad
         assert work.YOU_GET_BANNED.search(bad) or "!" in bad
     # The rules-built line never carries jargon either: a use that has some is skipped.
-    fb = work.fallback_you_get(work.clean_card(card(use_for=["Streamline your posting", "Write product captions"])))
-    assert fb == "Lets marketers and founders write product captions.", fb
+    fb = work.fallback_you_get(work.clean_card(card(use_for=["Streamline your posting", "Write captions for product photos"])))
+    assert fb == "Lets marketers and founders write captions for product photos.", fb
+    # Three words or fewer make a clumsy line: none at all until the model writes one.
+    assert work.fallback_you_get(work.clean_card(card(use_for=["collect task description"]))) == ""
 
 
 def test_the_fallback_is_built_from_the_cards_own_fields():

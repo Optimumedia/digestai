@@ -535,7 +535,9 @@ def fallback_you_get(card: dict) -> str:
     names = {w.lower() for n in (card.get("tool"), card.get("maker")) for w in (n or "").split()[:1]}
     for use in card.get("use_for") or []:
         use = re.sub(r"\s+", " ", str(use or "")).strip().rstrip(".;:,")
-        if len(use) < 6 or YOU_GET_BANNED.search(_dashes(use)):
+        # Three words or fewer ("collect task description") make a clumsy line: better none, until
+        # the model writes a real one, than "Lets founders collect task description."
+        if len(use) < 6 or len(use.split()) < 4 or YOU_GET_BANNED.search(_dashes(use)):
             continue
         word = use.split()[0]
         first = word.lower()
@@ -548,9 +550,7 @@ def fallback_you_get(card: dict) -> str:
         else:
             line = f"Lets {who} {lead}{rest}"
         return _end(_cut_words(line, YOU_GET_MAX - 1))
-    what = re.sub(r"\s+", " ", card.get("what_it_does") or "").strip().rstrip(".")
-    line = f"{card.get('tool') or 'It'}: {what}" if what else (card.get("tool") or "")
-    return _end(_cut_words(line, YOU_GET_MAX - 1))
+    return ""  # no line is better than a weak one; the page shows the box only when there is one
 
 
 def _end(line: str) -> str:

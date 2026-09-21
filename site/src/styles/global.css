@@ -1333,3 +1333,6 @@ details.wk-card-more[open] { padding-bottom: 4px; }
 .source-notes li { margin-bottom: 4px; color: var(--ink); }
 .source-notes-foot { margin: 0 !important; font-size: 13px; color: var(--ink-3) !important; }
 .linklike { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); text-decoration: underline; cursor: pointer; }
+
+/* Admin: the Today tab points to the Share tab. */
+.share-pointer { margin: 12px 0 0; font-weight: 600; }
