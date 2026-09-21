@@ -632,7 +632,9 @@ def scenario(card: dict, jobs: list[str], business: str = "") -> str:
     never a claim that someone does. The job is the card's own first use that is an action; the
     business the article's (card["business"]) or the job tile's everyday stand-in. "" when the card
     has no use to build it from."""
-    who = business or card.get("business") or next((JOB_BUSINESS[j] for j in jobs if j in JOB_BUSINESS), "")
+    # Only a business the article or the maker's page names: a stand-in per job read oddly next to
+    # tools it did not fit ("a café could use it to view pipeline health").
+    who = business or card.get("business") or ""
     if not who:
         return ""
     names = [n for n in (card.get("tool"), card.get("maker")) if n]

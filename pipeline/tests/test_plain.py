@@ -171,7 +171,7 @@ def test_the_headline_starts_with_a_verb_or_falls_back():
 
 def test_labels_button_and_example_line():
     out = work.card_out(work.clean_card(card()))
-    assert [l["text"] for l in out["labels"]] == ["Free to try", "5 minutes"]
+    assert [l["text"] for l in out["labels"]] == ["Free to try", "A few minutes"]
     assert work.cost_label({"cost": "free"}) == "Free"
     assert work.cost_label({"cost": "paid from $20 per month"}) == "Paid: from $20/mo"
     assert work.cost_label({"cost": "paid"}) == "Paid"
@@ -180,7 +180,7 @@ def test_labels_button_and_example_line():
     # The third label only when the article says so.
     article = "Canva says the feature needs no credit card and no design skills. " * 5
     grounded = work.card_out(work.ground_card(work.clean_card(card()), article))
-    assert [l["text"] for l in grounded["labels"]] == ["Free to try", "5 minutes", "No card needed"]
+    assert [l["text"] for l in grounded["labels"]] == ["Free to try", "A few minutes", "No card needed"]
     assert len(work.card_out(work.clean_card(card(effort="depends")))["labels"]) == 1
     # One action, a verb and a place.
     assert out["action"] == "Open Canva Magic Studio"
@@ -190,7 +190,8 @@ def test_labels_button_and_example_line():
     assert work.action_label({"tool": "X", "link": None}) == ""
     # The example line: always "could", from the card's own use, the article's business when it names one.
     # (Its first job tile is "Get more customers": the stand-in for that tile is a café.)
-    assert out["jobs"][0] == "customers" and out["scenario"] == "For example, a café could use it to draft a week of posts."
+    # No business named in the article: no example line (a stand-in per job read oddly).
+    assert out["jobs"][0] == "customers" and out["scenario"] == ""
     bakery = work.ground_card(work.clean_card(card()), "A bakery in Leeds used it for a week, Canva said. " * 6)
     assert work.card_out(bakery)["scenario"] == "For example, a bakery could use it to draft a week of posts."
     assert work.card_out(work.clean_card(card(use_for=["Product captions"])))["scenario"] == ""

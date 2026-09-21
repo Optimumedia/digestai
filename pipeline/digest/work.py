@@ -810,7 +810,7 @@ def usefulness(card: dict, story: dict | None = None) -> float:
 
 # ---------------------------------------------------------------------------- the collapsed card's labels
 
-TIME_LABELS = {"minutes": "5 minutes", "an afternoon": "An afternoon", "needs a developer": "Needs a developer"}
+TIME_LABELS = {"minutes": "A few minutes", "an afternoon": "An afternoon", "needs a developer": "Needs a developer"}
 _PRICE = re.compile(r"(?:[$€£]\s?\d[\d,]*(?:\.\d+)?|\d[\d,]*(?:\.\d+)?\s?(?:usd|eur|gbp|dollars|euros))", re.I)
 _MONTHLY = re.compile(r"(?:/\s?mo(?:nth)?\b|per month|a month|monthly|/\s?user/\s?mo)", re.I)
 

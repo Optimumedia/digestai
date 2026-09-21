@@ -202,7 +202,7 @@ export const costLabel = (cost: string | null | undefined, kind: string | null |
 export const isFree = (kind: string | null | undefined): boolean => ["free", "free tier", "included"].includes(kind || "");
 /** The effort scale's step (1 to 3) and its words; a card whose coverage did not say has none. */
 export const EFFORT_STEPS: Record<string, { step: number; label: string }> = {
-  minutes: { step: 1, label: "5 minutes" },
+  minutes: { step: 1, label: "A few minutes" },
   "an afternoon": { step: 2, label: "An afternoon" },
   "needs a developer": { step: 3, label: "Needs a developer" },
 };

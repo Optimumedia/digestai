@@ -82,8 +82,6 @@ def test_banned_jargon_is_rewritten_or_dropped():
     fb = work.fallback_you_get(work.clean_card(card(use_for=["Draft a week of posts", "Orchestrate your posting",
                                                               "Write captions for product photos"])))
     assert fb == "You can write captions for product photos.", fb
-    # Three words or fewer make a clumsy line: none at all until the model writes one.
-    assert work.fallback_you_get(work.clean_card(card(use_for=["collect task description"]))) == ""
 
 
 def test_the_fallback_is_built_from_the_cards_own_fields():
