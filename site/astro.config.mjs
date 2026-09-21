@@ -75,7 +75,9 @@ export default defineConfig({
     sitemap({
       filter: (page) => {
         const p = new URL(page).pathname.replace(/\/$/, "");
-        return !/\/(search|admin|saved|river|subscribe|offline)$/.test(p) && !noindex.has(p) && !(p in legacyRedirects) && !isRedirectPage(page, redirects);
+        // /subscribe is noindex until the Kit form is connected (subscribe.astro), and a real page after.
+        if (p.endsWith("/subscribe") && !process.env.PUBLIC_KIT_FORM_URL) return false;
+        return !/\/(search|admin|saved|river|offline)$/.test(p) && !noindex.has(p) && !(p in legacyRedirects) && !isRedirectPage(page, redirects);
       },
       serialize(item) {
         const p = new URL(item.url).pathname.replace(/\/$/, "");
