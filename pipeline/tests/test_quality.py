@@ -188,7 +188,11 @@ def test_search_cards():
     card = cards["search:indexed"]
     assert "1 of 3" in card["what"] and card["level"] == "info"  # the home page is indexed
     assert [i["headline"] for i in card["items"]][:2] == ["/today", "/models"]
-    assert "search-console/inspect" in card["items"][1]["action"]["url"] and "%2Fmodels" in card["items"][1]["action"]["url"]
+    # The property's home (the inspect deep link answers 404 for a different signed-in account), and
+    # the page's address to paste into the inspect bar.
+    action = card["items"][1]["action"]
+    assert action["url"].startswith("https://search.google.com/search-console?resource_id=") and "inspect" not in action["url"]
+    assert action["copy"].endswith("/models")
     assert any(i["headline"] == "/news-sitemap.xml." for i in card["items"])
     assert "search:stale" in cards and "{at}" in cards["search:stale"]["what"]
     fresh = [{"step": "gsc", "startedAt": NOW - timedelta(hours=1), "stats": {"configured": True, "clicks": 3}}]
