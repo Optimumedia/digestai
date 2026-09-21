@@ -5,7 +5,8 @@ that day's note, the step writes six plain sentences for the owner:
 
 1. what led the briefing and why (score, publishers, primary source);
 2. what readers opened against what the ranking predicted, and the biggest surprise;
-3. the source that earned or lost the most learned weight since the previous note;
+3. the source that earned or lost the most learned weight since the previous note, and, only when
+   reader data changed AI at Work's featured pick or a top-three place, which card it moved;
 4. one budget fact: database reads, or a summary model out of its allowance;
 5. visitors yesterday against the day before, and where they came from;
 6. one thing to decide, picked by rules from whatever is off.
@@ -386,6 +387,23 @@ def s_sources(s: dict) -> str:
             f"({s['max']['w']:.2f}) and {s['min']['name']} the least ({s['min']['w']:.2f}), where 1.00 is an average source.")
 
 
+def work_clause(c: dict | None) -> str:
+    """AI at Work, only when reader data changed its featured pick or a top-three place
+    (work_learn.changed): a clause for the sources sentence, which is about what readers taught."""
+    if not c or not c.get("to"):
+        return ""
+    if c["kind"] == "featured":
+        instead = f" instead of {_q(c['from'])}" if c.get("from") else ""
+        return f"; on AI at Work, reader data made {_q(c['to'])} the featured pick{instead}"
+    was = f" (the rules alone had it at #{c['was']})" if c.get("was") else ""
+    return f"; on AI at Work, reader data put {_q(c['to'])} at #{c['at']}{was}"
+
+
+def with_work(sentence: str, c: dict | None) -> str:
+    clause = work_clause(c)
+    return sentence[:-1] + clause + "." if clause and sentence.endswith(".") else sentence
+
+
 PROVIDER_NAMES = {"gemini": "Gemini", "groq": "Groq", "cloud": "Ollama Cloud"}
 
 
@@ -472,7 +490,7 @@ def s_decide(d: dict) -> str:
 
 
 def rules_sentences(f: dict) -> list[str]:
-    return [s_briefing(f["briefing"]), s_readers(f["readers"]), s_sources(f["sources"]),
+    return [s_briefing(f["briefing"]), s_readers(f["readers"]), with_work(s_sources(f["sources"]), f.get("work")),
             s_budget(f["budget"]), s_growth(f["growth"]), s_decide(f["decide"])]
 
 
@@ -585,8 +603,10 @@ def _default_call(info: dict):
 # ---------------------------------------------------------------------------- building and storing
 
 def build(admin: dict, briefing: dict | None, stories: list[dict], events: dict[int, dict], pairs: list[tuple],
-          prev: dict | None, now: datetime, call=None) -> dict:
-    """The note for `now` from data already in hand. Pure apart from the optional model call."""
+          prev: dict | None, now: datetime, call=None, work_briefing: dict | None = None) -> dict:
+    """The note for `now` from data already in hand. Pure apart from the optional model call.
+    `work_briefing` (work-briefing.json) adds AI at Work to the sources sentence only when reader
+    data changed its featured pick or a top-three place."""
     stories = [s for s in stories if s.get("id") is not None]
     readers = readers_facts(events, stories)
     budget = budget_facts(admin, now)
@@ -596,6 +616,7 @@ def build(admin: dict, briefing: dict | None, stories: list[dict], events: dict[
         "sources": sources_facts(admin, prev),
         "budget": budget,
         "growth": growth_facts(admin, pairs, now),
+        "work": ((work_briefing or {}).get("learning") or {}).get("changed"),
     }
     facts["decide"] = decide_facts(admin, stories, readers, budget, now)
     rules = rules_sentences(facts)
@@ -674,7 +695,9 @@ def run(now: datetime | None = None) -> dict:
             with db.engine().connect() as conn:
                 events = reader_events(conn, now - timedelta(hours=24))
                 pairs = visitor_pairs(conn, y0, y0 + timedelta(days=1))
-            note = build(admin, briefing, stories, events, pairs, notes[0] if notes else None, now)
+            work_briefing = _read(config.SITE_DATA_DIR / "work-briefing.json", None)
+            note = build(admin, briefing, stories, events, pairs, notes[0] if notes else None, now,
+                         work_briefing=work_briefing)
             notes = [note] + [x for x in notes if x.get("day") != note["day"]]
             stats.update(written=True, day=note["day"], polished=note["polish"]["polished"],
                          reason=note["polish"].get("reason"))

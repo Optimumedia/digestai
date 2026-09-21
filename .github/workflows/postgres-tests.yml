@@ -33,7 +33,9 @@ jobs:
         working-directory: pipeline
         env:
           TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@localhost:5432/digest
-        run: python tests/test_reads.py
+        run: |
+          python tests/test_reads.py
+          python tests/test_work_learn.py
       - name: Unit tests
         working-directory: pipeline
         run: |
@@ -48,6 +50,7 @@ jobs:
           python tests/test_site_api.py
           python tests/test_storage.py
           python tests/test_work.py
+          python tests/test_work_learn.py
           python tests/test_summaries.py
           python tests/test_morning.py
           python tests/test_share.py

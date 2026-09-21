@@ -1075,7 +1075,7 @@ BRIEFING_SIZE = 5
 BRIEFING_ALSO = 6
 
 
-def build_briefing(stories: list[dict], now) -> dict:
+def build_briefing(stories: list[dict], now, score=None) -> dict:
     """The section's own briefing: the most useful practical items of the last day or two.
 
     Its selection rule is not the main briefing's. That one asks "what is the biggest news"; this
@@ -1083,8 +1083,12 @@ def build_briefing(stories: list[dict], now) -> dict:
     free tool you can try in minutes leads over a larger launch that needs a developer. Overlap
     between the two briefings is allowed on purpose: the same launch is news on the front page and
     a thing to try here, and the two pages say different things about it.
+
+    `score` is the sort key (default: the card's usefulness, which work_learn.apply may have moved
+    with reader data); work_learn passes the rules score alone to see what reader data changed.
     """
     section = section_stories(stories)
+    score = score or (lambda s: s["workCard"]["usefulness"])
 
     def since(hours: int) -> list[dict]:
         cutoff = (now - timedelta(hours=hours)).isoformat().replace("+00:00", "Z")
@@ -1097,7 +1101,7 @@ def build_briefing(stories: list[dict], now) -> dict:
         wider = since(48)
         if len(wider) > len(fresh):
             fresh, window = wider, 48
-    fresh.sort(key=lambda s: (-(s["workCard"]["usefulness"]), s.get("firstPublishedAt") or ""))
+    fresh.sort(key=lambda s: (-score(s), s.get("firstPublishedAt") or ""))
     # One card per tool: two stories about the same product the same day (a rollout and a feature
     # of it) read as a duplicate side by side. The more useful one stays.
     seen: set[str] = set()

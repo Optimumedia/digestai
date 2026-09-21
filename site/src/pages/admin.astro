@@ -367,6 +367,24 @@ const homeData = JSON.stringify({
                       : "no featured-card views yet"}
                   </p>
                 )}
+                {workHealth.learning && (
+                  <div class="work-learning" data-work-learning>
+                    <h3>What readers taught the order <span class="muted">{workHealth.learning.windowDays} days</span></h3>
+                    {workHealth.learning.active ? (
+                      <>
+                        <ul>{workHealth.learning.sentences.map((t: string) => <li>{t}</li>)}</ul>
+                        <p class="work-health-line">{workHealth.learning.text}</p>
+                        {workHealth.learning.movers?.length > 0 && (
+                          <p class="work-health-line muted">
+                            This week's cards that moved most: {workHealth.learning.movers.map((m: any, i: number) => (
+                              <>{i ? "; " : ""}<a href={`/story/${m.slug}`}>{m.headline}</a> {m.to < m.from ? "up" : "down"} from #{m.from} to #{m.to}</>
+                            ))}.
+                          </p>
+                        )}
+                      </>
+                    ) : <p class="work-health-line muted">{workHealth.learning.text}</p>}
+                  </div>
+                )}
                 <p class="work-health-line muted">
                   {workHealth.thinJobs.length ? <>Job pages below three items (not indexed): {workHealth.thinJobs.join(", ")}{workHealth.emptyJobs.length ? <>; empty: {workHealth.emptyJobs.join(", ")}</> : ""}.</> : "Every job page has three items or more."}
                   {" "}Podcast: {workHealth.episode ? <>latest episode {workHealth.episode.week}, out {fmtDayShort(workHealth.episode.date)}{workHealth.episode.seconds ? `, ${Math.round(workHealth.episode.seconds / 60)} min` : ""}</> : "no episode yet"}{workHealth.audioReason && workHealth.audioReason !== "episode exists" ? <> (latest run: {workHealth.audioReason})</> : ""}.

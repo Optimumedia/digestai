@@ -10,6 +10,7 @@ import yaml
 from sqlalchemy import select, update
 
 from . import archive, cache, checks, config, db, funding as funding_rules, hold, trackers as tracker_rules, work as work_rules
+from . import work_learn
 from .enrich import headline_hedged
 from .textutil import word_count
 
@@ -231,6 +232,23 @@ def load_rows(conn, since, stories: dict | None = None, articles: dict | None = 
     return story_rows, art_rows, _full_text(conn, story_mirror, art_mirror), overflow
 
 
+def learning_summary(learned: dict, stories: list[dict], section: list[dict], briefing: dict, now) -> dict:
+    """What reader data did to AI at Work this run, for the admin page and the morning note: what
+    it taught (work_learn.taught, over the last week's cards, as the home page shows them) and what
+    it changed at the top of the section briefing against the rules order alone."""
+    rules = lambda s: s["workCard"].get("rulesUsefulness", s["workCard"]["usefulness"])  # noqa: E731
+    cutoff = db.iso_z(now - timedelta(days=work_learn.MOVERS_DAYS))
+    week = [s for s in section if (s.get("firstPublishedAt") or "") >= cutoff]
+    by_rules = [s["id"] for s in sorted(week, key=lambda s: (-rules(s), s.get("firstPublishedAt") or ""))]
+    by_blend = [s["id"] for s in sorted(week, key=lambda s: (-s["workCard"]["usefulness"], s.get("firstPublishedAt") or ""))]
+    out = work_learn.taught(learned, week, by_rules, by_blend)
+    out["changed"] = None
+    if learned["active"]:
+        rules_briefing = work_rules.build_briefing(stories, now, score=rules)
+        out["changed"] = work_learn.changed(rules_briefing, briefing, stories)
+    return out
+
+
 def run() -> dict:
     eng = db.engine()
     out_dir = config.SITE_DATA_DIR
@@ -408,7 +426,19 @@ def run() -> dict:
     # from the cards. The main briefing above is untouched; an item can appear in both, because the
     # front page says what happened and the section says what to do about it.
     section = work_rules.section_stories(stories_out)
+    # What readers do with the cards moves their order a little, once there is enough of it
+    # (work_learn.py): one grouped read every few hours, kept in the runner cache. Any failure
+    # leaves the rules order exactly as it was.
+    learned, learn_stats = None, {"active": False}
+    try:
+        with eng.connect() as conn:
+            learned, learn_stats = work_learn.learn(stories_out, conn, now, section)
+    except Exception as exc:  # noqa: BLE001 - reader data must never cost the export
+        log.warning("AI at Work learning failed: %s", str(exc)[:200])
+        learn_stats = {"active": False, "error": str(exc)[:120]}
     work_briefing = work_rules.build_briefing(stories_out, now)
+    if learned is not None:
+        work_briefing["learning"] = learning_summary(learned, stories_out, section, work_briefing, now)
     work_out = {
         "generatedAt": db.iso_z(now),
         "storyIds": [s["id"] for s in sorted(section, key=lambda s: s.get("firstPublishedAt") or "", reverse=True)],
@@ -508,6 +538,7 @@ def run() -> dict:
     return {"stories": len(stories_out), "entities": len(entities_out), "briefing": len(briefing["storyIds"]),
             "work": len(section), "workTools": len(work_out["tools"]), "workBriefing": len(work_briefing["storyIds"]),
             "workDropped": {why: d["count"] for why, d in work_out["dropped"].items()},
+            "workLearn": learn_stats,
             "threads": len(threads_out), "models": len(trackers["models"]), "funding": len(trackers["funding"]),
             "fundingDropped": funding_dropped, "hedged": sum(1 for s in stories_out if s["hedged"]),
             "redirects": len(redirects), "moderation": moderation, "archive": archived, "dir": str(out_dir)}

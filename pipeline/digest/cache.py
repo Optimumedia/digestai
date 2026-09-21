@@ -529,6 +529,8 @@ RANK_MODEL = Blob("rank_model")
 ENGAGEMENT = Blob("engagement")
 KNOWN_URLS = Blob("known_urls")
 SUSPECTS = Blob("suspect_duplicates")  # story pairs that may be one event (merge.py), for the dashboard
+# AI at Work: reader actions per tool over 30 days, one grouped read every few hours (work_learn.py).
+WORK_EVENTS = Blob("work_events")
 
 
 def url_hash(url: str) -> str:

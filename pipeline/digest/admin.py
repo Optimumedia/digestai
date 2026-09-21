@@ -620,6 +620,8 @@ def work_summary(work: dict | None, briefing: dict | None, episodes: list | None
         "lastWeekEpisode": any(e.get("week") == last_week for e in episodes or []),
         "audioReason": (audio or {}).get("reason") or None,
         "minItems": config.WORK_AUDIO_MIN_ITEMS,
+        # "What readers taught the order" (work_learn.taught), as the export wrote it: no read here.
+        "learning": (briefing or {}).get("learning"),
     }
 
 
