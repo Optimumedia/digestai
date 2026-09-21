@@ -3,48 +3,109 @@ import Base from "../layouts/Base.astro";
 import Rail from "../components/Rail.astro";
 import Breadcrumbs from "../components/Breadcrumbs.astro";
 import ListenPlayer from "../components/ListenPlayer.astro";
-import { episodes, meta, formatDate } from "../lib/data";
+import { episodes, meta, formatDate, storiesByDay, noindex, type Episode } from "../lib/data";
 import { workEpisodes } from "../lib/work";
 
+/* /listen: the two audio shows, explained for someone who has never heard them (what they are, how
+   long, how to subscribe), then the latest episodes, each with a one-line description built from its
+   own stories, links to those stories and to the day's written briefing, and the full transcript.
+   Everything is from episodes.json and work-episodes.json: no model calls. */
+const SHOWN = 14;
 const latest = episodes[0];
 const mins = (s: number) => `${Math.max(1, Math.round(s / 60))} min`;
+const average = (list: Episode[]) => (list.length ? Math.max(1, Math.round(list.reduce((n, e) => n + (e.seconds || 0), 0) / list.length / 60)) : 0);
+const dailyMinutes = average(episodes.slice(0, SHOWN));
+const workMinutes = average(workEpisodes.slice(0, 8));
 const feed = `${meta.siteUrl}/podcast.xml`;
 const workFeed = `${meta.siteUrl}/work/podcast.xml`;
+const bare = (u: string) => u.replace(/^https?:\/\//, "");
+// A day's written briefing, linked from its episode when that day's page exists and is indexable.
+const days = storiesByDay();
+const dayHref = (date: string) => (days.has(date) && !noindex.has(`/daily/${date}`) ? `/daily/${date}` : null);
+const count = (n: number) => (["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"][n] || String(n));
+/** One line on what an episode covers: its length, how many stories and the first three headlines. */
+function describe(e: Episode, noun: string): string {
+  const heads = e.stories.map((s) => s.headline);
+  if (!heads.length) return `${mins(e.seconds)}.`;
+  const lead = heads[0];
+  const also = heads.slice(1, 3);
+  const more = heads.length - 1 - also.length;
+  const n = heads.length;
+  const nouns = n === 1 ? noun : noun === "story" ? "stories" : `${noun}s`;
+  return `${count(n)[0].toUpperCase()}${count(n).slice(1)} ${nouns} in ${mins(e.seconds)}. Leads with ${lead}${also.length ? `; then ${also.join("; ")}` : ""}${more > 0 ? `, and ${count(more)} more` : ""}.`;
+}
+const iso = (s: number) => `PT${Math.floor(s / 60)}M${Math.round(s % 60)}S`;
+const title = "AI news podcast: the daily briefing and AI at Work";
 const description = latest
-  ? `The Digest AI briefing as a ${mins(latest.seconds)} podcast every morning: ${latest.description.slice(0, 160)}`
+  ? `Free AI news podcasts: the daily Digest AI briefing, about ${dailyMinutes} minutes of the five stories that matter${workEpisodes.length ? `, and AI at Work every Monday` : ""}. Latest: ${latest.stories[0]?.headline || latest.title}`.slice(0, 300)
   : "The Digest AI briefing as a short podcast every morning: the five AI stories that matter, read aloud, with sources on the site.";
-const jsonLd = {
+const series = {
   "@context": "https://schema.org",
   "@type": "PodcastSeries",
+  "@id": `${meta.siteUrl}/listen#briefing`,
   name: "Digest AI briefing",
   url: `${meta.siteUrl}/listen`,
   webFeed: feed,
   image: `${meta.siteUrl}/podcast-cover.png`,
   description: "The five AI stories that matter today, read aloud every morning.",
+  inLanguage: "en",
   publisher: { "@type": "Organization", name: "Digest AI", url: meta.siteUrl },
 };
-const workJsonLd = workEpisodes.length
+const workSeries = workEpisodes.length
   ? {
       "@context": "https://schema.org",
       "@type": "PodcastSeries",
+      "@id": `${meta.siteUrl}/listen#work`,
       name: "Digest AI: AI at Work",
       url: `${meta.siteUrl}/listen#work`,
       webFeed: workFeed,
       image: `${meta.siteUrl}/podcast-cover.png`,
       description: "A few minutes on what changed for marketers and small teams this week, every Monday.",
+      inLanguage: "en",
       publisher: { "@type": "Organization", name: "Digest AI", url: meta.siteUrl },
     }
   : null;
+const episodeList = {
+  "@context": "https://schema.org",
+  "@type": "ItemList",
+  name: "Latest episodes",
+  itemListElement: [
+    ...episodes.slice(0, SHOWN).map((e) => ({ e, id: e.date, series: `${meta.siteUrl}/listen#briefing`, noun: "story" })),
+    ...workEpisodes.slice(0, 4).map((e) => ({ e, id: e.week || e.date, series: `${meta.siteUrl}/listen#work`, noun: "item" })),
+  ].map(({ e, id, series: s, noun }, i) => ({
+    "@type": "ListItem",
+    position: i + 1,
+    item: {
+      "@type": "PodcastEpisode",
+      url: `${meta.siteUrl}/listen#${id}`,
+      name: e.title,
+      description: describe(e, noun),
+      datePublished: e.publishedAt || e.date,
+      timeRequired: iso(e.seconds),
+      partOfSeries: { "@id": s },
+      associatedMedia: { "@type": "MediaObject", contentUrl: e.url || `${meta.siteUrl}/audio/${e.file}`, encodingFormat: "audio/mpeg" },
+    },
+  })),
+};
+const jsonLd = [series, ...(workSeries ? [workSeries] : []), ...(episodes.length || workEpisodes.length ? [episodeList] : [])];
 ---
 
-<Base title="Listen: the daily AI briefing" description={description} jsonLd={workJsonLd ? [jsonLd, workJsonLd] : jsonLd}>
+<Base title={title} description={description} jsonLd={jsonLd} modifiedAt={latest?.publishedAt}>
   <div class="grid">
     <div>
       <Breadcrumbs items={[{ name: "Listen" }]} />
-      <header class="page-head">
+      <header class="page-head listen-intro">
         <div class="eyebrow">Podcast</div>
-        <h1>The briefing, read aloud</h1>
-        <p>The same stories as the morning briefing, read in a few minutes, every day. Play it here or add the feed to your podcast app.</p>
+        <h1>Listen to the AI news</h1>
+        <p class="intro">
+          Digest AI publishes {workEpisodes.length ? "two short audio shows" : "a short audio show"}, free and with no sign-up.
+          <b>The daily briefing</b> reads the five AI stories that matter each day{dailyMinutes ? <> in about {dailyMinutes} minutes</> : ""}:
+          the same stories as the <a href="/today">written briefing</a>, with every source linked from the story pages.
+          {workEpisodes.length > 0 && (
+            <><b> AI at Work</b> comes out every Monday{workMinutes ? <>: about {workMinutes} minutes</> : ""} on what changed that week for marketers and small teams, what each tool does, what it costs and the catch.</>
+          )}
+          {" "}Play an episode on this page, or subscribe in any podcast app with the RSS {workEpisodes.length ? "feeds" : "feed"} below. Every episode lists the stories it reads and has a full transcript.
+        </p>
       </header>
 
       {latest && (
@@ -57,44 +118,54 @@ const workJsonLd = workEpisodes.length
         />
       )}
 
-      <section class="podbox">
-        <div class="eyebrow">Subscribe in a podcast app</div>
-        <p>Paste this feed address into Apple Podcasts, Pocket Casts, Overcast, AntennaPod or any other app ("Add show by URL"):</p>
+      <section class="podbox" aria-labelledby="sub-h">
+        <h2 id="sub-h" class="eyebrow">How to subscribe</h2>
+        <ol class="listen-how">
+          <li><b>On a phone:</b> tap your app below. Apple Podcasts, Pocket Casts and Overcast open the show ready to follow.</li>
+          <li><b>Any other app</b> (AntennaPod, Podcast Addict, Castro and others): choose "Add podcast by URL" or "Add RSS feed" and paste the address below. In Apple Podcasts it is "Follow a Show by URL" (in the Library's ⋯ menu on an iPhone, the File menu on a Mac).</li>
+          <li><b>In an RSS reader:</b> the same address works; new episodes arrive as items with the audio attached. The written stories have their own feed at <a href="/rss.xml">/rss.xml</a>.</li>
+        </ol>
+        <p>The daily briefing's feed:</p>
         <p><code class="feedurl">{feed}</code></p>
         <div class="taglist">
-          <a href={`podcast://${feed.replace(/^https?:\/\//, "")}`}>Apple Podcasts</a>
-          <a href={`pktc://subscribe/${feed.replace(/^https?:\/\//, "")}`}>Pocket Casts</a>
+          <a href={`podcast://${bare(feed)}`}>Apple Podcasts</a>
+          <a href={`pktc://subscribe/${bare(feed)}`}>Pocket Casts</a>
           <a href={`overcast://x-callback-url/add?url=${encodeURIComponent(feed)}`}>Overcast</a>
-          <a href={feed}>Raw feed</a>
+          <a href={feed}>RSS feed</a>
         </div>
       </section>
 
       {workEpisodes.length > 0 && (
         <p class="muted">
-          There is a second show: <a href="#work">AI at Work</a>, five minutes every Monday on what changed for
-          marketers and small teams. It has its own feed, so you can take one without the other.
+          AI at Work has <a href="#work">its own feed</a>, so you can take one show without the other.
         </p>
       )}
 
-      {episodes.length > 0 && <div class="dayhead"><h2>Every morning</h2><span class="eyebrow">the news briefing</span></div>}
+      {episodes.length > 0 && <div class="dayhead"><h2>The daily briefing: latest episodes</h2><span class="eyebrow">{mins(dailyMinutes * 60)} a day</span></div>}
 
       {episodes.length === 0 ? (
         <p class="muted" style="padding: 24px 0">The first episode is produced with tomorrow morning's briefing. Meanwhile, <a href="/today">read today's</a>.</p>
       ) : (
         <ol class="episodes">
-          {episodes.map((e) => (
-            <li id={e.date}>
-              <div class="eyebrow">{formatDate(e.date + "T00:00:00Z", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} · {mins(e.seconds)}</div>
-              <h3>{e.title.replace(/^AI briefing, [^:]+: /, "")}</h3>
-              <audio controls preload="none" src={e.url || `/audio/${e.file}`} data-episode={e.date}></audio>
-              <ul class="coverage">
-                {e.stories.map((s) => <li><a class="t" href={`/story/${s.slug}`}>{s.headline}</a></li>)}
-              </ul>
-              <details><summary class="muted">Transcript</summary>{e.transcript.split("\n\n").map((p) => <p>{p}</p>)}</details>
-            </li>
-          ))}
+          {episodes.slice(0, SHOWN).map((e) => {
+            const day = dayHref(e.date);
+            return (
+              <li id={e.date}>
+                <div class="eyebrow">{formatDate(e.date + "T00:00:00Z", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} · {mins(e.seconds)}</div>
+                <h3>{e.title.replace(/^AI briefing, [^:]+: /, "")}</h3>
+                <p class="ep-desc">{describe(e, "story")}</p>
+                <audio controls preload="none" src={e.url || `/audio/${e.file}`} data-episode={e.date}></audio>
+                <ul class="coverage">
+                  {e.stories.map((s) => <li><a class="t" href={`/story/${s.slug}`}>{s.headline}</a></li>)}
+                </ul>
+                {day && <p class="ep-links"><a href={day}>The written stories for that day →</a></p>}
+                {e.transcript && <details><summary class="muted">Transcript</summary>{e.transcript.split("\n\n").map((p) => <p>{p}</p>)}</details>}
+              </li>
+            );
+          })}
         </ol>
       )}
+      {episodes.length > SHOWN && <p class="muted">Older episodes are in the <a href={feed}>podcast feed</a>, and their stories in the <a href="/daily">daily archive</a>.</p>}
 
       {workEpisodes.length > 0 && (
         <section id="work" aria-labelledby="work-h">
@@ -112,24 +183,25 @@ const workJsonLd = workEpisodes.length
             <div class="eyebrow">Subscribe to AI at Work</div>
             <p><code class="feedurl">{workFeed}</code></p>
             <div class="taglist">
-              <a href={`podcast://${workFeed.replace(/^https?:\/\//, "")}`}>Apple Podcasts</a>
-              <a href={`pktc://subscribe/${workFeed.replace(/^https?:\/\//, "")}`}>Pocket Casts</a>
+              <a href={`podcast://${bare(workFeed)}`}>Apple Podcasts</a>
+              <a href={`pktc://subscribe/${bare(workFeed)}`}>Pocket Casts</a>
               <a href={`overcast://x-callback-url/add?url=${encodeURIComponent(workFeed)}`}>Overcast</a>
-              <a href={workFeed}>Raw feed</a>
+              <a href={workFeed}>RSS feed</a>
             </div>
           </section>
 
           <ol class="episodes">
-            {workEpisodes.map((e) => (
+            {workEpisodes.slice(0, 8).map((e) => (
               <li id={e.week || e.date}>
                 <div class="eyebrow">Week {e.week || e.date} · {mins(e.seconds)} · {e.stories.length} items</div>
                 <h3>{e.title.replace(/^AI at Work, /, "")}</h3>
+                <p class="ep-desc">{describe(e, "item")}</p>
                 <audio controls preload="none" src={e.url || `/audio/${e.file}`} data-episode={e.week || e.date}></audio>
                 <ul class="coverage">
                   {e.stories.map((s) => <li><a class="t" href={`/story/${s.slug}`}>{s.headline}</a></li>)}
                 </ul>
-                {e.week && <p class="eyebrow"><a href={`/work/week/${e.week}`}>That week's playbook →</a></p>}
-                <details><summary class="muted">Transcript</summary>{e.transcript.split("\n\n").map((p) => <p>{p}</p>)}</details>
+                {e.week && <p class="ep-links"><a href={`/work/week/${e.week}`}>That week's playbook →</a></p>}
+                {e.transcript && <details><summary class="muted">Transcript</summary>{e.transcript.split("\n\n").map((p) => <p>{p}</p>)}</details>}
               </li>
             ))}
           </ol>

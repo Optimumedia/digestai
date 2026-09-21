@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { marked } from "marked";
-import { published, entitySlug, dateKey, weekKey, storyIndexable, noindexPaths, modelPages, modelIndexable, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES, WORK_MIN_ITEMS } from "./indexing.mjs";
+import { published, entitySlug, dateKey, weekKey, storyIndexable, noindexPaths, modelPages, modelIndexable, storyConfirmed, storyModified as storyModifiedRule, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES, WORK_MIN_ITEMS } from "./indexing.mjs";
 
 // Indexing rules live in indexing.mjs so the sitemap in astro.config.mjs applies the same ones.
-export { entitySlug, dateKey, weekKey, storyIndexable, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES, WORK_MIN_ITEMS };
+export { entitySlug, dateKey, weekKey, storyIndexable, storyConfirmed, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES, WORK_MIN_ITEMS };
 import { loadRedirects } from "./redirects.mjs";
 
 export interface Discussion {
@@ -351,20 +351,10 @@ export function storyOgImage(story: { slug: string }): ImageInfo {
 /** When the story last changed in a way a reader can see: the newest publication time among the
     sources it lists, never before it was first published. Not updatedAt, which moves whenever an
     article joins the story, even one that is only counted (a full story), and would make an old
-    story look new to Google (the freshness rules: first_published_at means new). */
+    story look new to Google (the freshness rules: first_published_at means new). The rule lives in
+    indexing.mjs, so the sitemap's lastmod is the same date the page states. */
 export function storyModified(story: Story): string | null {
-  const first = story.firstPublishedAt;
-  const firstT = Date.parse(first || "");
-  if (Number.isNaN(firstT)) return first || story.updatedAt;
-  let latest = firstT;
-  for (const a of story.articles) {
-    const t = Date.parse(a.publishedAt || "");
-    if (!Number.isNaN(t) && t > latest) latest = t;
-  }
-  // A feed's future-dated article cannot move the date past the last time the story changed.
-  const ceiling = Date.parse(story.updatedAt || "");
-  if (!Number.isNaN(ceiling) && latest > ceiling) latest = Math.max(ceiling, firstT);
-  return latest === firstT ? first : new Date(latest).toISOString().replace(/\.000Z$/, "Z");
+  return storyModifiedRule(story);
 }
 
 /** A headline for structured data: Google shows at most 110 characters, cut at a word. */

@@ -11,6 +11,56 @@
     set(k, v) { try { sessionStorage.setItem(k, v); } catch {} },
   };
 
+  /* ---------- the publisher's article on a story page ---------- */
+  // The story page carries only our digest; the article it reproduces is /ft/<slug>.json (blocked in
+  // robots.txt, so search engines index the digest, not a copy of the publisher's text). It is put
+  // into the [data-fulltext] box when the reader gets within a few screens of it, or a moment after
+  // the page has loaded, whichever comes first, so find-in-page and a quick scroll both find it.
+  // The box keeps its data-read="full_text" mark, which the read-depth measure below looks for.
+  {
+    const slot = document.querySelector("[data-fulltext]");
+    if (slot) {
+      let state = "idle";
+      const fail = () => {
+        state = "failed";
+        slot.removeAttribute("aria-busy");
+        slot.classList.add("ft-done");
+        const p = document.createElement("p");
+        p.className = "ft-status";
+        p.append("The full article did not load. ");
+        const a = document.createElement("a");
+        a.href = slot.dataset.sourceUrl || "#";
+        a.target = "_blank";
+        a.rel = "noopener nofollow";
+        a.textContent = `Read it at ${slot.dataset.sourceName || "the source"} ↗`;
+        p.append(a);
+        slot.replaceChildren(p);
+      };
+      const load = () => {
+        if (state !== "idle") return;
+        state = "loading";
+        fetch(slot.dataset.fulltext)
+          .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+          .then((d) => {
+            if (!d || typeof d.html !== "string" || !d.html) return fail();
+            slot.innerHTML = d.html;
+            slot.removeAttribute("aria-busy");
+            slot.classList.add("ft-done");
+            state = "done";
+          })
+          .catch(fail);
+      };
+      if ("IntersectionObserver" in window) {
+        const io = new IntersectionObserver((entries) => {
+          if (entries.some((e) => e.isIntersecting)) { io.disconnect(); load(); }
+        }, { rootMargin: "1600px 0px" });
+        io.observe(slot);
+      } else load();
+      const later = () => setTimeout(load, 2500);
+      if (document.readyState === "complete") later(); else addEventListener("load", later, { once: true });
+    }
+  }
+
   /* ---------- reader events ---------- */
   // Opt-out for the site's own team: visit any page with ?notrack=1 (or use the switch on
   // /admin) and this browser stops sending events; ?notrack=0 turns them back on.

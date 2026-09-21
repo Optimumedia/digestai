@@ -2,10 +2,13 @@ User-agent: *
 Allow: /
 Disallow: /search
 Disallow: /admin
+# Publishers' article text that story pages load for readers: not ours to have indexed.
+Disallow: /ft/
 
 Sitemap: https://digestai.news/sitemap-index.xml
 Sitemap: https://digestai.news/news-sitemap.xml
 
-# Extra crawl hints
+# Extra crawl hints. A crawler with its own group ignores the * group, so /ft/ is repeated here.
 User-agent: Googlebot-News
 Allow: /
+Disallow: /ft/

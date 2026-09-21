@@ -196,7 +196,7 @@ const jsonLd = {
 
       <div class="source-box" data-read="summary">
         <span>
-          {full ? "Full story from" : "Read the original at"} <b>{shown.source || shown.domain}</b>
+          {full ? "Full story from " : "Read the original at "}<b>{shown.source || shown.domain}</b>
           {shown.author && <span class="muted"> · by {shown.author}</span>}
           {shown.via && <span class="muted"> · via {shown.via}</span>}
           {shown.sourceType === "primary" && <span class="cov-tag"> primary source</span>}
@@ -213,8 +213,24 @@ const jsonLd = {
           {figureImages.length > 0 && (
             <figure class="figure" data-images={JSON.stringify(figureImages)}><img src={figureImages[0]} alt="" loading="lazy" referrerpolicy="no-referrer" /></figure>
           )}
-          {/* data-nosnippet: the reproduced article is the publisher's text; search snippets should quote our digest above. */}
-          <div class="article" data-read="full_text" data-nosnippet set:html={renderMarkdown(full.contentMd)} />
+          {/* The publisher's text is not in this page. It is a separate file, /ft/<slug>.json (written by
+              pages/ft/[slug].json.ts, blocked in robots.txt), that app.js puts in this box as the reader
+              nears it, so to a search engine the page is our own digest and never a copy of the article.
+              The box reserves roughly the article's height (global.css .ft-slot), so nothing jumps. */}
+          <div
+            class="article ft-slot"
+            data-read="full_text"
+            data-nosnippet
+            data-fulltext={`/ft/${story.slug}.json`}
+            data-source-url={full.url}
+            data-source-name={full.source || full.domain}
+            data-pagefind-ignore
+            style={`--ft-words: ${Math.min(Math.max(full.wordCount || 400, 100), 3000)}`}
+            aria-busy="true"
+          >
+            <p class="ft-status" role="status">Loading the full article…</p>
+            <noscript><p class="ft-status">The full article needs JavaScript. <a href={full.url} rel="noopener nofollow" target="_blank">Read it at {full.source || full.domain} ↗</a></p></noscript>
+          </div>
           <p class="ai-note">
             This text was published by <a href={full.url} rel="noopener nofollow" target="_blank" data-source-link><b>{full.source || full.domain}</b></a>
             {full.author && ` and written by ${full.author}`}. It is reproduced here with attribution so you can read it in full; the rights remain with the publisher.

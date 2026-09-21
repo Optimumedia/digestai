@@ -75,8 +75,11 @@ def test_templates_use_the_shared_rules():
     assert "thin={jobThin(job.key)}" in job and '"ItemList"' in job
     assert "thin={!modelPageIndexable(page)}" in model and '"NewsArticle"' in model and "<dl>" in model
     assert "modelPageFor(slug!)" in topic and "<StoryRedirect" in topic
+    # The sitemap plan (indexing.mjs sitemapIndex, used by astro.config.mjs) starts from the same noindex list.
     config = (SITE / "astro.config.mjs").read_text(encoding="utf-8")
-    assert "noindexPaths(stories, entities, models)" in config
+    rules = (SITE / "src" / "lib" / "indexing.mjs").read_text(encoding="utf-8")
+    assert "sitemapIndex({" in config and "plan.include(p)" in config
+    assert "noindexPaths(stories, entities, models)" in rules
 
 
 if __name__ == "__main__":

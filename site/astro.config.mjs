@@ -2,46 +2,36 @@ import { defineConfig } from "astro/config";
 import sitemap from "@astrojs/sitemap";
 import fs from "node:fs";
 import path from "node:path";
-import { published, noindexPaths, modelPages, JOB_SLUGS } from "./src/lib/indexing.mjs";
+import { published, sitemapIndex, JOB_SLUGS } from "./src/lib/indexing.mjs";
 import { isRedirectPage, loadRedirects } from "./src/lib/redirects.mjs";
 
 // Old addresses of merged stories are redirect pages: never listed for search engines.
 const redirects = loadRedirects(path.resolve("src/data"));
 
-// lastmod per URL from the pipeline export, so search engines re-crawl what actually changed, and
-// the pages the templates mark noindex (indexing.mjs), which stay out of the sitemap as well.
-const lastmod = new Map();
-let noindex = new Set();
+// Which built pages the sitemap lists, and each one's lastmod, from the pipeline export
+// (indexing.mjs sitemapIndex): confirmed or important stories and the hubs that lead to them, never a
+// page the templates mark noindex. lastmod is the date the page itself shows, so search engines
+// re-crawl what actually changed.
+const dataDir = path.resolve("src/data");
+const read = (name, fallback) => {
+  try { return JSON.parse(fs.readFileSync(path.join(dataDir, name), "utf-8")); } catch { return fallback; }
+};
+let plan = null;
 // Archive pages (stories older than the export window): listed with low priority.
 const archivedPaths = new Set();
 const liveStories = new Set();
 try {
-  for (const a of JSON.parse(fs.readFileSync(path.resolve("src/data/archive.json"), "utf-8"))) {
-    archivedPaths.add(`/story/${a.slug}`);
-    lastmod.set(`/story/${a.slug}`, a.updatedAt);
-  }
-} catch {}
-try {
-  const dataDir = path.resolve("src/data");
-  const read = (name) => JSON.parse(fs.readFileSync(path.join(dataDir, name), "utf-8"));
-  const stories = published(read("stories.json"));
-  for (const s of stories) { lastmod.set(`/story/${s.slug}`, s.updatedAt); liveStories.add(`/story/${s.slug}`); }
-  for (const t of read("threads.json")) lastmod.set(`/thread/${t.slug}`, t.updatedAt);
-  let models = [];
-  try { models = read("trackers.json").models || []; } catch {}
-  const entities = read("entities.json");
-  noindex = noindexPaths(stories, entities, models);
-  // Model pages and job pages change when a story on them does.
-  const updatedById = new Map(stories.map((s) => [s.id, s.updatedAt || ""]));
-  const newest = (values) => values.filter(Boolean).sort().pop();
-  for (const page of modelPages(stories, entities, models).values()) {
-    const mod = newest([...page.storyIds].map((id) => updatedById.get(id)));
-    if (mod) lastmod.set(`/models/${page.slug}`, mod);
-  }
-  for (const [key, slug] of Object.entries(JOB_SLUGS)) {
-    const mod = newest(stories.filter((s) => s.workCard?.jobs?.includes(key)).map((s) => s.updatedAt));
-    if (mod) lastmod.set(`/work/${slug}`, mod);
-  }
+  const archived = read("archive.json", []);
+  for (const a of archived) archivedPaths.add(`/story/${a.slug}`);
+  const stories = published(read("stories.json", []));
+  for (const s of stories) liveStories.add(`/story/${s.slug}`);
+  plan = sitemapIndex({
+    stories,
+    entities: read("entities.json", []),
+    models: read("trackers.json", {}).models || [],
+    threads: read("threads.json", []),
+    archived,
+  });
 } catch {}
 
 /* Addresses from the previous site that still get search impressions. Astro writes each as a page
@@ -77,11 +67,12 @@ export default defineConfig({
         const p = new URL(page).pathname.replace(/\/$/, "");
         // /subscribe is noindex until the Kit form is connected (subscribe.astro), and a real page after.
         if (p.endsWith("/subscribe") && !process.env.PUBLIC_KIT_FORM_URL) return false;
-        return !/\/(search|admin|saved|river|offline)$/.test(p) && !noindex.has(p) && !(p in legacyRedirects) && !isRedirectPage(page, redirects);
+        if (/\/(search|admin|saved|river|offline)$/.test(p) || p in legacyRedirects || isRedirectPage(page, redirects)) return false;
+        return plan ? plan.include(p) : true;
       },
       serialize(item) {
         const p = new URL(item.url).pathname.replace(/\/$/, "");
-        const mod = lastmod.get(p);
+        const mod = plan?.lastmod.get(p);
         if (mod) item.lastmod = mod;
         if (p === "" || p === "/today") { item.changefreq = "hourly"; item.priority = 1.0; }
         else if (p === "/work") { item.changefreq = "hourly"; item.priority = 0.9; }

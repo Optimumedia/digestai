@@ -33,6 +33,18 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // A story's full article (/ft/<slug>.json) is fetched by the page: network first, and the last copy
+  // kept, so a story read online still shows its article offline, as it did when the text was inline.
+  if (url.pathname.startsWith("/ft/")) {
+    event.respondWith(
+      fetch(req).then((res) => {
+        if (res.ok) caches.open(PAGES).then((c) => c.put(req, res.clone())).catch(() => {});
+        return res;
+      }).catch(() => caches.match(req).then((hit) => hit || Response.error()))
+    );
+    return;
+  }
+
   if (/^\/(_astro|og|fonts)\//.test(url.pathname) || /\.(png|svg|woff2?|webmanifest)$/.test(url.pathname)) {
     event.respondWith(
       caches.match(req).then((hit) => hit || fetch(req).then((res) => {
