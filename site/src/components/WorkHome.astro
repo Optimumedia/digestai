@@ -1,22 +1,21 @@
 ---
 /* AI at Work on the home page, right after the briefing: a band in the section's own materials
-   (sage paper, label tape, cost and time chips; site/docs/work-design.md) so it reads as a
+   (sage paper, label tape, cost and time labels; site/docs/work-design.md) so it reads as a
    different publication without shouting over the news.
 
-   1. The head: the "AI at Work" wordmark, what the section is, and the way in.
-   2. The week's one thing to try (lib/work.ts, homeWork): the outcome headline, what you get in
-      plain words, the tool on its tape, the chips, the catch, one action ("See how" on /work, where the same card is open), and
-      the prompt to copy when the card has one (else what to use it for).
+   1. The head: the "AI at Work" wordmark, one short line on what it is, and the way in.
+   2. The week's one thing to try (lib/work.ts, homeWork), as the collapsed card shows it: the tool on
+      its tape, the outcome headline, what you get, the labels, the catch on one line and one action
+      ("See how" on /work, where the same card has the steps and the prompt).
    3. Two more things to try, one line each; three when there is no featured pick.
    4. Shortcuts to the job pages that have something on them.
 
    The page only renders this when homeWork() found something good (a featured pick, or three
    cards). Every way into the section records a next_click (public/app.js, data-work-next):
-   "home-band" (the pick), "home-band-prompt" (the link under its prompt), "home-band-item" (a
-   line), "home-band-job" (a job), "home-band-all" (the head's link). WorkTeaser.astro records
-   "home-teaser". */
+   "home-band" (the pick), "home-band-item" (a line), "home-band-job" (a job), "home-band-all" (the
+   head's link). WorkTeaser.astro records "home-teaser". The pick also sends card_view. */
 import type { HomeWork } from "../lib/work";
-import { cardTitle, youGetLine } from "../lib/work";
+import { cardLabels, cardTitle, youGetLine } from "../lib/work";
 import WorkChips from "./WorkChips.astro";
 import WorkRow from "./WorkRow.astro";
 
@@ -27,27 +26,17 @@ const card = featured?.workCard;
 const head = card ? cardTitle(card) : null;
 const get = card && head ? youGetLine(card, head.title) : null;
 const steps = card?.steps?.filter(Boolean) || [];
-const example = Boolean(card?.example?.before && card?.example?.after);
-// What is waiting on /work, so "See how" says why to click.
-const waiting = [
-  steps.length ? `${steps.length} steps` : "",
-  card?.prompt ? "a prompt to copy" : "",
-  example ? "a before and after" : "",
-].filter(Boolean);
-const why = waiting.length > 1
-  ? `${waiting.slice(0, -1).join(", ")} and ${waiting[waiting.length - 1]}`
-  : waiting[0] || "What it does, what it costs and the catch";
 ---
 
 <section class="wk-home work-theme wk-hband" aria-labelledby="wk-home-h">
   <div class="wk-hband-head">
     <h2 id="wk-home-h" class="wk-hband-mark">AI at <u>Work</u></h2>
-    <p class="wk-hband-tag">Practical AI for marketers and small businesses: what it does, what it costs, how long it takes, and the catch.</p>
+    <p class="wk-hband-tag">Simple AI tips for small businesses. Each one takes minutes.</p>
     <a class="wk-hband-all" href="/work" data-work-next="home-band-all">All of AI at Work<span aria-hidden="true"> →</span></a>
   </div>
 
   {featured && card && head && (
-    <article class:list={["wk-hfeat", { "has-side": Boolean(card.prompt) || card.useFor.length > 0 }]} data-work-tool={card.tool} aria-labelledby="wk-hfeat-h">
+    <article class="wk-hfeat" data-work-tool={card.tool} data-work-card aria-labelledby="wk-hfeat-h">
       <div class="wk-hfeat-main">
         <p class="wk-hfeat-k">This week's one thing to try</p>
         <p class="wk-card-tool">
@@ -56,26 +45,13 @@ const why = waiting.length > 1
         </p>
         <h3 id="wk-hfeat-h" class="wk-hfeat-title"><a href="/work" data-work-next="home-band">{head.title}</a></h3>
         {get && <p class="wk-get"><b>What you get</b> <span>{get}</span></p>}
-        {head.sub && <p class="wk-card-what">{head.sub}</p>}
-        <WorkChips cost={card.cost} costKind={card.costKind} effort={card.effort} includedIn={card.includedIn} />
-        <p class="wk-watch"><b>Watch out</b> <span>{card.watchOut}</span></p>
+        <WorkChips labels={cardLabels(card)} costKind={card.costKind} effort={card.effort} />
+        <p class="wk-watch"><b>The catch</b> <span>{card.watchOut}</span></p>
+        {steps.length > 0 && <p class="wk-start"><b>Start here:</b> {steps[0]}</p>}
         <p class="wk-hfeat-foot">
-          <a class="wk-btn" href="/work" data-work-next="home-band">See how<span aria-hidden="true"> →</span></a>
-          <span class="wk-hfeat-why">{why}</span>
+          <a class="wk-btn" href="/work" data-work-next="home-band">See how to set it up<span aria-hidden="true"> →</span></a>
         </p>
       </div>
-      {card.prompt ? (
-        <figure class="wk-hfeat-side wk-hprompt">
-          <figcaption class="wk-block-h">Prompt to copy</figcaption>
-          <pre><code>{card.prompt}</code></pre>
-          <p class="wk-hprompt-note">{steps.length > 0 ? "Copy it, with the steps, on" : "Copy it on"}{" "}<a href="/work" data-work-next="home-band-prompt">AI at Work</a>.</p>
-        </figure>
-      ) : card.useFor.length > 0 && (
-        <div class="wk-hfeat-side">
-          <p class="wk-block-h">Use it for</p>
-          <ul class="wk-check" role="list">{card.useFor.slice(0, 4).map((u) => <li>{u}</li>)}</ul>
-        </div>
-      )}
     </article>
   )}
 

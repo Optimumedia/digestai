@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta, timezone
 
-from . import checks
+from . import checks, plain
 from .textutil import STOPWORDS
 from .trackers import _plain, org_key
 
@@ -38,10 +38,10 @@ WHO_LABELS = {
 EFFORTS = ("minutes", "an afternoon", "needs a developer")
 # The jobs the section's filters offer, in the order they are shown.
 JOBS = {
-    "customers": "Get customers",
-    "content": "Make content",
-    "sell": "Sell",
-    "support": "Support customers",
+    "customers": "Get more customers",
+    "content": "Make content faster",
+    "sell": "Sell more",
+    "support": "Answer customers faster",
     "business": "Run the business",
 }
 WHO_JOBS = {
@@ -255,7 +255,58 @@ def screen_card(value, source: str | None = None) -> tuple[dict | None, str | No
     if generic_card(card):
         return None, "nothing new"
     card["maker"], _fixed = check_maker(card)
-    return card, None
+    # The screen above reads the card's full wording (a developer word in the tail of a long line
+    # still keeps a tool out); what reaches a page is the plain, short version.
+    return plain_card(card), None
+
+
+def _keeps_limits(card: dict):
+    """Whether a shorter catch still says what the full one does about who cannot use it: the same
+    "leave for now" reason and the same region and plan limits."""
+    skip, lims = skip_reason(card), limits(card)
+    return lambda text: skip_reason({**card, "watch_out": text}) == skip and limits({**card, "watch_out": text}) == lims
+
+
+# The plain words for a "leave for now" reason, as a catch that keeps the reason (skip_reason reads
+# them back the same way).
+SKIP_WORDS = {
+    "waitlist only": "Waitlist only for now",
+    "United States only": "US-only for now",
+    "enterprise plans only": "Enterprise plans only",
+    "being withdrawn": "Being withdrawn (sunset announced)",
+    "not open to everyone yet": "Limited rollout: not open to everyone yet",
+}
+
+
+def _limit_labels(card: dict) -> list[str]:
+    out = []
+    reason = skip_reason({**card, "effort": None})
+    if reason in SKIP_WORDS:
+        out.append(SKIP_WORDS[reason])
+    for label in limits(card):
+        out.append(("Not available " + label[4:]) if label.startswith("not in ") else label)
+    return out
+
+
+def plain_card(card: dict) -> dict:
+    """The card in plain words (plain.py): a verb-first headline of 45-70 characters (or one built
+    from its own uses), "What you get" as one sentence to "you", the catch on one line that keeps its
+    region and plan limits, what it does in one short line and three short uses. Applied to every
+    card on the way in and on every export, and idempotent: a plain card comes back unchanged."""
+    card = dict(card)
+    tool = card["tool"]
+    names = [n for n in (tool, card.get("maker")) if n]
+    card["use_for"] = plain.plain_uses(card.get("use_for") or [], names)
+    card["what_it_does"] = plain.plain_what(card.get("what_it_does") or "", names)
+    card["watch_out"] = plain.plain_watch_out(card.get("watch_out") or "", names, keep=_keeps_limits(card),
+                                              labels=_limit_labels(card))
+    headline = plain.plain_headline(card.get("headline"), names, tool) or plain.fallback_headline(card)
+    card["headline"] = headline
+    line = plain.plain_you_get(card.get("you_get"), names)
+    if line and headline and plain.overlap(line, headline) >= plain.OVERLAP_MAX:
+        line = ""
+    card["you_get"] = line
+    return card
 
 
 def _clamp_card(value) -> dict | None:
@@ -308,6 +359,13 @@ def _clamp_card(value) -> dict | None:
         "example": _example(value.get("example")),
         # The model's "what you get" line, or "" (card_out then builds one from the card's fields).
         "you_get": _you_get(value.get("you_get")),
+        # Rewritten in plain words by the simplify pass (simplify.py) or written by the plain-words
+        # prompt (enrich.py): the pass leaves it alone.
+        "simplified": bool(value.get("simplified")),
+        # From the article (ground_card): the kind of business it names ("a bakery"), for the example
+        # line, and "No tech skills" / "No card needed" when it says so.
+        "business": value.get("business") if value.get("business") in plain.BUSINESS_LABELS else "",
+        "ease": value.get("ease") if value.get("ease") in plain.EASE_LABELS else "",
     }
 
 
@@ -339,26 +397,16 @@ def _cut_words(text: str, limit: int) -> str:
     return cut + "…"
 
 
-def fallback_headline(tool: str, what: str) -> str:
-    """The tool's name plus what it does: "Canva Magic Studio writes and lays out social posts".
-    A sentence that already starts with the tool keeps its own wording; one that starts with a verb
-    ("Writes ...") reads on from the name; anything else gets a colon."""
-    what = (what or "").strip().rstrip(".")
-    if not what:
-        return _cut_words(tool, HEADLINE_MAX)
-    if what.lower().startswith(tool.lower()):
-        line = what
-    elif re.match(r"[A-Z][a-z]+s\b", what) and not re.match(r"(?:This|Its|Is|Has|Was|Does|Analytics|News)\b", what):
-        line = f"{tool} {what[0].lower()}{what[1:]}"
-    else:
-        line = f"{tool}: {what}"
-    return _cut_words(line, HEADLINE_MAX + 10)
+def fallback_headline(card: dict) -> str:
+    """A headline built from the card's own uses, verb first (plain.fallback_headline), or "" when
+    none makes one; such a card stays off the hub (card_out, "hub")."""
+    return plain.fallback_headline(card)
 
 
 def card_headline(value, tool: str, what: str, maker: str | None = None) -> str:
-    """What the reader gets, in plain words ("Turn 20 customer reviews into three ad angles"), run
-    through the same headline rules as the news (checks.discipline_headline); the tool's name plus
-    what it does when the model gave none, gave a long one, or one the rules cannot rescue."""
+    """The model's headline run through the same rules as the news (checks.discipline_headline), or
+    "" when there is none or the rules cannot rescue it. plain_card then holds it to the card's own
+    formula (plain.headline_ok) and builds one from the card's uses when it fails."""
 
     text = _text(value, 200).strip().strip("\"“”'").strip()
     if text and not _empty(text) and len(text) <= HEADLINE_MAX:
@@ -366,7 +414,7 @@ def card_headline(value, tool: str, what: str, maker: str | None = None) -> str:
         fixed = fixed.rstrip(".").strip()
         if checks.usable_headline(fixed) and len(fixed) <= HEADLINE_MAX and not re.search(r"[!]", fixed):
             return fixed
-    return fallback_headline(tool, what)
+    return ""
 
 
 def _prompt(value) -> str:
@@ -428,71 +476,24 @@ def _included_in(value) -> str:
 # when there is none, so every card on the site carries one. A reader who is not technical reads
 # this line first, so jargon is rewritten when a plain word says the same, and dropped otherwise.
 
-YOU_GET_MAX = 160
-YOU_GET_MIN = 20
-# Jargon and hype a small-business owner should not have to decode. A line with any of these goes.
+YOU_GET_MAX = plain.LIMITS["you_get"]["max_chars"]
+YOU_GET_MIN = plain.LIMITS["you_get_fallback"]["min_chars"]
+# Hype a setup step must not carry (howto.ground_steps). Narrower than plain.JARGON on purpose: a
+# step names the maker's own buttons and menus, and "Workflows" or "Integrations" can be one of them.
 YOU_GET_BANNED = re.compile(
     r"\b(?:leverag\w*|streamlin\w*|workflow automation|llms?|large language models?|agentic|seamless\w*|"
     r"synerg\w*|unlock\w*|empower\w*|supercharg\w*|game[- ]?chang\w*|revolutioni[sz]\w*|cutting[- ]edge|"
     r"next[- ]level|best[- ]in[- ]class|robust|utili[sz]\w*|paradigm\w*|ai[- ]powered|ai[- ]driven|"
     r"generative ai|genai|10x|holistic|scalab\w*|end[- ]to[- ]end|frictionless|turnkey|optimi[sz]ations?)\b",
     re.I)
-# ...and the ones a plain word replaces without changing what the line says.
-YOU_GET_PLAIN = [
-    (re.compile(r"\bleverag(?:e|ing)\b", re.I), lambda m: "use" if m.group(0).lower() == "leverage" else "using"),
-    (re.compile(r"\bleverages\b", re.I), lambda m: "uses"),
-    (re.compile(r"\butili[sz](?:e|ing)\b", re.I), lambda m: "use" if m.group(0).lower()[-1] == "e" else "using"),
-    (re.compile(r"\butili[sz]es\b", re.I), lambda m: "uses"),
-    (re.compile(r"\bseamlessly\s+", re.I), lambda m: ""),
-]
-# Who the rules-built line is for, as a person reads it ("sales" alone reads as a number).
-YOU_GET_WHO = {
-    "marketer": "marketers", "sales": "salespeople", "founder": "founders",
-    "support": "support teams", "ops": "small teams", "ecommerce": "shop owners",
-}
-# First words of a use that is a thing rather than an action ("Product captions from photos"): the
-# rules-built line says "Helps ... with" for those and "Lets ... <use>" for a verb. Words that are as
-# often a verb ("Email", "Reply", "Schedule", "Search", "Support") are left out: they read as the verb.
-NOUN_START = {
-    "a", "an", "the", "your", "their", "its", "product", "products", "social", "emails", "customer",
-    "customers", "blog", "ad", "ads", "sales", "seo", "weekly", "daily", "monthly", "quick", "faster", "better",
-    "automatic", "automated", "ai", "new", "internal", "team", "meeting", "meetings", "content", "video",
-    "videos", "image", "images", "photo", "photos", "website", "websites", "landing", "leads",
-    "marketing", "invoices", "personalized", "personalised", "custom", "bulk", "first",
-    "short", "long", "more", "all", "local", "online", "one", "two", "three", "multiple", "several", "every",
-    "each", "instant", "on-brand", "campaign", "campaigns", "event",
-    "events", "job", "jobs", "follow-up", "follow-ups", "replies", "answers", "faqs", "reports",
-    "data", "spreadsheet", "spreadsheets", "calendar", "phone", "calls",
-    "headlines", "captions", "descriptions", "posts", "newsletters", "reviews", "competitor",
-    "prices", "pricing", "inventory", "orders", "booking", "bookings", "appointment",
-    "appointments", "live", "real-time", "after-hours", "b2b", "small", "large", "common",
-}
 
 
 def _you_get(value) -> str:
-    """The model's line, clamped: plain words (a banned word goes, unless a plain one says the same),
-    no exclamation marks, at most YOU_GET_MAX characters. A longer line keeps its first sentence
-    when that fits; it is never cut mid-sentence. "" when nothing usable is left."""
+    """The model's line as stored: tidied, never longer than a few sentences. The plain-words rules
+    (plain.plain_you_get, in plain_card) decide whether it reaches a page."""
     text = _text(value, 600).strip().strip("\"“”'").strip()
-    if _empty(text) or "!" in text:
+    if _empty(text):
         return ""
-    for pattern, plain in YOU_GET_PLAIN:
-        text = pattern.sub(plain, text)
-    text = re.sub(r"\s+", " ", text).strip()
-    if YOU_GET_BANNED.search(_dashes(text)):
-        return ""
-    if len(text) > YOU_GET_MAX:
-        head = text[:YOU_GET_MAX]
-        end = max(head.rfind(". "), head.rfind("? "))
-        if head.endswith((".", "?")):
-            end = len(head) - 1
-        text = head[: end + 1].strip() if end + 1 >= YOU_GET_MIN else ""
-    if len(text) < YOU_GET_MIN:
-        return ""
-    if text[0].islower():
-        text = text[0].upper() + text[1:]
-    if not text.endswith((".", "?")):
-        text += "."
     return text
 
 
@@ -522,35 +523,11 @@ def you_get_grounded(line: str, source: str) -> bool:
     return not checks.unsupported_names(you_get_names(line), line, source)
 
 
-def _who_words(who_for: list[str]) -> str:
-    names = list(dict.fromkeys(YOU_GET_WHO.get(w, w) for w in (who_for or [])))[:2]
-    return " and ".join(names) or "small teams"
-
-
 def fallback_you_get(card: dict) -> str:
-    """A plain line from the card's own fields, for a card whose model line is missing or failed a
-    check: "Lets marketers and founders draft product captions from photos." Built only from what
-    the card already says (a use and who it is for), so it claims nothing new: no figure, no "faster"."""
-    who = _who_words(card.get("who_for") or [])
-    names = {w.lower() for n in (card.get("tool"), card.get("maker")) for w in (n or "").split()[:1]}
-    for use in card.get("use_for") or []:
-        use = re.sub(r"\s+", " ", str(use or "")).strip().rstrip(".;:,")
-        # Three words or fewer ("collect task description") make a clumsy line: better none, until
-        # the model writes a real one, than "Lets founders collect task description."
-        if len(use) < 6 or len(use.split()) < 4 or YOU_GET_BANNED.search(_dashes(use)):
-            continue
-        word = use.split()[0]
-        first = word.lower()
-        # A name ("Shopify product pages", "iPhone photos") keeps its case and reads as a thing.
-        name = first in names or bool(re.search(r"[A-Z0-9]", word[1:]))
-        lead = word if name else first
-        rest = use[len(word):]
-        if name or first in NOUN_START or first.endswith("ing") or first[0].isdigit():
-            line = f"Helps {who} with {lead}{rest}"
-        else:
-            line = f"Lets {who} {lead}{rest}"
-        return _end(_cut_words(line, YOU_GET_MAX - 1))
-    return ""  # no line is better than a weak one; the page shows the box only when there is one
+    """A line to "you" built only from the card's own uses ("You can draft a week of posts and resize
+    one ad for five places."), skipping the uses its headline already says: it claims nothing new.
+    "" when nothing usable is left; the page then shows no box."""
+    return plain.fallback_you_get(card, card.get("headline") or "")
 
 
 def _end(line: str) -> str:
@@ -634,7 +611,12 @@ def ground_card(card: dict | None, source: str | None) -> dict | None:
 
     headline = card.get("headline") or ""
     if headline and enough and checks.unsupported_figures(headline, source):
-        card["headline"] = fallback_headline(card["tool"], card["what_it_does"])
+        card["headline"] = plain.fallback_headline(card)
+    # Facts for the collapsed card that only the article can give: the kind of business it names
+    # (the example line) and whether it says no tech skills or no card are needed (the third label).
+    if enough:
+        card["business"] = card.get("business") or plain.business_in(source)
+        card["ease"] = card.get("ease") or plain.ease_in(source)
 
     # What you get: a figure or a name the article lacks sends the line back to the rules-built one
     # (card_out), which only repeats what the card already says.
@@ -787,6 +769,9 @@ def featurable(story: dict) -> bool:
     real publisher. Reads the exported story (card_out shape under "workCard")."""
     card = story.get("workCard") or {}
     maker, link = card.get("maker"), card.get("link")
+    # Never a "Needs a developer" card, nor one the hub does not list, as the one thing to try.
+    if card.get("effort") == "needs a developer" or card.get("hub") is False:
+        return False
     if not maker or username_maker(maker, story):
         return False
     if not link or _on(_host(link), COMMUNITY_HOSTS):
@@ -823,16 +808,82 @@ def usefulness(card: dict, story: dict | None = None) -> float:
     return round(score, 3)
 
 
+# ---------------------------------------------------------------------------- the collapsed card's labels
+
+TIME_LABELS = {"minutes": "5 minutes", "an afternoon": "An afternoon", "needs a developer": "Needs a developer"}
+_PRICE = re.compile(r"(?:[$€£]\s?\d[\d,]*(?:\.\d+)?|\d[\d,]*(?:\.\d+)?\s?(?:usd|eur|gbp|dollars|euros))", re.I)
+_MONTHLY = re.compile(r"(?:/\s?mo(?:nth)?\b|per month|a month|monthly|/\s?user/\s?mo)", re.I)
+
+
+def cost_label(card: dict) -> str:
+    """"Free", "Free to try", "Included in <plan>", "Paid: from $X/mo" (only with the stated price),
+    "Paid", or "Price not stated". "Free" only when the cost says free outright."""
+    cost = (card.get("cost") or "").strip()
+    kind = cost_kind(cost)
+    low = cost.lower()
+    if kind == "included":
+        plan = (card.get("included_in") or "").strip()
+        return f"Included in {plan}" if plan and len(plan) <= 40 else "Already included"
+    if kind == "free tier" or (kind == "free" and re.search(r"trial|to try|to start|limited", low)):
+        return "Free to try"
+    if kind == "free":
+        return "Free"
+    if kind == "paid":
+        price = _PRICE.search(cost)
+        if price:
+            return f"Paid: from {price.group(0).replace(' ', '')}{'/mo' if _MONTHLY.search(cost) else ''}"
+        return "Paid"
+    return "Price not stated"
+
+
+def card_labels(card: dict) -> list[dict]:
+    """At most three labels, in order: cost, time (when stated), and one skill or risk-reducer only
+    when the article said so ("No tech skills", "No card needed")."""
+    out = [{"kind": "cost", "costKind": cost_kind(card.get("cost") or ""), "text": cost_label(card)}]
+    if card.get("effort") in TIME_LABELS:
+        out.append({"kind": "time", "text": TIME_LABELS[card["effort"]]})
+    if card.get("ease") in plain.EASE_LABELS:
+        out.append({"kind": "ease", "text": card["ease"]})
+    return out[:3]
+
+
+# "AI Max for Search", "Copilot for Business": the words after "for" are not an app you open.
+NOT_A_PLACE = {"search", "business", "work", "marketing", "sales", "teams", "team", "enterprise", "developers",
+               "everyone", "free", "small", "creators", "education", "government", "startups", "agencies", "shopping"}
+
+
+def action_label(card: dict) -> str:
+    """The Try link's words, a verb and a place: "Try it in Gmail" for a tool that lives inside another
+    ("Gemini in Gmail", "ChatGPT for Word"), "Open Canva" for a short name, "Try it free" when it is
+    free to start, else "Open <site>" from the link. "" without a link."""
+    link = card.get("link")
+    if not link:
+        return ""
+    tool = (card.get("tool") or "").strip()
+    inside = re.search(r"\b(?:in|for|inside)\s+((?:[A-Z][\w.+&'-]*)(?:\s+[A-Z0-9][\w.+&'-]*){0,2})\s*$", tool)
+    if inside and len(inside.group(1)) <= 24 and inside.group(1).split()[0].lower() not in NOT_A_PLACE:
+        return f"Try it in {inside.group(1)}"
+    if tool and len(tool) <= 20 and not re.search(r"[()]|\s(?:for|in|inside)\s", tool):
+        return f"Open {tool}"
+    if cost_kind(card.get("cost") or "") in ("free", "free tier"):
+        return "Try it free"
+    host = _host(link)
+    return f"Open {host}" if host and len(host) <= 24 else "Try it"
+
+
 # ---------------------------------------------------------------------------- export shapes
 
 def card_out(card: dict, story: dict | None = None) -> dict:
     """The card as the site reads it, with the facts the pages derive from it."""
+    headline = card.get("headline") or fallback_headline(card)
+    jobs = jobs_for(card)
     out = {
         "tool": card["tool"],
         "maker": card.get("maker"),
-        # What the reader gets; cards stored before the field existed get the tool plus what it does.
-        "headline": card.get("headline") or fallback_headline(card["tool"], card["what_it_does"]),
-        "whatItDoes": card["what_it_does"],
+        # What the reader gets, verb first (plain.py); "" when neither the model's headline nor one
+        # built from the card's uses keeps the rules. Such a card is kept off the hub ("hub").
+        "headline": headline,
+        "whatItDoes": card.get("what_it_does") or "",
         "whoFor": card.get("who_for") or [],
         "useFor": card.get("use_for") or [],
         "cost": card.get("cost") or "unknown",
@@ -840,7 +891,7 @@ def card_out(card: dict, story: dict | None = None) -> dict:
         "effort": card.get("effort"),
         "watchOut": card["watch_out"],
         "link": card.get("link"),
-        "jobs": jobs_for(card),
+        "jobs": jobs,
         "skip": skip_reason(card),
         "limits": limits(card),
         "usefulness": usefulness(card, story),
@@ -848,8 +899,19 @@ def card_out(card: dict, story: dict | None = None) -> dict:
         "includedIn": card.get("included_in") or "",
         # What you get, in plain words: the model's grounded line, else one built from the card's own
         # fields, so every card on the site has it (cards stored before the field existed included).
-        "youGet": card.get("you_get") or fallback_you_get(card),
+        "youGet": card.get("you_get") or plain.fallback_you_get(card, headline),
+        # The collapsed card's labels, at most three, in this order: cost, time, and "No tech skills"
+        # or "No card needed" only when the article said so (card_labels).
+        "labels": card_labels(card),
+        # The one action: a verb and a place ("Try it in Gmail", "Open Canva"), for the Try link.
+        "action": action_label(card),
+        # "For example, a café could use it to ..." from the card's own uses, or "".
+        "scenario": plain.scenario(card, jobs),
+        # On the hub's lists only with a headline that keeps the rules and something to use it for.
+        "hub": bool(headline) and bool(card.get("use_for")),
     }
+    if card.get("simplified"):
+        out["simplified"] = True
     # The teaching fields, only when present: the site's WorkCard (site/src/lib/work.ts) renders
     # `steps`, `prompt` and `example` only when the export carries them, under exactly these names.
     if card.get("steps"):
@@ -885,8 +947,10 @@ def story_card(story: dict, cards: dict[int, dict]) -> dict | None:
 
 
 def section_stories(stories: list[dict]) -> list[dict]:
-    """The stories the section covers: any story with a card, whatever its category."""
-    return [s for s in stories if s.get("workCard")]
+    """The stories the section covers: any story with a card, whatever its category, unless the card
+    has no headline that keeps the rules or nothing to use it for (card_out, "hub"): its story page
+    still shows it, the hub's lists do not."""
+    return [s for s in stories if s.get("workCard") and s["workCard"].get("hub", True) is not False]
 
 
 # ---------------------------------------------------------------------------- tools directory
@@ -1067,6 +1131,8 @@ def build_briefing(stories: list[dict], now) -> dict:
         "alsoIds": [s["id"] for s in also],
         # The featured pick, always storyIds[0] when set; None when no card qualifies (featurable).
         "featuredId": featured["id"] if featured is not None else None,
+        # Its tool, as the site's events name it (detail), for the admin page's featured try rate.
+        "featuredTool": featured["workCard"]["tool"] if featured is not None else None,
         "stats": {
             "items": len(fresh),
             "tools": len(tools),

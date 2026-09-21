@@ -650,10 +650,11 @@ end $$;"""
 # What the public key may insert into events (also in supabase/schema.sql). A type that is not in
 # this list is refused by the database, so a new reader event needs its name added here.
 # AI at Work (/work): what readers do with a card. try = the card's "Try it" link, copy_prompt = the
-# starter prompt copied, expand = "How to use it" opened, next_click = the page's next-step link.
+# starter prompt copied, expand = "How to set it up" opened, next_click = the page's next-step link,
+# card_view = a card at least half on screen (once per card per page view, the site sends at most 10).
 # They carry the tool's name (or the link's label) in detail and, on /work pages, no story_id: the
 # page is the path, which every event already has (the guard lets story_id be empty).
-WORK_EVENT_TYPES = ("try", "copy_prompt", "expand", "next_click")
+WORK_EVENT_TYPES = ("try", "copy_prompt", "expand", "next_click", "card_view")
 PUBLIC_EVENT_TYPES = ("view", "click_source", "dwell", "share", "newsletter_click", "save", "follow", "comment",
                       "push_on", "listen", "search", "depth", *WORK_EVENT_TYPES)
 # The event types that may carry a detail (anything else must send none).

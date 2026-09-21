@@ -182,3 +182,27 @@ day lists.
 - Focus: a 3px blue ring on every link, button and summary. Motion: hover transitions only, off
   under `prefers-reduced-motion: reduce`.
 - Phones 320–414px: tabs scroll sideways, rows and tiles stack, no horizontal page scroll.
+
+## The simple card (plain words, September 2026)
+
+For a busy owner who decides in seconds. The wording rules live in `pipeline/digest/plain.py`
+(limits in `LIMITS`, one shared `JARGON` list with plain `SWAPS`, a Flesch-Kincaid check), applied to
+every card by `work.plain_card` on the way in and on every export; `simplify.py` rewrites recent older
+cards with a free model, grounded in the card and its summary. Where this differs from the sections
+above, this wins.
+
+- **Visible without a click:** the tool tape with maker and date; the headline (verb first, 45-70
+  characters, no "AI" outside a product name); "What you get" (one sentence to "you", at most 120
+  characters); at most three labels (cost: Free / Free to try / Included in [plan] / Paid: from $X/mo /
+  Price not stated; time: 5 minutes / An afternoon / Needs a developer; "No tech skills" or "No card
+  needed" only when the article said so); the catch on one line (at most 80 characters); ONE action
+  (`card.action`: "Try it in Gmail", "Open Canva"); optionally the example line ("For example, a café
+  could use it to ...", always "could") and "Start here:" with the first step.
+- **Behind "How to set it up":** the other steps, the prompt, before and after, what to use it for,
+  who cannot use it, and the sources. "Leave for now" is a muted note, never a second button.
+- **List rows:** headline, cost and time, a Try link. Nothing else.
+- A card without a rule-keeping headline or any use has `hub: false`: its story page shows it, the
+  hub's lists and the featured slot do not. A "Needs a developer" card is never featured.
+- `card_view` (public/app.js, `[data-work-card]`): once per card per page view when half of it is on
+  screen, at most 10 a page. The admin line shows tries plus prompt copies per 100 /work views and
+  the featured card's try rate (`work-briefing.json` `featuredTool`).

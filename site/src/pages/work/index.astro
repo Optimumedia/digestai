@@ -70,12 +70,8 @@ const jsonLd = [
 <Work title="AI at Work" description={description} current="home" jsonLd={jsonLd} thin={sectionStories.length < WORK_MIN_ITEMS}>
   <header class="wk-head">
     <p class="wk-eyebrow">Practical AI · updated <time datetime={work.generatedAt}>{dateTime(work.generatedAt)}</time></p>
-    <h1>AI you can actually use this week</h1>
-    <p>
-      The AI that changes marketing output, brings in customers and takes admin off a small team's hands.
-      Every item says what it does, who it is for, what it costs, how long it takes and what the catch is.
-      No funding rounds, no benchmarks, nothing you cannot act on.
-    </p>
+    <h1>AI you can use this week</h1>
+    <p class="wk-intro">{SECTION_TAGLINE}</p>
   </header>
 
   {sectionStories.length === 0 && (
@@ -118,9 +114,7 @@ const jsonLd = [
       </div>
       {week.changed.length > 0 && (
         <p class="wk-lede">
-          {count(week.changed.length, "thing")} worth knowing across {count(week.tools, "tool")}.
-          {week.tryCount > 0 && <> {week.tryCount} you can try now{week.skipCount > 0 && <>, {week.skipCount} to leave for later</>}.</>}
-          {week.tryCount === 0 && week.skipCount > 0 && <> {week.skipCount} to leave for later.</>}
+          {week.tryCount > 0 ? <>{week.tryCount} to try now{week.skipCount > 0 && <>, {week.skipCount} to leave for later</>}.</> : <>{week.skipCount} to leave for later.</>}
         </p>
       )}
 
@@ -154,10 +148,7 @@ const jsonLd = [
           </ul>
         </div>
       )}
-      <p class="wk-note">
-        Every line opens the story with the full card: who it is for, the catch and what to use it for.
-        The news order is on the <a class="wk-thread" href="/today">daily briefing</a>.
-      </p>
+      <p class="wk-note">Tap a line for the full card: the catch and how to set it up.</p>
     </section>
   )}
 
@@ -168,7 +159,7 @@ const jsonLd = [
         episode={episode}
         heading={`AI at Work, the week of ${episodeRange}`}
         edition={`Weekly · ${episodeRange}`}
-        note="A few minutes on what changed for marketers and small teams this week: what each thing does, what it costs, how long it takes and the catch."
+        note="A few minutes on this week's tips: what each one does, what it costs and the catch."
         moreHref={episode.week ? `/work/week/${episode.week}` : "/listen#work"}
         moreLabel={episode.week ? "That week's playbook →" : "All episodes →"}
         album="AI at Work"

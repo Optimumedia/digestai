@@ -361,6 +361,10 @@ const homeData = JSON.stringify({
                     {" · "}{workHealth.engagement7.depthAvg != null ? `${workHealth.engagement7.depthAvg}% average read depth` : "no read depth yet"}
                     {" · "}{plural(workHealth.engagement7.tries, "try", "tries")}, {plural(workHealth.engagement7.copies, "prompt copy", "prompt copies")}, {plural(workHealth.engagement7.expands, "how-to opened", "how-tos opened")}
                     {workHealth.engagement7.nextClicks ? <>{" · "}{plural(workHealth.engagement7.nextClicks, "next-step click")}</> : ""}
+                    {" · "}{workHealth.engagement7.actionsPer100 != null ? `${workHealth.engagement7.actionsPer100} tries and prompt copies per 100 views` : "no tries per 100 views yet"}
+                    {" · "}{workHealth.engagement7.featuredTryRate != null
+                      ? `featured card tried ${workHealth.engagement7.featuredTryRate}% of the ${workHealth.engagement7.featuredViews} times it was seen`
+                      : "no featured-card views yet"}
                   </p>
                 )}
                 <p class="work-health-line muted">

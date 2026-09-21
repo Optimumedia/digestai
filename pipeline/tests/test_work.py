@@ -56,8 +56,13 @@ def test_a_card_is_clamped_to_what_the_pages_can_show():
         use_for=["A " * 80, "Second use", "Third use", "Fourth use"],
         tool="T" * 300, watch_out="W" * 400, what_it_does="D" * 400, link="ftp://example.com/x"))
     assert out["who_for"] == ["marketer", "sales", "support", "ops"], "unknown readers dropped, order kept, max four"
-    assert len(out["use_for"]) == 3 and len(out["use_for"][0]) <= 90
-    assert len(out["tool"]) == 120 and len(out["watch_out"]) == 260 and len(out["what_it_does"]) == 220
+    # The raw clamp, before the plain-words rules (plain.py) shorten what reaches a page.
+    raw = work._clamp_card(card(use_for=["A " * 80, "Second use"], tool="T" * 300, watch_out="W" * 400, what_it_does="D" * 400))
+    assert len(raw["use_for"][0]) <= 90
+    assert len(raw["tool"]) == 120 and len(raw["watch_out"]) == 260 and len(raw["what_it_does"]) == 220
+    # What reaches a page: short uses, a one-line catch (never empty), what it does in 90 characters.
+    assert len(out["use_for"]) <= 3 and all(len(u.split()) <= 6 for u in out["use_for"])
+    assert len(out["tool"]) == 120 and 10 <= len(out["watch_out"]) <= 80 and len(out["what_it_does"]) <= 90
     assert out["link"] is None, "only http(s) links reach a page"
     assert work.clean_card(card(who_for=["nobody"]))["who_for"] == ["marketer"]
 
@@ -433,7 +438,8 @@ def test_the_admin_health_line_is_built_from_the_exported_files():
     w = admin.work_summary(work_json, {"windowHours": 24, "stats": {"items": 1}}, [], rows, now)
     assert (w["week"], w["cards"], w["tools"], w["try"], w["skip"]) == ("2026-W39", 1, 1, 1, 0)
     assert w["noCost"] == 1 and w["noLink"] == 1 and w["toolCount"] == 2
-    assert w["thinJobs"] == ["Make content", "Sell", "Support customers"] and w["emptyJobs"] == ["Sell", "Support customers"]
+    assert w["thinJobs"] == ["Make content faster", "Sell more", "Answer customers faster"]
+    assert w["emptyJobs"] == ["Sell more", "Answer customers faster"]
     assert w["dropped"] == {"developer": 4} and w["droppedTools"] == ["OpenCode", "ZCode"]
     assert w["audioReason"] == "no time left this run", "the newest run's audio step"
     cards = admin.work_health_cards(w, now)
@@ -670,25 +676,23 @@ def test_the_plan_it_comes_with_must_be_named_in_the_article():
     assert work.ground_card(work.clean_card(card(included_in="Google Workspace Business Standard")), ARTICLE)["included_in"] == ""
 
 
-def test_the_outcome_headline_falls_back_to_the_tool_and_what_it_does():
+def test_the_outcome_headline_falls_back_to_one_built_from_the_cards_uses():
     base = dict(tool="Canva Magic Studio", what_it_does="Writes and lays out social posts from a short brief.")
-    # No headline (an older stored card, or the model left it out): the tool reads on into what it does.
-    assert work.clean_card(card(**base))["headline"] == "Canva Magic Studio writes and lays out social posts from a short brief"
-    assert work.card_out({**work.clean_card(card(**base)), "headline": None})["headline"].startswith("Canva Magic Studio writes")
-    # Too long, hype the rules cannot rescue, or an empty answer: the same fallback.
-    assert work.clean_card(card(**base, headline="Turn reviews into ads " * 6))["headline"].startswith("Canva Magic Studio writes")
-    assert work.clean_card(card(**base, headline="None"))["headline"].startswith("Canva Magic Studio writes")
-    assert work.clean_card(card(**base, headline="WOW!"))["headline"].startswith("Canva Magic Studio writes")
-    # Hype words come out through the same rules as news headlines.
-    h = work.clean_card(card(**base, headline="Revolutionary way to turn reviews into ad angles"))["headline"]
-    assert "evolutionary" not in h.lower() and "ad angles" in h, h
-    # A sentence that does not start with a verb gets a colon; one naming the tool keeps its words.
-    assert work.fallback_headline("Zapier Agents", "An assistant for routing leads.") == "Zapier Agents: An assistant for routing leads"
-    assert work.fallback_headline("Zapier Agents", "Zapier Agents routes new leads.") == "Zapier Agents routes new leads"
-    assert len(work.fallback_headline("T", "Writes " + "very " * 40 + "long things.")) <= work.HEADLINE_MAX + 10
+    fallback = "Draft a week of posts with Canva Magic Studio"
+    # No headline (an older stored card, or the model left it out): the first use, verb first, with the tool.
+    assert work.clean_card(card(**base))["headline"] == fallback
+    assert work.card_out({**work.clean_card(card(**base)), "headline": None})["headline"] == fallback
+    # Too long, hype the rules cannot rescue, an empty answer, or the tool first: the same fallback.
+    for bad in ("Turn reviews into ads " * 6, "None", "WOW!", "Canva Magic Studio writes and lays out social posts",
+                "Is this the end of writing social posts by hand?", "Revolutionize your social posts with Canva today"):
+        assert work.clean_card(card(**base, headline=bad))["headline"] == fallback, bad
+    # A card with no use that starts with an action has no headline, and stays off the hub.
+    none = work.clean_card(card(**base, use_for=["Product captions", "Social posts"]))
+    assert none["headline"] == "" and work.card_out(none)["hub"] is False
+    assert work.card_out(work.clean_card(card(**base)))["hub"] is True
     # A headline figure the article does not have goes back to the fallback.
     wrong = work.clean_card(card(**base, headline="Turn 35 customer reviews into three ad angles"))
-    assert work.ground_card(wrong, ARTICLE)["headline"].startswith("Canva Magic Studio writes")
+    assert work.ground_card(wrong, ARTICLE)["headline"] == fallback
     right = work.clean_card(card(**base, headline="Turn 20 customer reviews into three ad angles"))
     assert work.ground_card(right, ARTICLE)["headline"] == "Turn 20 customer reviews into three ad angles"
 
@@ -721,7 +725,8 @@ def test_the_prompt_asks_for_the_teaching_fields_and_still_fits_the_local_window
     row = SimpleNamespace(title="T", source_name="S", published_at=None)
     for provider in ("gemini", "groq", "ollama"):
         p = enrich.build_prompt(row, "word " * 20000, provider)
-        for field in ('"headline": what the reader gets', '"you_get"', '"prompt"', '"steps"', '"example"', '"included_in"'):
+        for field in ('"headline": a verb (Draft,', '"you_get"', '"prompt"', '"steps"', '"example"', '"included_in"',
+                      "45-70 characters", "max 80 characters", "no jargon"):
             assert field in p, (provider, field)
         cap = config.PROMPT_TOKEN_BUDGET.get(provider)
         assert cap is None or enrich.estimated_tokens(p) <= cap, (provider, enrich.estimated_tokens(p))
@@ -770,21 +775,21 @@ def test_a_forum_handle_can_never_be_the_featured_pick():
 def test_the_work_events_are_accepted_by_the_database_rules():
     from digest import db as dbm
 
-    for t in ("try", "copy_prompt", "expand", "next_click"):
+    for t in ("try", "copy_prompt", "expand", "next_click", "card_view"):
         assert t in dbm.PUBLIC_EVENT_TYPES and t in dbm.DETAIL_EVENT_TYPES
     policy = "\n".join(dbm.EVENTS_POLICY_SQL)
-    assert "'try', 'copy_prompt', 'expand', 'next_click'" in policy
-    assert "detail IS NULL OR type IN ('search', 'depth', 'try', 'copy_prompt', 'expand', 'next_click')" in policy
+    assert "'try', 'copy_prompt', 'expand', 'next_click', 'card_view'" in policy
+    assert "detail IS NULL OR type IN ('search', 'depth', 'try', 'copy_prompt', 'expand', 'next_click', 'card_view')" in policy
     # A /work page sends no story: the guard only checks a story_id that is given.
     assert "new.story_id is not null and not exists" in dbm.EVENTS_GUARD_SQL
     schema = (Path(__file__).resolve().parents[2] / "supabase" / "schema.sql").read_text(encoding="utf-8")
-    assert "'search', 'depth', 'try', 'copy_prompt', 'expand', 'next_click')" in schema
-    assert "detail is null or type in ('search', 'depth', 'try', 'copy_prompt', 'expand', 'next_click')" in schema
+    assert "'search', 'depth', 'try', 'copy_prompt', 'expand', 'next_click', 'card_view')" in schema
+    assert "detail is null or type in ('search', 'depth', 'try', 'copy_prompt', 'expand', 'next_click', 'card_view')" in schema
     # The site sends them under these attributes (site/public/app.js).
     js = (Path(__file__).resolve().parents[2] / "site" / "public" / "app.js").read_text(encoding="utf-8")
     for attr in ("data-work-try", "data-work-copy", "data-work-howto", "data-work-next"):
         assert attr in js, attr
-    for t in ('"try"', '"copy_prompt"', '"expand"', '"next_click"'):
+    for t in ('"try"', '"copy_prompt"', '"expand"', '"next_click"', '"card_view"'):
         assert f"send({t}" in js, t
 
 
@@ -809,13 +814,26 @@ def test_the_admin_work_engagement_line_is_one_narrow_query():
             {"type": "copy_prompt", "path": "/work", "value": 1, "detail": "Canva Magic Studio"},
             {"type": "expand", "path": "/work", "value": 1, "detail": "Canva Magic Studio"},
             {"type": "try", "path": "/work", "value": 1, "created_at": now - timedelta(days=9)},  # outside the window
+            {"type": "card_view", "path": "/work", "value": 1, "detail": "Canva Magic Studio"},
+            {"type": "card_view", "path": "/work", "value": 1, "detail": "Canva Magic Studio"},
+            {"type": "card_view", "path": "/work", "value": 1, "detail": "Canva Magic Studio"},
+            {"type": "card_view", "path": "/work", "value": 1, "detail": "Other tool"},
         ]
         with eng.begin() as conn:
-            conn.execute(insert(db.events), [{"session": f"s{i}", "created_at": now, **r} for i, r in enumerate(rows)])
+            # Every row names every column: an executemany takes its columns from the first row.
+            conn.execute(insert(db.events), [{"session": f"s{i}", "created_at": now, "detail": None, "story_id": None, **r}
+                                             for i, r in enumerate(rows)])
         with eng.connect() as conn:
-            got = admin.work_engagement(conn, now - timedelta(days=7))
-    assert got == {"views": 2, "depthAvg": 70, "depthReads": 2, "tries": 2, "copies": 1, "expands": 1, "nextClicks": 0}, got
-    assert admin.work_engagement_summary([])["depthAvg"] is None
+            got = admin.work_engagement(conn, now - timedelta(days=7), "Canva Magic Studio")
+            plain_line = admin.work_engagement(conn, now - timedelta(days=7))
+    assert {k: got[k] for k in ("views", "depthAvg", "depthReads", "tries", "copies", "expands", "nextClicks", "cardViews")} == \
+        {"views": 2, "depthAvg": 70, "depthReads": 2, "tries": 2, "copies": 1, "expands": 1, "nextClicks": 0, "cardViews": 4}, got
+    # Tries plus prompt copies per 100 /work views, and the featured card's try rate (tries per 100 times seen).
+    assert got["actionsPer100"] == 150.0
+    assert (got["featuredTries"], got["featuredViews"], got["featuredTryRate"]) == (2, 3, 66.7), got
+    assert plain_line["featuredTryRate"] is None and plain_line["featuredViews"] == 0
+    empty = admin.work_engagement_summary([])
+    assert empty["depthAvg"] is None and empty["actionsPer100"] is None and empty["featuredTryRate"] is None
 
 
 if __name__ == "__main__":

@@ -1,34 +1,55 @@
 ---
-/* The facts every AI at Work item carries, as chips: what it costs, how long it takes (a three-step
-   scale: minutes, an afternoon, needs a developer) and who it is for. `compact` drops the visible
-   "Cost" / "Time" keys for the one-line rows; screen readers still hear them. `includedIn` names
-   the plan it already comes with ("Already included in: Google Workspace"), full chips only. */
-import { EFFORT_STEPS, costLabel, isFree, whoLine } from "../lib/work";
+/* The facts every AI at Work item carries, as labels: what it costs, how long it takes (a three-step
+   scale: 5 minutes, an afternoon, needs a developer) and, only when the article said so, "No tech
+   skills" or "No card needed". At most three, always in that order (lib/work.ts, cardLabels). Colour
+   is never the only signal: free is filled, paid is outlined, not stated is dashed, and each label
+   says it in words.
+
+   `labels` are the export's (work.py, card_labels); without them the cost and time are built from
+   `cost`, `costKind` and `effort` (the tool directory, older exports). `compact` hides the visible
+   "Cost" / "Time" keys for one-line rows; screen readers still hear them. `whoFor` and `includedIn`
+   are for the story page and the directory, never the collapsed card. */
+import { EFFORT_STEPS, costLabel, isFree, whoLine, type WorkLabel } from "../lib/work";
 
 interface Props {
-  cost: string | null;
-  costKind: string | null;
-  effort: string | null;
+  cost?: string | null;
+  costKind?: string | null;
+  effort?: string | null;
+  labels?: WorkLabel[];
   whoFor?: string[];
   compact?: boolean;
   includedIn?: string | null;
 }
-const { cost, costKind, effort, whoFor, compact = false, includedIn } = Astro.props;
+const { cost, costKind, effort, labels, whoFor, compact = false, includedIn } = Astro.props;
 const plan = (includedIn || "").trim();
-const kind = costKind || "unknown";
+const kind = (labels?.find((l) => l.kind === "cost")?.costKind as string | undefined) || costKind || "unknown";
 const effortStep = effort ? EFFORT_STEPS[effort] : undefined;
+const list: WorkLabel[] = labels?.length
+  ? labels.slice(0, 3)
+  : [
+      { kind: "cost", text: costLabel(cost, kind) },
+      ...(effortStep ? [{ kind: "time" as const, text: effortStep.label }] : []),
+    ];
+const KEYS: Record<string, string> = { cost: "Cost", time: "Time", ease: "Good to know" };
 ---
 
 <ul class:list={["wk-chips", { "is-compact": compact }]} role="list">
-  <li class:list={["wk-chip", "wk-chip-cost", { "is-free": isFree(kind), "is-unknown": kind === "unknown" }]}>
-    <span class:list={["wk-chip-k", { "sr-only": compact }]}>Cost</span> {costLabel(cost, kind)}
-  </li>
-  <li class:list={["wk-chip", "wk-chip-time", { "is-unknown": !effortStep }]} data-step={effortStep?.step || 0}>
-    <span class:list={["wk-chip-k", { "sr-only": compact }]}>Time</span>
-    {effortStep && <span class="wk-scale" aria-hidden="true"><i></i><i></i><i></i></span>}
-    {effortStep ? effortStep.label : effort || "Not stated"}
-  </li>
-  {plan && !compact && (
+  {list.map((l) => (
+    l.kind === "cost" ? (
+      <li class:list={["wk-chip", "wk-chip-cost", { "is-free": isFree(kind), "is-unknown": kind === "unknown", "is-paid": kind === "paid" }]}>
+        <span class:list={["wk-chip-k", { "sr-only": compact }]}>{KEYS.cost}</span> {l.text}
+      </li>
+    ) : l.kind === "time" ? (
+      <li class="wk-chip wk-chip-time" data-step={effortStep?.step || Object.values(EFFORT_STEPS).find((s) => s.label === l.text)?.step || 0}>
+        <span class:list={["wk-chip-k", { "sr-only": compact }]}>{KEYS.time}</span>
+        <span class="wk-scale" aria-hidden="true"><i></i><i></i><i></i></span>
+        {l.text}
+      </li>
+    ) : (
+      <li class="wk-chip wk-chip-ease"><span class="wk-chip-k sr-only">{KEYS.ease}</span> {l.text}</li>
+    )
+  ))}
+  {plan && !compact && !labels?.length && (
     <li class="wk-chip wk-chip-inc"><span class="wk-chip-k">Already included in:</span> {plan}</li>
   )}
   {whoFor && whoFor.length > 0 && !compact && (

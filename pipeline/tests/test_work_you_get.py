@@ -46,70 +46,71 @@ def test_a_plain_line_is_kept_and_exported_as_you_get():
     assert out["youGet"] == line, "exported under the name the site reads"
 
 
+FALLBACK = "You can resize one ad for five places and write product captions."
+
+
 def test_an_invented_figure_is_dropped_and_the_fallback_takes_its_place():
     # The article says 3 hours to 40 minutes; "10 hours a week" is nowhere in it.
-    made_up = work.ground_card(work.clean_card(card(you_get="Save 10 hours a week on social posts.")), ARTICLE)
+    made_up = work.ground_card(work.clean_card(card(you_get="You save 10 hours a week on social posts for your small shop.")), ARTICLE)
     assert made_up["you_get"] == ""
-    assert work.card_out(made_up)["youGet"] == "Lets marketers and founders draft a week of posts."
+    # The rules-built line skips the use the headline already says ("Draft a week of posts with ...").
+    assert work.card_out(made_up)["youGet"] == FALLBACK
     # The article's own figure stays.
-    real = work.ground_card(work.clean_card(card(you_get="Cut a week of social posts from 3 hours to 40 minutes.")), ARTICLE)
-    assert real["you_get"] == "Cut a week of social posts from 3 hours to 40 minutes."
+    real_line = "You get a week of social posts in 40 minutes instead of 3 hours."
+    real = work.ground_card(work.clean_card(card(you_get=real_line)), ARTICLE)
+    assert real["you_get"] == real_line
     # A name the article never mentions goes too.
-    named = work.ground_card(work.clean_card(card(you_get="Post straight to Shopify and Instagram from one screen.")), ARTICLE)
+    named = work.ground_card(work.clean_card(card(you_get="You post straight to Shopify and Instagram from one screen each day.")), ARTICLE)
     assert named["you_get"] == ""
-    ok = work.ground_card(work.clean_card(card(you_get="Turn customer reviews into ad copy inside Canva.")), ARTICLE)
-    assert ok["you_get"] == "Turn customer reviews into ad copy inside Canva."
+    ok_line = "You turn your customer reviews into ready ad copy inside Canva."
+    ok = work.ground_card(work.clean_card(card(you_get=ok_line)), ARTICLE)
+    assert ok["you_get"] == ok_line
     # Without enough article text, a line with a figure cannot be checked, so it goes.
-    assert work.ground_card(work.clean_card(card(you_get="Save 3 hours on posts.")), "Short.")["you_get"] == ""
+    assert work.ground_card(work.clean_card(card(you_get="You save 3 hours on your posts every single week.")), "Short.")["you_get"] == ""
 
 
 def test_banned_jargon_is_rewritten_or_dropped():
-    assert work.clean_card(card(you_get="Leverage your reviews to write ads that sound like your customers."))["you_get"] \
-        == "Use your reviews to write ads that sound like your customers."
-    for bad in ("Streamline your content workflow with AI.",
-                "Workflow automation for your whole marketing team, done for you.",
-                "An LLM that writes your social posts for you.",
-                "Agentic marketing that runs your campaigns for you.",
-                "A seamless way to unlock more content for your shop.",
-                "Supercharge your posts and wow your customers!"):
+    assert work.clean_card(card(you_get="Leverage your reviews to write ads that sound like your own customers."))["you_get"] \
+        == "Use your reviews to write ads that sound like your own customers."
+    for bad in ("You get an LLM API that writes the social posts for your shop.",
+                "You get agentic orchestration that runs your campaigns for you.",
+                "You get a multimodal inference layer for your shop's content.",
+                "Supercharge your posts and wow your customers!",
+                "Don't worry, you can simply write your posts in half the time now."):
         assert work.clean_card(card(you_get=bad))["you_get"] == "", bad
-        assert work.YOU_GET_BANNED.search(bad) or "!" in bad
     # The rules-built line never carries jargon either: a use that has some is skipped.
-    fb = work.fallback_you_get(work.clean_card(card(use_for=["Streamline your posting", "Write captions for product photos"])))
-    assert fb == "Lets marketers and founders write captions for product photos.", fb
+    fb = work.fallback_you_get(work.clean_card(card(use_for=["Draft a week of posts", "Orchestrate your posting",
+                                                              "Write captions for product photos"])))
+    assert fb == "You can write captions for product photos.", fb
     # Three words or fewer make a clumsy line: none at all until the model writes one.
     assert work.fallback_you_get(work.clean_card(card(use_for=["collect task description"]))) == ""
 
 
 def test_the_fallback_is_built_from_the_cards_own_fields():
-    assert work.fallback_you_get(work.clean_card(card())) == "Lets marketers and founders draft a week of posts."
-    # A use that is a thing rather than an action reads "Helps ... with".
-    assert work.fallback_you_get(work.clean_card(card(who_for=["support"], use_for=["Customer replies after hours"]))) \
-        == "Helps support teams with customer replies after hours."
-    # "sales" alone would read as a number; the tool's own name keeps its case.
-    assert work.fallback_you_get(work.clean_card(card(tool="Shopify Magic", maker="Shopify", who_for=["sales", "ecommerce"],
-                                                      use_for=["Shopify product pages in bulk"]))) \
-        == "Helps salespeople and shop owners with Shopify product pages in bulk."
-    # Cards stored before the field existed export with the rules-built line, never an empty one.
+    assert work.fallback_you_get(work.clean_card(card())) == FALLBACK
+    # A use that is not an action ("Customer replies after hours") makes no line: "You can customer..." would not read.
+    assert work.fallback_you_get(work.clean_card(card(use_for=["Draft a week of posts", "Customer replies after hours"]))) == ""
+    # Cards stored before the field existed export with the rules-built line.
     old = work.clean_card(card())
     old.pop("you_get")
-    assert work.card_out(old)["youGet"] == "Lets marketers and founders draft a week of posts."
+    assert work.card_out(old)["youGet"] == FALLBACK
     # An empty or "none" answer from the model is the same as no answer.
-    assert work.card_out(work.clean_card(card(you_get="None")))["youGet"].startswith("Lets marketers")
+    assert work.card_out(work.clean_card(card(you_get="None")))["youGet"] == FALLBACK
 
 
 def test_the_line_is_clamped_to_its_length():
-    long_line = ("Answer the same customer questions once, and let it reply for you after hours. "
+    long_line = ("You answer the same customer questions once, and it replies for you after hours. "
                  "It also drafts follow-ups, tidies your inbox, writes your newsletter and plans your posts for the month ahead.")
     out = work.clean_card(card(you_get=long_line))["you_get"]
-    assert out == "Answer the same customer questions once, and let it reply for you after hours.", out
-    assert len(out) <= work.YOU_GET_MAX
-    # One sentence too long to cut back to a whole sentence goes; so does a fragment.
-    assert work.clean_card(card(you_get="Write " + "many " * 60 + "posts"))["you_get"] == ""
+    assert out == "You answer the same customer questions once, and it replies for you after hours.", out
+    assert len(out) <= work.YOU_GET_MAX == 120
+    # One sentence too long, a fragment, or a line not written to "you" goes.
+    assert work.clean_card(card(you_get="You write " + "many " * 60 + "posts"))["you_get"] == ""
     assert work.clean_card(card(you_get="Faster posts"))["you_get"] == ""
+    assert work.clean_card(card(you_get="Marketers get their social posts drafted in one sitting each week."))["you_get"] == ""
     # A missing full stop is added; quotes are taken off.
-    assert work.clean_card(card(you_get="“Get replies drafted before you open your inbox”"))["you_get"] \
-        == "Get replies drafted before you open your inbox."
+    assert work.clean_card(card(you_get="“Get replies drafted before you even open your inbox each morning”"))["you_get"] \
+        == "Get replies drafted before you even open your inbox each morning."
     # The rules-built line is clamped too.
     fb = work.fallback_you_get(work.clean_card(card(use_for=["Draft " + "long " * 20 + "posts"])))
     assert len(fb) <= work.YOU_GET_MAX

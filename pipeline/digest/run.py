@@ -18,10 +18,11 @@ log = logging.getLogger("digest")
 # in the same run. "morning" reads what "admin" and "export" just wrote, and "notify" opens its
 # issue. "howto" (setup steps from a maker's own page for AI at Work cards) comes after "export", so
 # its page fetches never delay the site update; what it finds reaches the site with the next export.
+# "simplify" (plain-words rewrites of recent AI at Work cards, simplify.py) runs after it the same way.
 # Each step is the run() of the module of the same name, imported when it starts:
 # a run of one step (the workflow's export after an early stop) does not load the other 25 modules,
 # and extract's HTML libraries (trafilatura, ~0.6 s) are loaded by the extract step alone.
-ORDER = ["fetch", "extract", "gate", "enrich", "cluster", "threads", "discuss", "pulse", "rank", "upgrade", "repair", "export", "push", "topics", "intros", "images", "howto", "audio", "media", "social", "newsletter", "gsc", "tidy", "backup", "admin", "morning", "notify", "indexnow"]
+ORDER = ["fetch", "extract", "gate", "enrich", "cluster", "threads", "discuss", "pulse", "rank", "upgrade", "repair", "export", "push", "topics", "intros", "images", "howto", "simplify", "audio", "media", "social", "newsletter", "gsc", "tidy", "backup", "admin", "morning", "notify", "indexnow"]
 
 
 def step_fn(name: str):

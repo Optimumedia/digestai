@@ -5,7 +5,7 @@
    has none (pipeline/digest/work.py), so it is always here to show. */
 import type { Story } from "../lib/data";
 import { shortDate, sourceNames } from "../lib/data";
-import { COST_LABELS, JOB_LABELS, cardTitle, stepsSourceLabel, whoLine, youGetLine, type WorkCard } from "../lib/work";
+import { COST_LABELS, JOB_LABELS, actionLabel, cardTitle, stepsSourceLabel, whoLine, youGetLine, type WorkCard } from "../lib/work";
 
 interface Props {
   story: Story;
@@ -33,7 +33,7 @@ const steps = card.steps?.filter(Boolean) || [];
 const stepsId = `worksteps-${story.id}`;
 ---
 
-<article class:list={["workcard", { compact, "is-skip": Boolean(card.skip) }]} data-jobs={card.jobs.join(" ")} data-cost={card.costKind}>
+<article class:list={["workcard", { compact, "is-skip": Boolean(card.skip) }]} data-jobs={card.jobs.join(" ")} data-cost={card.costKind} data-work-tool={card.tool} data-work-card>
   <div class="workcard-top">
     <span class="work-chip">{card.tool}</span>
     {card.maker && <span class="mono muted">by {card.maker}</span>}
@@ -71,7 +71,7 @@ const stepsId = `worksteps-${story.id}`;
   {limits.length > 0 && <p class="worklimits"><b>Not for everyone</b> {limits.join(" · ")}</p>}
 
   <div class="workcard-foot">
-    {card.link && <a class="work-btn" href={card.link} rel="noopener nofollow" target="_blank" data-source-link data-work-try={card.tool}>Try it ↗</a>}
+    {card.link && <a class="work-btn" href={card.link} rel="noopener nofollow" target="_blank" data-source-link data-work-try={card.tool}>{actionLabel(card)} ↗</a>}
     <a class="work-link" href={`/story/${story.slug}`}>What happened{names.length > 0 && <span class="muted"> · {names.join(", ")}</span>}</a>
     {card.jobs.length > 0 && (
       <span class="worktags">{card.jobs.map((j) => <span class="worktag">{JOB_LABELS[j] || j}</span>)}</span>

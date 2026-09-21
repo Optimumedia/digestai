@@ -5,7 +5,7 @@
    goes is set by the home page's grid (styles/global.css, .grid.has-teaser); the band further down
    (WorkHome.astro) has the details. A click records next_click "home-teaser" (public/app.js). */
 import type { HomeWork } from "../lib/work";
-import { cardTitle, youGetLine } from "../lib/work";
+import { cardLabels, cardTitle, youGetLine } from "../lib/work";
 import WorkChips from "./WorkChips.astro";
 
 interface Props { home: HomeWork }
@@ -28,7 +28,7 @@ const get = youGetLine(card, title);
     {get && <span class="wk-teaser-get"><b>What you get</b> {get}</span>}
   </a>
   <div class="wk-teaser-foot">
-    <WorkChips cost={card.cost} costKind={card.costKind} effort={card.effort} compact />
+    <WorkChips labels={cardLabels(card).filter((l) => l.kind !== "ease")} costKind={card.costKind} effort={card.effort} compact />
     <a class="wk-teaser-go" href="/work" data-work-next="home-teaser" tabindex="-1" aria-hidden="true">See how<span> →</span></a>
   </div>
 </aside>

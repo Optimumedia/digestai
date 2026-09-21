@@ -51,6 +51,24 @@ export interface WorkCard {
   prompt?: string;
   /** What the work looked like before and after, in a sentence or two each. */
   example?: { before: string; after: string };
+  /** The collapsed card's labels, at most three, in order: cost ("Free", "Free to try", "Paid: from
+      $X/mo", "Price not stated"...), time ("5 minutes", "An afternoon", "Needs a developer") and "No
+      tech skills" / "No card needed" only when the article said so (work.py, card_labels). */
+  labels?: WorkLabel[];
+  /** The Try link's words, a verb and a place: "Try it in Gmail", "Open Canva" (work.py, action_label). */
+  action?: string;
+  /** "For example, a café could use it to ..." from the card's own uses, or "" (plain.py, scenario). */
+  scenario?: string;
+  /** False when the card has no headline that keeps the rules or nothing to use it for: it stays off
+      the hub's lists (its story page still shows it). */
+  hub?: boolean;
+}
+
+export interface WorkLabel {
+  kind: "cost" | "time" | "ease";
+  text: string;
+  /** Cost labels only: the kind behind the words, for the free / paid / not-stated styles. */
+  costKind?: WorkCard["costKind"];
 }
 
 export interface WorkTool {
@@ -114,7 +132,7 @@ function readJson<T>(name: string, fallback: T): T {
 }
 
 export const SECTION_NAME = "AI at Work";
-export const SECTION_TAGLINE = "Practical AI for marketing, customers and running a small business.";
+export const SECTION_TAGLINE = "Simple AI tips for small businesses. Each one takes minutes to read.";
 
 /** The five jobs the section sorts by, in the order the filters show them. Each has its own page at
     /work/<slug> (pages/work/[job].astro); the slugs live in indexing.mjs so the sitemap agrees. */
@@ -130,22 +148,22 @@ export interface Job {
 }
 export const JOBS: Job[] = [
   {
-    key: "customers", slug: JOB_SLUGS.customers, label: "Get customers", task: "to get customers",
+    key: "customers", slug: JOB_SLUGS.customers, label: "Get more customers", task: "to get customers",
     blurb: "Ads, SEO, email and everything that brings people in.",
     covers: "Advertising, search, email, social and the other ways people find a business and decide to try it.",
   },
   {
-    key: "content", slug: JOB_SLUGS.content, label: "Make content", task: "to make content",
+    key: "content", slug: JOB_SLUGS.content, label: "Make content faster", task: "to make content",
     blurb: "Writing, images, video and the work of publishing them.",
     covers: "Writing, images, video, audio, translation and the work of getting them published.",
   },
   {
-    key: "sell", slug: JOB_SLUGS.sell, label: "Sell", task: "to sell more",
+    key: "sell", slug: JOB_SLUGS.sell, label: "Sell more", task: "to sell more",
     blurb: "Leads, follow-ups, checkout and the online shop.",
     covers: "Leads, follow-ups, quotes, checkout and the online shop: the steps between interest and a sale.",
   },
   {
-    key: "support", slug: JOB_SLUGS.support, label: "Support customers", task: "for customer support",
+    key: "support", slug: JOB_SLUGS.support, label: "Answer customers faster", task: "for customer support",
     blurb: "Answering people faster without answering worse.",
     covers: "Answering customers' questions by chat, email and phone, faster and without answering worse.",
   },
@@ -171,10 +189,10 @@ export const WHO_LABELS: Record<string, string> = {
 
 export const COST_LABELS: Record<string, string> = {
   free: "Free",
-  "free tier": "Free tier",
+  "free tier": "Free to try",
   included: "Already included",
   paid: "Paid",
-  unknown: "Cost not stated",
+  unknown: "Price not stated",
 };
 
 /** The cost as a card shows it: the stated price, or the kind's label when there is none. */
@@ -184,10 +202,27 @@ export const costLabel = (cost: string | null | undefined, kind: string | null |
 export const isFree = (kind: string | null | undefined): boolean => ["free", "free tier", "included"].includes(kind || "");
 /** The effort scale's step (1 to 3) and its words; a card whose coverage did not say has none. */
 export const EFFORT_STEPS: Record<string, { step: number; label: string }> = {
-  minutes: { step: 1, label: "Minutes" },
+  minutes: { step: 1, label: "5 minutes" },
   "an afternoon": { step: 2, label: "An afternoon" },
   "needs a developer": { step: 3, label: "Needs a developer" },
 };
+
+/** The collapsed card's labels (at most three: cost, time, and a skill or risk-reducer the article
+    stated). The export writes them (work.py, card_labels); an older export gets cost and time. */
+export function cardLabels(card: WorkCard): WorkLabel[] {
+  if (card.labels?.length) return card.labels.slice(0, 3);
+  const out: WorkLabel[] = [{ kind: "cost", costKind: card.costKind, text: COST_LABELS[card.costKind] || COST_LABELS.unknown }];
+  const step = card.effort ? EFFORT_STEPS[card.effort] : undefined;
+  if (step) out.push({ kind: "time", text: step.label });
+  return out;
+}
+
+/** The one action's words: the export's verb-and-place label ("Try it in Gmail", "Open Canva"), else
+    "Try it". */
+export const actionLabel = (card: WorkCard): string => (card.action || "").trim() || "Try it";
+
+/** Never the one thing to try: a card that needs a developer, or one kept off the hub. */
+export const featurableCard = (card: WorkCard): boolean => card.effort !== "needs a developer" && card.hub !== false && !card.skip;
 
 export const work: WorkData = readJson<WorkData>("work.json", {
   generatedAt: new Date().toISOString(),
@@ -217,11 +252,13 @@ export const workEpisodeFor = (week: string): Episode | undefined => workEpisode
 export type WorkStory = Story & { workCard: WorkCard };
 
 const hasCard = (s: Story | undefined): s is WorkStory => Boolean(s && (s as WorkStory).workCard);
+/** A card the hub lists: the export marks one without a rule-keeping headline or any use hub: false. */
+const onHub = (s: Story | undefined): s is WorkStory => hasCard(s) && s.workCard.hub !== false;
 
 /** Every story in the section, newest first. */
 export const workStories: WorkStory[] = work.storyIds
   .map(storyFor)
-  .filter(hasCard)
+  .filter(onHub)
   // The export already sorts by first publication; stories.json may be filtered further (withdrawn
   // articles), so the order is rebuilt here rather than trusted.
   .sort((a, b) => Date.parse(b.firstPublishedAt || "0") - Date.parse(a.firstPublishedAt || "0"));
@@ -229,10 +266,10 @@ export const workStories: WorkStory[] = work.storyIds
 /** The fallback when work.json is missing but stories carry cards (a partial data copy). */
 export const sectionStories: WorkStory[] = workStories.length
   ? workStories
-  : stories.filter(hasCard).sort((a, b) => Date.parse(b.firstPublishedAt || "0") - Date.parse(a.firstPublishedAt || "0"));
+  : stories.filter(onHub).sort((a, b) => Date.parse(b.firstPublishedAt || "0") - Date.parse(a.firstPublishedAt || "0"));
 
-export const briefingItems: WorkStory[] = workBriefing.storyIds.map(storyFor).filter(hasCard);
-export const briefingAlso: WorkStory[] = workBriefing.alsoIds.map(storyFor).filter(hasCard);
+export const briefingItems: WorkStory[] = workBriefing.storyIds.map(storyFor).filter(onHub);
+export const briefingAlso: WorkStory[] = workBriefing.alsoIds.map(storyFor).filter(onHub);
 
 export const workCardFor = (story: Story): WorkCard | null => ((story as WorkStory).workCard ?? null);
 
@@ -290,8 +327,11 @@ export function fallbackHeadline(tool: string, what: string): string {
     headline, so what the tool does is never lost. */
 export function cardTitle(card: WorkCard): { title: string; sub: string | null } {
   const h = (card.headline || "").trim();
-  if (!h || h === fallbackHeadline(card.tool, card.whatItDoes)) return { title: card.whatItDoes, sub: null };
-  return { title: h, sub: card.whatItDoes };
+  // An export from before the plain-words rules may still carry the old "Tool: what it does" stand-in.
+  if (!h || (card.labels === undefined && h === fallbackHeadline(card.tool, card.whatItDoes))) {
+    return { title: card.whatItDoes || card.tool, sub: null };
+  }
+  return { title: h, sub: card.whatItDoes || null };
 }
 
 /* ---------- what you get ---------- */
@@ -358,9 +398,10 @@ export function featuredPick(candidates: WorkStory[]): WorkStory | undefined {
   const id = workBriefing.featuredId;
   if (id != null) {
     const s = storyFor(id);
-    if (hasCard(s)) return s;
+    if (hasCard(s) && featurableCard(s.workCard)) return s;
   }
-  return candidates.find((s) => !s.workCard.skip && namedMaker(s)) || candidates.find(namedMaker);
+  // Never a card that needs a developer, or one the hub does not list.
+  return candidates.find((s) => featurableCard(s.workCard) && namedMaker(s));
 }
 
 /** "marketers and online shops" from ["marketer", "ecommerce"]. */
@@ -398,8 +439,8 @@ export function homeWork(generatedAt: string): HomeWork | null {
   const fresh = (s: WorkStory) => Date.parse(s.firstPublishedAt || s.updatedAt || "0") >= weekAgo;
   const pool = [...briefingItems, ...sectionStories.filter((s) => !briefingItems.some((b) => b.id === s.id))].filter(fresh);
   const id = workBriefing.featuredId;
-  const featured = (id != null ? pool.find((s) => s.id === id && !s.workCard.skip && namedMaker(s)) : undefined)
-    || pool.find((s) => !s.workCard.skip && namedMaker(s));
+  const featured = (id != null ? pool.find((s) => s.id === id && featurableCard(s.workCard) && namedMaker(s)) : undefined)
+    || pool.find((s) => featurableCard(s.workCard) && namedMaker(s));
   const also = pool.filter((s) => s !== featured && !s.workCard.skip).slice(0, featured ? 2 : 3);
   if (!featured && also.length < 3) return null;
   // Counted the way the hub's job tiles count them (pages/work/index.astro).

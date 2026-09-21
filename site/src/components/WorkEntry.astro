@@ -1,23 +1,26 @@
 ---
 /* One practical item, as AI at Work's own pages show it (the story page keeps WorkCard.astro,
-   the home page has WorkTeaser.astro and WorkHome.astro). Two shapes of the same card:
+   the home page has WorkTeaser.astro and WorkHome.astro). Built for a busy owner who decides in
+   seconds whether it is worth trying (site/docs/work-design.md, "The card"):
 
-   - "card", collapsed: the tool, the outcome as the headline, "What you get" in plain words (never
-     folded, lib/work.ts youGetLine), cost / time / who chips, the catch in
-     one calm line, and "How to use it" folded underneath when there is something to unfold.
-   - "feature", expanded: the same with every block open, for the hub's one thing to try.
+   Visible without a click, in this order: the tool on its tape with the maker and date, the headline
+   (the outcome, verb first), "What you get" in one sentence, at most three labels (cost, time, and
+   "No tech skills" / "No card needed" only when the article said so), the catch on one line, ONE
+   action (the Try link, a verb and a place: "Try it in Gmail"), and, when the card has them, an
+   example line ("For example, a café could use it to ...") and "Start here:" with the first step.
 
-   The expanded blocks (use it for, steps, a prompt to copy, before and after) each render only when
-   the card has that data (lib/work.ts). The heading is the outcome headline when the pipeline wrote
-   one, with what the tool does under it; otherwise what the tool does (lib/work.ts, cardTitle). The
-   catch is never folded away: the pipeline drops a card without one (pipeline/digest/work.py).
+   Behind "How to set it up": the rest of the steps, the prompt to copy, the before and after, what
+   to use it for, who cannot use it, and the sources. Cost, the catch and the action are never
+   folded away. "variant: feature" is the hub's one thing to try: the same card, a size larger, with
+   the fold open.
 
    What readers do is measured by public/app.js from the data-work-* attributes: the Try link (try),
-   the copy button (copy_prompt; the layout's script does the copying, app.js only records it), and
-   opening "How to use it" (expand). data-work-tool on the card names the tool for all three. */
+   the copy button (copy_prompt; the layout's script does the copying, app.js only records it),
+   opening "How to set it up" (expand), and the card itself (card_view, once when half of it is on
+   screen). data-work-tool on the card names the tool for all of them. */
 import type { Story } from "../lib/data";
 import { shortDate, sourceNames } from "../lib/data";
-import { cardTitle, stepsSourceLabel, youGetLine, type WorkCard } from "../lib/work";
+import { actionLabel, cardLabels, cardTitle, stepsSourceLabel, youGetLine, type WorkCard } from "../lib/work";
 import WorkChips from "./WorkChips.astro";
 
 interface Props {
@@ -30,17 +33,20 @@ interface Props {
 }
 const { story, card, level = "h3", variant = "card", number } = Astro.props;
 const Heading = level;
-const { names } = sourceNames(story, 2);
+const { names } = sourceNames(story, 3);
 const limits = card.limits || [];
 const steps = card.steps?.filter(Boolean) || [];
 const example = card.example && card.example.before && card.example.after ? card.example : null;
-const hasMore = card.useFor.length > 0 || steps.length > 0 || Boolean(card.prompt) || Boolean(example);
 const feature = variant === "feature";
 const date = story.firstPublishedAt || story.updatedAt;
 const promptId = `prompt-${story.id}`;
-const { title, sub } = cardTitle(card);
+const { title } = cardTitle(card);
 // What you get, right under the heading and never folded; left out when it only repeats the heading.
 const get = youGetLine(card, title);
+const labels = cardLabels(card);
+// The first step is shown as "Start here"; the others wait behind "How to set it up".
+const rest = steps.slice(1);
+const hasMore = rest.length > 0 || Boolean(card.prompt) || Boolean(example) || card.useFor.length > 0 || limits.length > 0;
 // Open on the featured card; folded (and only when there is something inside) everywhere else.
 const More = feature ? "div" : "details";
 ---
@@ -50,6 +56,7 @@ const More = feature ? "div" : "details";
   data-jobs={card.jobs.join(" ")}
   data-cost={card.costKind}
   data-work-tool={card.tool}
+  data-work-card
 >
   <div class="wk-card-main">
     <p class="wk-card-tool">
@@ -61,27 +68,31 @@ const More = feature ? "div" : "details";
 
     <Heading class="wk-card-title"><a href={`/story/${story.slug}`}>{title}</a></Heading>
     {get && <p class="wk-get"><b>What you get</b> <span>{get}</span></p>}
-    {sub && <p class="wk-card-what">{sub}</p>}
 
-    <WorkChips cost={card.cost} costKind={card.costKind} effort={card.effort} whoFor={card.whoFor} includedIn={card.includedIn} />
+    <WorkChips labels={labels} effort={card.effort} costKind={card.costKind} />
 
-    <p class="wk-watch"><b>Watch out</b> <span>{card.watchOut}</span></p>
-    {limits.length > 0 && <p class="wk-limits"><b>Not for everyone</b> {limits.join(" · ")}</p>}
+    <p class="wk-watch"><b>The catch</b> <span>{card.watchOut}</span></p>
+
+    {card.scenario && <p class="wk-scenario"><span class="wk-scenario-k">Idea</span> {card.scenario}</p>}
+    {steps.length > 0 && <p class="wk-start"><b>Start here:</b> {steps[0]}</p>}
+
+    <div class="wk-card-act">
+      {card.link ? (
+        <a class="wk-btn" href={card.link} rel="noopener nofollow" target="_blank" data-source-link data-work-try={card.tool}>{actionLabel(card)}<span aria-hidden="true"> ↗</span><span class="sr-only"> (opens the maker's site)</span></a>
+      ) : (
+        <a class="wk-btn" href={`/story/${story.slug}`}>See how it works<span aria-hidden="true"> →</span></a>
+      )}
+      {card.skip && <span class="wk-skip-note">Leave for now: {card.skip}</span>}
+    </div>
   </div>
 
   {hasMore && (
     <More class="wk-card-more" data-work-howto={feature ? undefined : card.tool}>
-      {!feature && <summary>{steps.length || card.prompt || example ? "How to use it" : "What to use it for"}</summary>}
-      {card.useFor.length > 0 && (
+      {!feature && <summary>How to set it up</summary>}
+      {rest.length > 0 && (
         <div class="wk-block">
-          <p class="wk-block-h">Use it for</p>
-          <ul class="wk-check" role="list">{card.useFor.map((u) => <li>{u}</li>)}</ul>
-        </div>
-      )}
-      {steps.length > 0 && (
-        <div class="wk-block">
-          <p class="wk-block-h">How to set it up <span class="wk-block-src">{stepsSourceLabel(card)}</span></p>
-          <ol class="wk-steps" role="list">{steps.map((s) => <li>{s}</li>)}</ol>
+          <p class="wk-block-h">Then <span class="wk-block-src">{stepsSourceLabel(card)}</span></p>
+          <ol class="wk-steps" role="list" start="2">{rest.map((s) => <li>{s}</li>)}</ol>
         </div>
       )}
       {card.prompt && (
@@ -103,12 +114,16 @@ const More = feature ? "div" : "details";
           </div>
         </div>
       )}
+      {card.useFor.length > 0 && (
+        <div class="wk-block">
+          <p class="wk-block-h">Use it to</p>
+          <ul class="wk-check" role="list">{card.useFor.map((u) => <li>{u}</li>)}</ul>
+        </div>
+      )}
+      {limits.length > 0 && <p class="wk-limits"><b>Not for everyone</b> {limits.join(" · ")}</p>}
+      <p class="wk-sources">
+        <a class="wk-thread" href={`/story/${story.slug}`}>What happened{names.length > 0 && <span class="wk-thread-src"> · {names.join(", ")}</span>}</a>
+      </p>
     </More>
   )}
-
-  <div class="wk-card-foot">
-    {card.link && <a class="wk-btn" href={card.link} rel="noopener nofollow" target="_blank" data-source-link data-work-try={card.tool}>Try it<span aria-hidden="true"> ↗</span><span class="sr-only"> (opens the maker's site)</span></a>}
-    <a class="wk-thread" href={`/story/${story.slug}`}>What happened{names.length > 0 && <span class="wk-thread-src"> · {names.join(", ")}</span>}</a>
-    {card.skip && <span class="wk-skip-tag">Leave for now: {card.skip}</span>}
-  </div>
 </article>

@@ -477,7 +477,8 @@ def run() -> dict:
         out["work"] = work_summary(_read_json("work.json"), _read_json("work-briefing.json"),
                                    _read_json("work-episodes.json"), step_rows, now)
         if out["work"] is not None:
-            out["work"]["engagement7"] = work_engagement(conn, now - timedelta(days=7))
+            out["work"]["engagement7"] = work_engagement(conn, now - timedelta(days=7),
+                                                         (_read_json("work-briefing.json") or {}).get("featuredTool"))
         actions += work_health_cards(out["work"], now)
 
         # ---- the database against the free plan: its size, and how much the pipeline reads.
@@ -622,10 +623,11 @@ def work_summary(work: dict | None, briefing: dict | None, episodes: list | None
     }
 
 
-def work_engagement(conn, since) -> dict:
+def work_engagement(conn, since, featured_tool: str | None = None) -> dict:
     """How readers use AI at Work since `since`: views and average read depth of the /work pages,
-    and the card actions (try, copy_prompt, expand, next_click) wherever a card is shown. One grouped
-    query returning at most six rows, so it costs no egress to speak of."""
+    and the card actions (try, copy_prompt, expand, next_click, card_view) wherever a card is shown.
+    One grouped query returning at most seven rows, plus, when there is a featured pick, one more
+    returning at most two (its tries and its card views): no egress to speak of."""
     e = db.events.c
     rows = conn.execute(
         select(e.type, func.count(), func.avg(e.value))
@@ -634,21 +636,38 @@ def work_engagement(conn, since) -> dict:
                    and_(e.type.in_(("view", "depth")), or_(e.path == "/work", e.path.like("/work/%")))))
         .group_by(e.type)
     ).all()
-    return work_engagement_summary(rows)
+    featured = []
+    if featured_tool:
+        featured = conn.execute(
+            select(e.type, func.count())
+            .where(e.created_at >= since, e.type.in_(("try", "card_view")), e.detail == featured_tool[:100])
+            .group_by(e.type)
+        ).all()
+    return work_engagement_summary(rows, featured)
 
 
-def work_engagement_summary(rows) -> dict:
-    """(type, count, average value) rows into the admin line's numbers."""
+def work_engagement_summary(rows, featured=()) -> dict:
+    """(type, count, average value) rows into the admin line's numbers, with tries plus prompt copies
+    per 100 /work views, and the featured card's try rate (tries per 100 times it was seen) from the
+    (type, count) rows of `featured`."""
     by = {str(t): (int(n or 0), float(avg or 0)) for t, n, avg in rows}
     depth_n, depth_avg = by.get("depth", (0, 0.0))
+    views = by.get("view", (0, 0.0))[0]
+    tries, copies = by.get("try", (0, 0.0))[0], by.get("copy_prompt", (0, 0.0))[0]
+    feat = {str(t): int(n or 0) for t, n in featured or ()}
     return {
-        "views": by.get("view", (0, 0.0))[0],
+        "views": views,
         "depthAvg": round(depth_avg) if depth_n else None,
         "depthReads": depth_n,
-        "tries": by.get("try", (0, 0.0))[0],
-        "copies": by.get("copy_prompt", (0, 0.0))[0],
+        "tries": tries,
+        "copies": copies,
         "expands": by.get("expand", (0, 0.0))[0],
         "nextClicks": by.get("next_click", (0, 0.0))[0],
+        "cardViews": by.get("card_view", (0, 0.0))[0],
+        "actionsPer100": round(100 * (tries + copies) / views, 1) if views else None,
+        "featuredTries": feat.get("try", 0),
+        "featuredViews": feat.get("card_view", 0),
+        "featuredTryRate": round(100 * feat.get("try", 0) / feat["card_view"], 1) if feat.get("card_view") else None,
     }
 
 

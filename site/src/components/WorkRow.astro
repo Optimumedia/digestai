@@ -1,13 +1,11 @@
 ---
-/* One item as a single line in AI at Work's dense lists: the tool, what you get (linked to the
-   story, where the whole card is), and the cost and time chips. `note` replaces the chips with a
-   reason (the playbook's "what to leave" says what is in the way).
-
-   The link is the card's heading (lib/work.ts, cardTitle), with its "What you get" line under it as
-   a quieter line (one line cut with an ellipsis, two on a phone), unless it only repeats the
-   heading. */
+/* One item as a single line in AI at Work's lists, to scan in a second: the headline (linked to the
+   story, where the whole card is), the labels (cost and time, lib/work.ts cardLabels) and a Try link
+   to the maker when the card has one. Nothing else: the tool's name, what you get and the catch are
+   one click away. `note` replaces the labels with a reason (the playbook's "what to leave" says what
+   is in the way). */
 import type { Story } from "../lib/data";
-import { cardTitle, youGetLine, type WorkCard } from "../lib/work";
+import { cardLabels, cardTitle, type WorkCard } from "../lib/work";
 import WorkChips from "./WorkChips.astro";
 
 interface Props {
@@ -19,18 +17,15 @@ interface Props {
   track?: string;
 }
 const { story, card, note, track } = Astro.props;
-// The outcome headline when there is one (lib/work.ts, cardTitle); rows do not link out, so no Try.
 const { title } = cardTitle(card);
-// The payoff as a quieter second line; a list of links all starting "Lets marketers..." reads as one.
-const under = youGetLine(card, title);
-const link = title;
+// Cost and time only on a line; the third label waits on the card.
+const labels = cardLabels(card).filter((l) => l.kind !== "ease");
 ---
 
-<li class:list={["wk-row", { "is-skip": Boolean(card.skip) }]} data-jobs={card.jobs.join(" ")}>
-  <span class="wk-row-tool">{card.tool}</span>
-  <span class="wk-row-body">
-    <a class="wk-row-what" href={`/story/${story.slug}`} data-work-next={track}>{link}</a>
-    {under && <span class="wk-row-get"><span class="sr-only">What you get: </span>{under}</span>}
-  </span>
-  {note ? <span class="wk-row-note">{note}</span> : <WorkChips cost={card.cost} costKind={card.costKind} effort={card.effort} compact />}
+<li class:list={["wk-row", { "is-skip": Boolean(card.skip) }]} data-jobs={card.jobs.join(" ")} data-work-tool={card.tool}>
+  <a class="wk-row-what" href={`/story/${story.slug}`} data-work-next={track}>{title}<span class="sr-only"> ({card.tool})</span></a>
+  {note ? <span class="wk-row-note">{note}</span> : <WorkChips labels={labels} effort={card.effort} costKind={card.costKind} compact />}
+  {card.link && !note
+    ? <a class="wk-row-try" href={card.link} rel="noopener nofollow" target="_blank" data-source-link data-work-try={card.tool}>Try<span aria-hidden="true"> ↗</span><span class="sr-only"> {card.tool} (opens the maker's site)</span></a>
+    : <span class="wk-row-try is-empty" aria-hidden="true"></span>}
 </li>

@@ -30,9 +30,22 @@ Read the article below and return ONLY a JSON object with these fields:
 - "is_ai_news": true if the article is substantially about AI, machine learning, robotics or AI hardware, else false.
 - "model_release": null unless the article announces a new AI model or a new model version. Then: {{"name": the model's full official name including version number as the lab writes it (e.g. "GPT-6 Astra", "WeatherNext 3", not "GPT-6" or "WeatherNext"), "lab": organisation, "kind": one of "llm", "multimodal", "image", "video", "audio", "code", "embedding", "robotics", "other", "availability": one of "api", "open_weights", "consumer", "research", "unknown", "license": license name or null, "context": context window such as "1M tokens" or null, "link": official URL mentioned or null}}.
 - "funding": null unless the article reports a funding round, acquisition, or valuation for an AI company. Then: {{"company": name, "amount_usd": approximate number in US dollars (convert other currencies at current rates; e.g. €3B is about 3300000000) or null, "round": one of "seed", "series_a", "series_b", "series_c", "series_d_plus", "acquisition", "ipo", "debt", "other", "investors": [names], "valuation_usd": number or null}}.
-- "work_card": null unless a marketer or a small business can act on it today: a tool, a feature or price change in a tool they use, a how-to, or a policy change affecting their work. Industry news, funding, research, benchmarks, opinion, developer or cloud tools and courses get null. Then: {{"fits": true, "tool": the product's name, "maker": its company, "headline": what the reader gets, max 70 characters, e.g. "Turn 20 customer reviews into three ad angles", "you_get": the practical result, to the owner as "you", plain words, no jargon, max 160 characters, a number only if the article gives it, e.g. "Get a week of social posts drafted in one sitting", "what_it_does": one plain sentence, max 25 words, "who_for": one or more of "marketer", "sales", "founder", "support", "ops", "ecommerce", "use_for": exactly 3 concrete uses, max 12 words each, "cost": "free", "free tier", "paid from $X" with the real figure, "included in a tool you already have" or "not stated", "included_in": the plan it comes with if the article says, else "", "effort": "minutes", "an afternoon" or "needs a developer", "watch_out": one honest sentence on the catch (a limit, risk, region, plan, or who it is not for), never "none", "link": the official URL if the article names one, else null, "prompt": a starter prompt to paste in, max 300 characters, "" if it takes no text prompts, "steps": 2-4 short steps only if the article says how, in its words, else [], "example": {{"before": ..., "after": ...}} only if the article shows a concrete one, else null}}.
+- "work_card": null unless a marketer or a small business can act on it today: a tool, a feature or price change in a tool they use, a how-to, or a policy change affecting their work. Industry news, funding, research, benchmarks, opinion, developer or cloud tools and courses get null. Then: {{"fits": true, "tool": the product's name, "maker": its company, "headline": <HEADLINE>, "you_get": <YOU_GET>, "what_it_does": <WHAT>, "who_for": one or more of "marketer", "sales", "founder", "support", "ops", "ecommerce", "use_for": <USES>, "cost": "free", "free tier", "paid from $X" with the real figure, "included in a tool you already have" or "not stated", "included_in": the plan it comes with if the article says, else "", "effort": "minutes", "an afternoon" or "needs a developer", "watch_out": <WATCH>, "link": the official URL if the article names one, else null, "prompt": a starter prompt to paste in, max 300 characters, "" if it takes no text prompts, "steps": 2-4 short steps only if the article says how, in its words, else [], "example": {{"before": ..., "after": ...}} only if the article shows a concrete one, else null}}. <STYLE>
 
 {rules}"""
+
+
+def _work_card_words(schema: str) -> str:
+    """The work_card fields as plain.py's limits describe them, so the prompt asks for what the rules
+    keep (braces doubled: the schema is formatted later)."""
+    g = work.plain.prompt_guide()
+    for key, field in (("<HEADLINE>", "headline"), ("<YOU_GET>", "you_get"), ("<WHAT>", "what_it_does"),
+                       ("<USES>", "use_for"), ("<WATCH>", "watch_out"), ("<STYLE>", "style")):
+        schema = schema.replace(key, g[field].replace("{", "{{").replace("}", "}}"))
+    return schema
+
+
+SCHEMA = _work_card_words(SCHEMA)
 
 # The importance ladder, for the providers whose window has room for it.
 IMPORTANCE_LADDER = """ 8-9 = news a professional has to know today: a leading lab's own model or product launch, a funding round or acquisition above $1B, a law or ruling that changes what companies may do, a safety or security incident at a large provider, a named departure at the top of a major lab. 6-7 = a real but narrower move: a smaller lab's release, a deal in the hundreds of millions, a capability arriving in a tool millions of people use. 3-4 = an incremental product update, a benchmark run, a company's blog post about its own practice, a tutorial, a survey with no new data. 1-2 = a listicle, a rewrite of someone else's story, or a piece with nothing new in it. Judge the news, not the publisher, and do not raise the number because the article sounds excited."""
@@ -631,6 +644,9 @@ def _clean(result: dict, row, category_hint: str | None) -> dict:
     # carries no honest caveat, and by rules a developer tool or a course, so no half-card and no
     # infrastructure product can reach a page. Why a card was kept out is counted, not stored.
     work_card, work_dropped = work.screen_card(result.get("work_card"))
+    if work_card:
+        # Written to the plain-words prompt and rules: the simplify pass (simplify.py) leaves it be.
+        work_card["simplified"] = True
     category = str(result.get("category", "")).strip().lower()
     if category not in cats:
         category = category_hint if category_hint in cats else "models"

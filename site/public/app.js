@@ -147,8 +147,11 @@
   // attributes (the value is what lands in the event's detail, at most 100 characters):
   //   [data-work-try="<tool>"]        the card's "Try it" link              -> try
   //   [data-work-copy]                the "copy prompt" button              -> copy_prompt
-  //   <details data-work-howto>       "How to use it" opened                -> expand
+  //   <details data-work-howto>       "How to set it up" opened             -> expand
   //   [data-work-next="<label>"]      the page's next-step link             -> next_click
+  //   [data-work-card]                a card at least half on screen        -> card_view
+  //                                   (once per card per page view, at most CARD_VIEW_MAX a page, so
+  //                                   a long list never crowds out a try in the 30-a-minute guard)
   // The tool is read from the element's own value, else from the nearest [data-work-tool] or the
   // card's "Try it" link. On a /work page the event is filed under the page key; on a story page it
   // carries the story as every other event does.
@@ -182,6 +185,24 @@
       opened.add(d);
       send("expand", 1, workExtra(toolOf(d, "data-work-howto")));
     }, true);
+    // Card impressions: what the try rate is measured against.
+    const CARD_VIEW_MAX = 10;
+    const cards = document.querySelectorAll("[data-work-card]");
+    if (cards.length && "IntersectionObserver" in window) {
+      let viewed = 0;
+      const io = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          // Half the card on screen, or (a card taller than two screens) half the screen filled by it.
+          const seen = entry.intersectionRatio >= 0.5 || entry.intersectionRect.height >= 0.5 * window.innerHeight;
+          if (!entry.isIntersecting || !seen) continue;
+          io.unobserve(entry.target);
+          if (viewed >= CARD_VIEW_MAX) { io.disconnect(); return; }
+          viewed++;
+          send("card_view", 1, workExtra(entry.target.getAttribute("data-work-tool") || ""));
+        }
+      }, { threshold: [0.25, 0.5, 0.75] });
+      cards.forEach((c) => io.observe(c));
+    }
   }
 
   /* ---------- site searches ---------- */

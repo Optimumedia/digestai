@@ -68,11 +68,7 @@ const nextJob = JOBS[(JOBS.findIndex((j) => j.key === job.key) + 1) % JOBS.lengt
     <p class="wk-eyebrow">Practical AI · {job.label}</p>
     <h1>{heading}</h1>
     <p class="wk-intro">{job.covers}</p>
-    <p>
-      An item lands here when the desk covers a tool or a new feature a small team can use for this job. The job comes
-      from who the tool is for and what it does, never from payment: nothing here is sponsored, and nothing has been tested
-      by us. Every card gives the cost and the catch as the coverage reported them, newest first.
-    </p>
+    <p>Newest first. Nothing here is sponsored or tested by us: the cost and the catch are as the news reported them.</p>
     <p class="wk-meta mono">Updated <time datetime={updated} data-static>{dateTime(updated)}</time></p>
   </header>
 
