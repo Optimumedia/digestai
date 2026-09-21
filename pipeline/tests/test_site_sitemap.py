@@ -99,11 +99,12 @@ def test_sitemap_lists_confirmed_or_important_stories_and_hubs():
     assert "/story/old-confirmed" in listed and "/story/old-single" not in listed
     # Hubs: the fixed ones, every category, threads of three or more, topics above the threshold.
     for p in ("", "/today", "/category/policy", "/category/marketing", "/models", "/funding", "/api",
-              "/about", "/listen", "/thread/big-thread", "/topic/anthropic"):
+              "/about", "/listen", "/threads", "/thread/big-thread", "/topic/anthropic"):
         assert p in listed, p
     assert "/thread/small-thread" not in listed and "/topic/small-co" not in listed
     # Everything else stays out of the sitemap (still built, linked and indexable).
-    assert not listed & set(others), listed & set(others)
+    # Weekly recaps with enough stories are listed too (they carry their own intro).
+    assert not listed & set(others) - {p for p in others if p.startswith("/week/") or p == "/threads"}, listed & set(others)
     # /work is noindex with fewer than three practical cards, so it is not listed here.
     assert "/work" in out["noindex"] and "/work" not in listed
 

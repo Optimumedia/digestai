@@ -173,7 +173,7 @@ export const SITEMAP_MIN_IMPORTANCE = 6;
 export const THREAD_SITEMAP_MIN = 3;
 /** Fixed hub pages that are listed (when not noindex). Categories, topics, models, threads and the
     AI at Work subpages are matched by the rules in sitemapIndex. */
-export const SITEMAP_HUBS = ["", "/today", "/work", "/work/tools", "/models", "/funding", "/api", "/about", "/listen"];
+export const SITEMAP_HUBS = ["", "/today", "/work", "/work/tools", "/models", "/funding", "/api", "/about", "/listen", "/threads"];
 
 /** Publisher identity from a host name: news.example.co.uk and example.co.uk are one source.
     The same rule as pipeline/digest/hold.py registrable(). */
@@ -281,12 +281,19 @@ export function sitemapIndex({ stories = [], entities = [], models = [], threads
     workWeeks.set(key, [...(workWeeks.get(key) || []), s.id]);
   }
   for (const [key, ids] of workWeeks) lastmod.set(`/work/week/${key}`, newestOf(ids));
+  // Weekly recaps have their own written intro; the thin ones are noindex (WEEK_MIN_STORIES).
+  const weeks = new Map();
+  for (const s of stories) {
+    const key = weekKey(s.firstPublishedAt || s.updatedAt);
+    if (key) weeks.set(key, [...(weeks.get(key) || []), s.id]);
+  }
+  for (const [key, ids] of weeks) lastmod.set(`/week/${key}`, newestOf(ids));
   for (const p of [...lastmod.keys()]) if (!lastmod.get(p)) lastmod.delete(p);
 
   const include = (path) => {
     const p = String(path || "").replace(/\/$/, "");
     if (noindex.has(p)) return false;
-    return listed.has(p) || /^\/category\/[^/]+$/.test(p) || /^\/work\/week\/[^/]+$/.test(p);
+    return listed.has(p) || /^\/category\/[^/]+$/.test(p) || /^\/(?:work\/)?week\/[^/]+$/.test(p);
   };
   return { include, lastmod, noindex };
 }
