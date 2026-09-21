@@ -1,0 +1,78 @@
+---
+import Base from "../../layouts/Base.astro";
+import Rail from "../../components/Rail.astro";
+
+// The engineering write-up: how the hourly pipeline works and what it costs (nothing). Written for
+// developers and the curious; kept to what the code in this repository actually does.
+const published = "2026-09-22";
+const title = "How Digest AI runs an hourly AI news desk on free tiers";
+const description = "Eighty sources an hour, one sourced page per story, fact checks on every summary and a daily podcast, for $0 a month: the pipeline behind Digest AI and what went wrong building it.";
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  headline: title,
+  description,
+  datePublished: published,
+  dateModified: published,
+  author: { "@type": "Organization", name: "Digest AI", url: "https://digestai.news/about" },
+  publisher: { "@type": "Organization", name: "Digest AI", logo: { "@type": "ImageObject", url: "https://digestai.news/logo-512.png" } },
+  mainEntityOfPage: "https://digestai.news/about/how-it-works",
+};
+---
+
+<Base title={title} description={description} type="article">
+  <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+  <div class="grid">
+    <article class="article">
+      <header class="page-head">
+        <div class="eyebrow">Engineering · <time datetime={published}>22 September 2026</time></div>
+        <h1>{title}</h1>
+        <p class="lede">Every hour, Digest AI reads about eighty sources, turns what is new into one page per story with every source linked, checks the summaries against those sources, and publishes a static site, a daily podcast and a set of feeds. It costs nothing to run. This is how it works, and what broke on the way.</p>
+      </header>
+
+      <h2>The problem</h2>
+      <p>Following AI news meant opening the same story in six tabs: the lab's announcement, two press write-ups that disagree on a number, a newsletter take and a Hacker News thread. I wanted one page per event that shows what happened, who reported it, and where the reports differ, with a link to every source so nothing has to be taken on trust.</p>
+
+      <h2>One run, start to finish</h2>
+      <p>A GitHub Actions workflow starts seven minutes past every hour. Each run is a Python pipeline of small steps, each allowed a bounded amount of work so a slow source or a busy model never holds up the site:</p>
+      <ol>
+        <li><strong>Fetch.</strong> About eighty feeds: labs and companies (their own blogs count as primary sources), the technology press, newsletters, research, and community sites. New items are stored once; a title seen before is skipped.</li>
+        <li><strong>Extract.</strong> The article text is pulled from each page with trafilatura. Pages that block us, or that come back with a few dozen words, are recorded as failures rather than guessed at.</li>
+        <li><strong>Gate.</strong> A cheap check drops what is not AI news.</li>
+        <li><strong>Summarise.</strong> A language model writes a headline, three key points, a short digest, why it matters, the companies, models and people named, and, for tools small businesses can use, a practical card: what it does, what it costs, how long it takes and the catch.</li>
+        <li><strong>Cluster.</strong> Articles about the same event are grouped into one story with small sentence embeddings (bge-small-en), so six write-ups of one launch become one page with six sources.</li>
+        <li><strong>Rank and export.</strong> Stories are scored and written out as JSON; an Astro build turns that into a static site on GitHub Pages, with RSS, a news sitemap and every story also as JSON and Markdown.</li>
+        <li><strong>Everything else.</strong> Share images, a spoken daily briefing, Bluesky posts, the admin dashboard and a morning note for me, written from the run's own numbers.</li>
+      </ol>
+
+      <h2>Checking a model's work</h2>
+      <p>A summary is only useful if it says what the sources say. After a model writes one, a rules-only check looks for every figure and every proper name in it and confirms each appears in the source text. A summary that invents a number ("raised $3 billion" when the article says $2.5 billion) is sent back once, and if it is still wrong the offending line is removed. Headlines go through a second set of rules that strip hype ("revolutionizing", "game-changer"), clickbait frames and shouting.</p>
+      <p>When a story grows to several publishers, a stronger model rewrites it from all of them and is asked for two extra things: one sentence every report agrees on, and up to three lines on where they differ. A "differ" line is kept only if it names one of the outlets and its figures are in the articles; a model asked for disagreements will otherwise find some.</p>
+
+      <h2>Which story leads</h2>
+      <p>The daily briefing is five stories. The five are picked by score, which blends editorial importance, freshness, breadth of coverage and what readers actually open and read, learned from anonymous page events without cookies. Then one rule: a story confirmed by two publishers, or by the company itself, goes above one only a single outlet has reported. A scoop can be in the briefing; it cannot be the first thing you read while half the press is covering something else.</p>
+
+      <h2>Running on free tiers</h2>
+      <p>The whole thing costs $0 a month:</p>
+      <ul>
+        <li><strong>Compute:</strong> GitHub Actions, about ten minutes an hour.</li>
+        <li><strong>Hosting:</strong> GitHub Pages, a static site with no server.</li>
+        <li><strong>Database:</strong> Supabase's free Postgres.</li>
+        <li><strong>Media:</strong> share images and audio are stored as GitHub release assets.</li>
+        <li><strong>Voice:</strong> Kokoro, an open text-to-speech model, runs on the Actions runner.</li>
+        <li><strong>Language models:</strong> no single free tier covers about 550 summaries a day, so the pipeline works down a chain: Gemini first, then Ollama Cloud's free models, Groq, Cloudflare Workers AI, OpenRouter's free models and Mistral's free allowance. Each has its own daily budget, is paused for the rest of the run when it answers "too many requests", and the paid-per-token one stops itself well before its free credit runs out. A small local model on the runner is the last resort.</li>
+      </ul>
+
+      <h2>What went wrong</h2>
+      <p><strong>The database bill that was not a bill.</strong> Supabase's free plan allows 5 GB of data out a month. In the first cycle the pipeline used 13.4 GB, because every run re-read whole tables to find what had changed. The fix was to stop asking: the runner keeps its own copy of what it has read, Postgres triggers stamp each changed row with a revision number, and each run reads only rows newer than the last one it saw. A run now reads about 1.5 MB.</p>
+      <p><strong>Merging too eagerly.</strong> To catch duplicates I merged stories whose summaries were very similar and named the same company. That merged different events that happened to be about the same lab on the same day. Merging is now off except for near-identical wording, and a reader was right to point it out.</p>
+      <p><strong>A thousand files.</strong> GitHub releases take at most 1,000 assets each. Share images and thumbnails filled the week's release in five days, and every upload after that was refused. The week now carries on in a second release.</p>
+      <p><strong>Old stories as new.</strong> Using a story's last-updated time to decide what is new put week-old stories in the briefing whenever a late article joined them. "New" now means first published.</p>
+
+      <h2>What I would like help with</h2>
+      <p>Story grouping is the weakest part: some events still split into two pages, and some near-duplicates slip through. If you notice one, or a summary that misstates its sources, the <a href="/about#corrections">corrections address</a> reaches me. The site is also available as data: every story is published as JSON and Markdown, documented on the <a href="/api">API page</a>.</p>
+      <p><a href="/today">Read today's briefing</a> · <a href="/work">AI at Work</a> · <a href="/listen">Listen</a> · <a href="/rss.xml">RSS</a></p>
+    </article>
+    <Rail />
+  </div>
+</Base>
