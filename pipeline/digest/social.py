@@ -146,7 +146,7 @@ def _briefing_post(briefing: dict, by_id: dict, date_label: str) -> dict | None:
     if len(top) < 3:
         return None
     minutes = max(3, (briefing.get("stats") or {}).get("minutes", 5))
-    tail = f"\n\nPlus {len(top) - 1} more stories that mattered today, each with its sources, and a {minutes}-minute listen."
+    tail = f"\n\nPlus {len(top) - 1} more stories that mattered today, and a {minutes}-minute listen."
     intro = "Today in AI: "
     text = intro + _lede(top[0], TEXT_LIMIT - len(tail) - len(intro)) + tail
     return {

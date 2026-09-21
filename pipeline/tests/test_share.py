@@ -133,11 +133,13 @@ def test_linkedin_post_has_a_hook_substance_and_a_call_to_read():
     lines = li.split("\n")
     assert lines[0] == "Lab ships model number 8 for coding.", lines[0]
     assert "• The model scores 71% on the coding test." in lines
-    assert "Why it matters: Coding tools get cheaper for small teams." in lines, "first sentence only"
-    assert "The full story, with all 2 sources linked:" in li, "a.com and news.a.com are one publisher"
+    # The why is the reason to click, so it is on the site, not in the post; and no source counts.
+    assert not any(l.startswith("Why it matters:") for l in lines) and "sources" not in li and "publisher" not in li
+    assert "Why it matters, and what happens next: https://digestai.news/story/" in li
     w = share.linkedin_post(work_story(9))
     assert w.startswith("For marketers and small teams: Canva adds a brief-to-post writer.")
-    assert "Cost: Free tier." in w and "Worth knowing: The free tier watermarks video exports." in w
+    assert "Cost: Free tier." in w and "Worth knowing" not in w
+    assert "What it does for a small team, and the catch: " in w or "How to set it up, step by step: " in w
 
 
 # ---------------------------------------------------------------------------- the done-state file

@@ -268,28 +268,35 @@ def _hook(story: dict) -> str:
 
 
 def _substance(story: dict) -> list[str]:
-    """Two or three short lines the story itself says: for a work item what the tool does, what it costs
-    and the catch; otherwise two key points and why it matters."""
+    """Two short lines the story itself says, enough to be worth reading and to make the click worth it:
+    for a work item what the tool does and what it costs; otherwise two key points. Why it matters and
+    how to set it up stay on the site, and the call to action says so."""
     card = story.get("workCard")
     if card:
-        lines = [_sentence(card.get("whatItDoes"), 200)]
+        lines = [_sentence(card.get("youGet") or card.get("whatItDoes"), 200)]
         if card.get("cost") and card.get("costKind") != "unknown":
             lines.append(f"Cost: {_stop(_clip(calm(card['cost']), 120))}")
-        if card.get("watchOut"):
-            lines.append(f"Worth knowing: {_sentence(card['watchOut'], 180)}")
         return [_stop(l) for l in lines if l]
-    points = [_stop(_sentence(p, 200)) for p in (story.get("keyPoints") or [])[:2] if p]
-    why = _sentence(story.get("whyItMatters"), 220)
-    return points + ([f"Why it matters: {_stop(why)}"] if why else [])
+    return [_stop(_sentence(p, 200)) for p in (story.get("keyPoints") or [])[:2] if p]
+
+
+def call_to_action(story: dict) -> str:
+    """Why to click, in the reader's terms: what is waiting on the page, never how it was made."""
+    card = story.get("workCard")
+    if card and card.get("steps"):
+        return "How to set it up, step by step:"
+    if card:
+        return "What it does for a small team, and the catch:"
+    if story.get("whyItMatters"):
+        return "Why it matters, and what happens next:"
+    return "The full story:"
 
 
 def linkedin_post(story: dict) -> str:
-    n = publishers(story)
     link = story_url(story["slug"], "linkedin")
-    cta = f"The full story, with all {n} sources linked: {link}" if n >= 2 else f"The full story, with the source linked: {link}"
-    body = "\n".join(f"• {l}" if not l.startswith(("Why it matters", "Cost", "Worth knowing")) else l for l in _substance(story))
+    body = "\n".join(l if l.startswith("Cost") else f"• {l}" for l in _substance(story))
     tags = " ".join(f"#{t}" for t in hashtags(story, 3))
-    return f"{_stop(_hook(story))}\n\n{body}\n\n{cta}\n\n{tags}".strip()
+    return f"{_stop(_hook(story))}\n\n{body}\n\n{call_to_action(story)} {link}\n\n{tags}".strip()
 
 
 def x_post(story: dict) -> str:
@@ -306,7 +313,8 @@ def x_post(story: dict) -> str:
         return hook + tail
     # The first whole sentence that fits: why it matters, then the key points. Never cut mid-sentence;
     # when none fits, the headline stands alone.
-    options = [card.get("whatItDoes")] if card else [story.get("whyItMatters"), *(story.get("keyPoints") or [])]
+    # A key point, not the why: the why is what the click is for.
+    options = [card.get("youGet"), card.get("whatItDoes")] if card else [*(story.get("keyPoints") or []), story.get("whyItMatters")]
     for option in options:
         detail = _stop(_sentence(option, 400)) if option else ""
         if detail and not detail.endswith("…") and x_length(detail) <= room:
