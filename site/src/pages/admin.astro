@@ -319,12 +319,12 @@ const homeData = JSON.stringify({
                         {net === "x" && <p class="share-count" data-count>{it.xLength} of 280 characters (a link counts as 23)</p>}
                         <div class="share-btns">
                           <button type="button" class="tb share-btn" data-copy={net}>Copy text</button>
-                          <button type="button" class="tb primary share-btn" data-open={net}>{net === "x" ? "Open X" : "Open LinkedIn"} ↗</button>
+                          <button type="button" class="tb primary share-btn" data-open={net}>{net === "x" ? "Open X" : "Post on the page"} ↗</button>
                           <button type="button" class="tb share-btn share-done" data-done={net}>Mark done</button>
                         </div>
                         {net === "linkedin"
-                          ? <p class="share-hint">LinkedIn does not take text from a link, so Open LinkedIn copies the text first: paste it into the post box.</p>
-                          : <p class="share-hint">Open X fills in the text and the link; check it and post.</p>}
+                          ? <p class="share-hint">Post on the page copies the text and opens the Digest AI company page's post box (you post as the page, as its admin): paste, wait for the link preview, post. <button type="button" class="linklike" data-open-personal>Share as yourself instead ↗</button></p>
+                          : <p class="share-hint">Open X fills in the text and the link. Be signed in to X as @DigestAINews so it posts from the page's account.</p>}
                         <label class="share-url"><span>Link to your post <span class="muted">(optional)</span></span>
                           <input type="url" inputmode="url" data-post-url={net} placeholder={net === "x" ? "https://x.com/DigestAINews/status/…" : "https://www.linkedin.com/feed/update/…"} />
                         </label>
@@ -1459,14 +1459,17 @@ const homeData = JSON.stringify({
         ta.remove();
         return ok;
       }
+      const LINKEDIN_PAGE_COMPOSER = "https://www.linkedin.com/company/digestai-news/admin/page-posts/published/?share=true";
       const storyLink = (text, fallback) => (text.match(/https?:\/\/\S+/g) || []).find((u) => u.includes("/story/")) || fallback;
       const intentUrl = (net, text, item) => {
-        if (net === "linkedin") return `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(item.links.linkedin)}`;
+        // The company page's own post box: whoever administers the page posts as Digest AI, not as themselves.
+        if (net === "linkedin") return LINKEDIN_PAGE_COMPOSER;
         const link = storyLink(text, item.links.x);
         const body = text.replace(link, "").replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim();
         return `https://x.com/intent/post?text=${encodeURIComponent(body)}&url=${encodeURIComponent(link)}`;
       };
       window.__shareIntentUrl = intentUrl; // for checking the built links from the console
+      const personalLinkedIn = (item) => `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(item.links.linkedin)}`;
 
       root.querySelectorAll(".share-item").forEach((li) => {
         const item = items[li.dataset.shareId];
@@ -1485,9 +1488,14 @@ const homeData = JSON.stringify({
           // Start the copy inside the click (browsers only allow it there), then open the network.
           const copied = net === "linkedin" ? copy(text) : null;
           window.open(intentUrl(net, text, item), "_blank", "noopener");
-          if (copied) copied.then((ok) => say(li, ok ? "Text copied: paste it into the LinkedIn post box, then tick Mark done." : "Could not copy the text: use Copy text, then paste it into LinkedIn.", !ok));
+          if (copied) copied.then((ok) => say(li, ok ? "Text copied: in the page's post box (Start a post if it is not open), paste it, then tick Mark done." : "Could not copy the text: use Copy text, then paste it into LinkedIn.", !ok));
           else say(li, "X opened with the text and link filled in. Tick Mark done once it is live.");
         }));
+        li.querySelector("[data-open-personal]")?.addEventListener("click", () => {
+          const copied = copy(li.querySelector('[data-text="linkedin"]').value);
+          window.open(personalLinkedIn(item), "_blank", "noopener");
+          copied.then((ok) => say(li, ok ? "Text copied: paste it into your own LinkedIn post box." : "Could not copy the text: use Copy text.", !ok));
+        });
         li.querySelectorAll("[data-done]").forEach((b) => b.addEventListener("click", () => {
           const net = b.dataset.done, id = li.dataset.shareId, done = stories[id]?.[net];
           if (done) { if (confirm(`Mark "${item.slug}" as not shared on ${NAME[net]}?`)) save(li, net, null); return; }
