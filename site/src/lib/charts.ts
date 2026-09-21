@@ -61,7 +61,10 @@ export function columns(rows: Record<string, any>[], xKey: string, series: Serie
   const y = (v: number) => padT + ph - (v / max) * ph;
   const xf = opts.xFormat ?? ((v) => String(v).slice(5));
   const every = opts.labelEvery ?? Math.max(1, Math.ceil(rows.length / 7));
-  const showValues = opts.grouped && rows.length <= 10;
+  // Numbers over the bars when they fit (about 6.5 px a character at the chart's size), not by a
+  // count of days: past ten days they used to vanish. Too narrow for every bar: the first series'
+  // number over the group; too narrow for that too: none, and the hover title has them all.
+  const textW = (v: number) => fmt(v).length * 6.5;
   let out = `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="column chart">`;
   for (const t of yTicks) {
     out += `<line class="grid" x1="${padL}" x2="${w - padR}" y1="${y(t)}" y2="${y(t)}"/><text class="tick" x="${padL - 6}" y="${y(t) + 3}" text-anchor="end">${fmt(t)}</text>`;
@@ -73,13 +76,18 @@ export function columns(rows: Record<string, any>[], xKey: string, series: Serie
       const gap = 3, n = series.length;
       const bw = Math.min(28, Math.max(4, (band * 0.7 - gap * (n - 1)) / n));
       const x0 = cx - (bw * n + gap * (n - 1)) / 2;
-      const anyValue = series.some((s) => (Number(r[s.key]) || 0) > 0);
+      const vals = series.map((s) => Number(r[s.key]) || 0);
+      const anyValue = vals.some((v) => v > 0);
+      const eachFits = vals.every((v) => textW(v) <= bw + gap);
       series.forEach((s, si) => {
-        const v = Number(r[s.key]) || 0;
+        const v = vals[si];
         const x = x0 + si * (bw + gap);
         if (v > 0) out += `<path class="mark" fill="${s.color}" d="${capPath(x, base, y(v), bw)}"><title>${tip}</title></path>`;
-        if (showValues && anyValue) out += `<text class="value" x="${x + bw / 2}" y="${(v > 0 ? y(v) : base) - 5}" text-anchor="middle">${fmt(v)}</text>`;
+        if (anyValue && eachFits) out += `<text class="value" x="${x + bw / 2}" y="${(v > 0 ? y(v) : base) - 5}" text-anchor="middle">${fmt(v)}</text>`;
       });
+      if (anyValue && !eachFits && textW(vals[0]) <= band - 4) {
+        out += `<text class="value" x="${cx}" y="${y(Math.max(...vals)) - 5}" text-anchor="middle">${fmt(vals[0])}</text>`;
+      }
       out += `<rect class="hit" x="${cx - band / 2}" y="${padT}" width="${band}" height="${ph}"><title>${tip}</title></rect>`;
     } else {
       const bw = Math.min(24, Math.max(4, band * 0.62));

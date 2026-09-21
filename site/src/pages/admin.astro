@@ -378,9 +378,9 @@ const homeData = JSON.stringify({
           </div>
           <div class="cards">
             <article class="card wide">
-              <h2>Views, visitors and clicks to source <span class="muted">per day, since the first reader · hover a day for exact numbers</span></h2>
+              <h2>Views, visitors and clicks to source <span class="muted">per day, last 30 days · hover a day for exact numbers</span></h2>
               <div class="legend"><span><i style={`background:${C.s1}`}></i>Views</span><span><i style={`background:${C.s2}`}></i>Visitors</span><span><i style={`background:${C.s3}`}></i>Clicks to source</span></div>
-              <Fragment set:html={columns(sinceFirst(eng.perDay, ["views", "visitors", "clicks"]), "day", [{ key: "views", label: "Views", color: C.s1 }, { key: "visitors", label: "Visitors", color: C.s2 }, { key: "clicks", label: "Clicks to source", color: C.s3 }], { grouped: true, w: 1100, h: 240, xFormat: dayLabel() })} />
+              <Fragment set:html={columns(sinceFirst(eng.perDay, ["views", "visitors", "clicks"]).slice(-30), "day", [{ key: "views", label: "Views", color: C.s1 }, { key: "visitors", label: "Visitors", color: C.s2 }, { key: "clicks", label: "Clicks to source", color: C.s3 }], { grouped: true, w: 1100, h: 240, xFormat: dayLabel() })} />
             </article>
           </div>
           <div class="cards">
