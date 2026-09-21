@@ -853,13 +853,13 @@ table.sortable th:hover { color: var(--ink); }
 .nav a.nav-work { color: var(--work-accent); }
 .nav a.nav-work:hover { background: var(--work-soft); color: var(--work-accent); }
 .nav a.nav-work[aria-current="page"] { color: var(--work-accent); border-bottom-color: var(--work-accent); }
+/* The first menu item is a publication, not a category: the section's square before it and a pale
+   wash of its green behind it, so it reads as a way into something else. */
+.nav a.nav-work { gap: 7px; font-weight: 700; background: color-mix(in srgb, var(--work-soft) 60%, transparent); }
+.nav a.nav-work::before { content: ""; flex: none; width: 8px; height: 8px; background: var(--work-accent); }
 
-/* The card below is the home page's and the story page's (components/WorkCard.astro). The
-   section's own pages use WorkEntry.astro and the .work-theme styles further down. */
-.work-note { font-size: 14.5px; margin: 6px 0 12px; max-width: 68ch; }
-
-.workgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 12px 0 16px; }
-@media (max-width: 760px) { .workgrid { grid-template-columns: minmax(0, 1fr); } }
+/* The card below is the story page's (components/WorkCard.astro). The section's own pages use
+   WorkEntry.astro and the .work-theme styles further down; the home page, WorkHome.astro. */
 .workcard { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 4px; padding: 14px 16px 12px; }
 .workcard.is-skip { border-left-color: var(--ink-3); }
 .workcard-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 6px; }
@@ -894,19 +894,15 @@ table.sortable th:hover { color: var(--ink); }
 .workstory { margin: 18px 0 8px; }
 .workstory .workcard { border-left-width: 4px; }
 
-/* The home page's AI at Work block: a door into the section, with a hint of its look (the heading
-   face and the accent square), nothing more. */
-.focus.work-section .dayhead { border-bottom-color: var(--work-accent); }
-.focus.work-section .dayhead h2 { font-family: var(--font-work); font-weight: 700; letter-spacing: 0; display: flex; align-items: baseline; gap: 9px; }
-.focus.work-section .dayhead h2::before { content: ""; flex: none; width: 0.5em; height: 0.5em; background: var(--work-accent); }
-
 /* ---------- AI at Work: the section's own look (site/docs/work-design.md) (start) ----------
-   A workbook inside the news site. Only layouts/Work.astro sets body[data-section="work"] and
-   .work-theme, so nothing here reaches another page. The tokens live on the body, redefined for
+   A workbook inside the news site. Only layouts/Work.astro sets body[data-section="work"]; the
+   home page's two doors into the section (components/WorkTeaser.astro and WorkHome.astro) carry
+   the same tokens and .work-theme on their own .wk-home element, so nothing here reaches anything
+   else. The tokens live on the body, redefined for
    dark mode exactly like :root's, so the theme toggle works; .work-theme maps them onto the site's
    own tokens, so shared components inside (listen player, table) follow without a second copy.
    The site masthead, ticker and footer sit outside .work-theme and keep the brand as it is. */
-body[data-section="work"] {
+body[data-section="work"], .wk-home {
   --w-ground: #eef1eb; --w-surface: #fbfcfa; --w-inset: #e2e8e0;
   --w-ink: #16211b; --w-ink-2: #3d4b43; --w-ink-3: #56655d;
   --w-line: #c9d3c8; --w-rule: #9fb0a4; --w-grid: rgba(22, 33, 27, 0.06);
@@ -916,7 +912,7 @@ body[data-section="work"] {
   background: var(--w-ground);
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) body[data-section="work"] {
+  :root:not([data-theme="light"]) :is(body[data-section="work"], .wk-home) {
     --w-ground: #101915; --w-surface: #17221d; --w-inset: #1f2d26;
     --w-ink: #e4ece6; --w-ink-2: #b2c0b7; --w-ink-3: #8e9d95;
     --w-line: #2d3c34; --w-rule: #44574c; --w-grid: rgba(228, 236, 230, 0.045);
@@ -924,7 +920,7 @@ body[data-section="work"] {
     --w-thread: #8397ff;
   }
 }
-:root[data-theme="dark"] body[data-section="work"] {
+:root[data-theme="dark"] :is(body[data-section="work"], .wk-home) {
   --w-ground: #101915; --w-surface: #17221d; --w-inset: #1f2d26;
   --w-ink: #e4ece6; --w-ink-2: #b2c0b7; --w-ink-3: #8e9d95;
   --w-line: #2d3c34; --w-rule: #44574c; --w-grid: rgba(228, 236, 230, 0.045);
@@ -1215,6 +1211,96 @@ details.wk-card-more[open] { padding-bottom: 4px; }
 .wk-next-arrow { margin-left: 0.3em; }
 @media (max-width: 640px) { .wk-next { margin-top: 44px; } .wk-next a { padding: 18px 16px; } }
 /* ---------- AI at Work: the section's own look (end) ---------- */
+
+/* ---------- AI at Work on the home page (components/WorkTeaser.astro, WorkHome.astro) ----------
+   Two doors in the section's materials (.wk-home carries its tokens, both themes): a teaser seen
+   before any scrolling and a band right after the briefing. Both are server-rendered, in the flow,
+   so nothing moves once the page has loaded. */
+.wk-home.work-theme { padding-bottom: 0; }
+
+/* Where the teaser goes. It comes first in the HTML. On a desktop it heads the side rail, beside
+   the briefing (the main column spans both rows); on a phone, where the rail drops to the end of
+   the page, it stays first, above the briefing. */
+@media (min-width: 901px) {
+  .grid.has-teaser { grid-template-rows: auto 1fr; row-gap: 0; }
+  .grid.has-teaser > .grid-main { grid-column: 1; grid-row: 1 / span 2; }
+  .grid.has-teaser > .wk-teaser { grid-column: 2; grid-row: 1; margin: 18px 0 30px; }
+  .grid.has-teaser > .rail { grid-column: 2; grid-row: 2; }
+}
+@media (max-width: 900px) {
+  .grid.has-teaser { row-gap: 0; padding-top: 16px; }
+  .grid.has-teaser > .rail { margin-top: 32px; }
+}
+
+.wk-teaser { display: grid; gap: 8px; padding: 12px 16px 14px; background: var(--w-ground); border: 1.5px solid var(--w-rule); border-top: 5px solid var(--accent); border-radius: 3px; color: var(--ink); }
+.wk-teaser-k { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin: 0; }
+.wk-teaser-mark, .wk-hband-mark { font-family: var(--font-work); font-weight: 700; line-height: 1.1; color: var(--ink); white-space: nowrap; }
+.wk-teaser-mark { font-size: 18px; }
+.wk-teaser-mark u, .wk-hband-mark u { text-decoration: underline; text-decoration-color: var(--w-marker); text-decoration-thickness: 0.18em; text-underline-offset: 0.1em; text-decoration-skip-ink: none; }
+.wk-teaser-what { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.wk-teaser-link { display: grid; justify-items: start; gap: 7px; color: var(--ink); }
+.wk-teaser-link:hover { color: var(--ink); }
+.wk-teaser-link .wk-tape { font-size: 12px; }
+.wk-teaser-title { font-family: var(--font-work); font-weight: 700; font-size: 20px; line-height: 1.15; text-wrap: balance; }
+.wk-teaser-link:hover .wk-teaser-title { color: var(--accent); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.wk-teaser-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.wk-teaser .wk-chips.is-compact { flex-wrap: wrap; }
+.wk-teaser-go { margin-left: auto; font-family: var(--font-work); font-weight: 700; font-size: 15px; color: var(--accent); white-space: nowrap; }
+.wk-teaser-go:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 900px) {
+  .wk-teaser { gap: 6px; padding: 10px 14px 12px; }
+  .wk-teaser-link .wk-tape { display: none; }
+  .wk-teaser-title { font-size: 18px; }
+}
+
+/* The band, after the briefing: a graph-paper head on an ink rule (the section's own band, small),
+   the week's pick on a leaf-white card, two more as lines, and the job pages. */
+.wk-hband { margin: 28px 0 8px; padding: 0 22px 20px; background: var(--w-ground); border: 1.5px solid var(--w-rule); border-radius: 3px; color: var(--ink); }
+.wk-hband-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 22px; margin: 0 -22px 20px; padding: 16px 22px 14px; background-color: var(--surface); background-image: linear-gradient(var(--w-grid) 1px, transparent 1px), linear-gradient(90deg, var(--w-grid) 1px, transparent 1px); background-size: 14px 14px; border-bottom: 2px solid var(--ink); border-radius: 3px 3px 0 0; }
+.wk-hband-mark { margin: 0; font-size: 32px; line-height: 1; }
+.wk-hband-tag { flex: 1 1 260px; margin: 0; max-width: 46ch; font-size: 15px; line-height: 1.4; color: var(--ink-2); }
+.wk-hband-all { margin-left: auto; font-family: var(--font-work); font-weight: 700; font-size: 15px; color: var(--accent); white-space: nowrap; }
+.wk-hband-all:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+
+.wk-hfeat { display: grid; gap: 18px 32px; padding: 22px 24px 20px; background: var(--surface); border: 2px solid var(--ink); border-radius: 3px; }
+@media (min-width: 761px) {
+  .wk-hfeat.has-side { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+  .wk-hfeat-side { padding-left: 28px; border-left: 1px solid var(--line); }
+}
+@media (max-width: 760px) { .wk-hfeat-side { padding-top: 16px; border-top: 1px solid var(--line); } }
+.wk-hfeat-k { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-family: var(--font-work); font-weight: 700; font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.wk-hfeat-k::before { content: ""; flex: none; width: 12px; height: 12px; background: var(--w-marker); }
+.wk-hfeat .wk-card-tool { margin-bottom: 10px; }
+.wk-hfeat-title { margin: 0 0 12px; font-size: clamp(24px, 2.6vw, 30px); line-height: 1.1; }
+.wk-hfeat-title a:hover { color: var(--accent); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+.wk-hfeat-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 2px 0 0; }
+.wk-hfeat-why { font-size: 14.5px; color: var(--ink-2); }
+.wk-hfeat-side .wk-check li { font-size: 15px; }
+.wk-hprompt { margin: 0; }
+.wk-hprompt pre { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 8; overflow: hidden; margin: 0; padding: 12px 14px; border: 1.5px solid var(--w-rule); border-radius: 3px; background: var(--w-inset); color: var(--ink); font-family: var(--font-mono); font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wk-hprompt-note { margin: 8px 0 0; font-size: 14px; color: var(--ink-2); }
+.wk-hprompt-note a { font-weight: 700; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+
+.wk-halso { margin-top: 22px; }
+.wk-halso-h { margin: 0; padding-bottom: 7px; border-bottom: 2px solid var(--ink); font-size: 17px; }
+
+.wk-hjobs { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 20px; }
+.wk-hjobs-k { font-family: var(--font-work); font-weight: 700; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.wk-hjobs ul { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.wk-hjobs a { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; background: var(--surface); border: 1.5px solid var(--w-rule); border-radius: 3px; color: var(--ink); font-family: var(--font-work); font-weight: 700; font-size: 15px; }
+.wk-hjobs a:hover { color: var(--ink); border-color: var(--ink); background: var(--accent-soft); }
+.wk-hjobs .mono { color: var(--accent); }
+
+@media (max-width: 640px) {
+  .wk-teaser { margin: 0 -4px; }
+  .wk-hband { margin: 24px -4px 8px; padding: 0 14px 16px; }
+  .wk-hband-head { margin: 0 -14px 16px; padding: 14px 14px 12px; }
+  .wk-hband-mark { font-size: 28px; }
+  .wk-hband-tag { font-size: 14.5px; }
+  .wk-hband-all { margin-left: 0; }
+  .wk-hfeat { padding: 18px 16px 16px; }
+  .wk-hjobs a { padding: 0 10px; font-size: 14.5px; }
+}
 
 /* ---------- Story: how the reports compare ---------- */
 .source-notes { border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 4px; padding: 14px 18px; margin: 20px 0; max-width: 68ch; background: var(--surface); }

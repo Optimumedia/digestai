@@ -143,8 +143,29 @@ next-week links, and `data-work-tool` on the card.
 ## Scope and safety
 
 - Everything is under `body[data-section="work"]` / `.work-theme`; only `layouts/Work.astro` sets
-  them. The home page's AI at Work block only gets the display face on its heading and a thin accent
-  rule. The story page's card is unchanged.
+  the body attribute. The home page's two doors (below) carry the same tokens on their own
+  `.wk-home.work-theme` element, redefined for dark mode in the same three blocks. The story page's
+  card is unchanged.
+
+## On the home page
+
+The news desk stays first; AI at Work gets two doors in its own materials, both server-rendered in
+the flow (no layout shift), both hidden when `homeWork()` (`src/lib/work.ts`) finds neither a
+featured pick nor three good cards from the last seven days. Their items are not repeated in the
+day lists.
+
+- **Teaser** (`WorkTeaser.astro`): "AI at Work · One thing to try this week", the tool on its tape,
+  the outcome headline, cost and time chips, "See how →" to /work. First in the grid's HTML: on a
+  desktop it heads the side rail beside the briefing, on a phone (900px and under) it sits above
+  the briefing, without the tape. Seen before any scrolling on both.
+- **Band** (`WorkHome.astro`), right after the briefing: a small graph-paper head with the
+  wordmark and "All of AI at Work →"; the week's pick on a leaf-white card with an ink border
+  (tape, maker, headline, what it does, chips, the catch, "See how →" with what is waiting on
+  /work, and the prompt or "use it for" beside it); two more as dense rows (three without a pick);
+  shortcuts to the job pages that have items.
+- The masthead's "AI at Work" item carries the section's square and a pale wash of its green.
+- Clicks are `next_click` events (`data-work-next`): `home-teaser`, `home-band`,
+  `home-band-prompt`, `home-band-item`, `home-band-job`, `home-band-all`.
 - Focus: a 3px blue ring on every link, button and summary. Motion: hover transitions only, off
   under `prefers-reduced-motion: reduce`.
 - Phones 320–414px: tabs scroll sideways, rows and tiles stack, no horizontal page scroll.

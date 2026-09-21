@@ -332,3 +332,34 @@ export function toolFor(card: WorkCard): WorkTool | undefined {
   return work.tools.find((t) => `${t.tool}|${t.maker || ""}`.toLowerCase() === key)
     || work.tools.find((t) => t.tool.toLowerCase() === card.tool.toLowerCase());
 }
+
+/* ---------- the home page's AI at Work ---------- */
+
+export interface HomeWork {
+  /** The week's one thing to try: the pipeline's featured pick, else the first fresh card with a
+      named maker (never a forum handle, namedMaker) that is not a "leave for now" card. */
+  featured: WorkStory | undefined;
+  /** More things to try: two beside a featured pick, three without one. Never "leave for now". */
+  also: WorkStory[];
+  /** The job pages that have something on them, with their counts, in the section's order. */
+  jobs: { job: Job; count: number }[];
+}
+
+/** What the home page shows of AI at Work (components/WorkHome.astro, WorkTeaser.astro): cards of
+    the seven days before `generatedAt`, in the section briefing's order (usefulness), then newest
+    first. Null when there is neither a featured pick nor three good cards, so the page shows
+    nothing rather than a thin block that reads like an ad for an empty section. */
+export function homeWork(generatedAt: string): HomeWork | null {
+  const weekAgo = Date.parse(generatedAt) - 7 * 24 * 3600 * 1000;
+  const fresh = (s: WorkStory) => Date.parse(s.firstPublishedAt || s.updatedAt || "0") >= weekAgo;
+  const pool = [...briefingItems, ...sectionStories.filter((s) => !briefingItems.some((b) => b.id === s.id))].filter(fresh);
+  const id = workBriefing.featuredId;
+  const featured = (id != null ? pool.find((s) => s.id === id && !s.workCard.skip && namedMaker(s)) : undefined)
+    || pool.find((s) => !s.workCard.skip && namedMaker(s));
+  const also = pool.filter((s) => s !== featured && !s.workCard.skip).slice(0, featured ? 2 : 3);
+  if (!featured && also.length < 3) return null;
+  // Counted the way the hub's job tiles count them (pages/work/index.astro).
+  const jobs = JOBS.map((job) => ({ job, count: sectionStories.filter((s) => s.workCard.jobs.includes(job.key)).length }))
+    .filter((j) => j.count > 0);
+  return { featured, also, jobs };
+}

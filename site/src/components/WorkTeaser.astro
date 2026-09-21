@@ -1,0 +1,31 @@
+---
+/* The home page's small door into AI at Work, seen before any scrolling: the week's one thing to
+   try (or, without a featured pick, the first thing to try) as one link to /work. On a desktop it
+   heads the side rail, beside the briefing; on a phone it sits above the briefing, compact. Where it
+   goes is set by the home page's grid (styles/global.css, .grid.has-teaser); the band further down
+   (WorkHome.astro) has the details. A click records next_click "home-teaser" (public/app.js). */
+import type { HomeWork } from "../lib/work";
+import { cardTitle } from "../lib/work";
+import WorkChips from "./WorkChips.astro";
+
+interface Props { home: HomeWork }
+const { home } = Astro.props;
+const story = home.featured || home.also[0];
+const card = story.workCard;
+const { title } = cardTitle(card);
+---
+
+<aside class="wk-home work-theme wk-teaser" aria-label="AI at Work">
+  <p class="wk-teaser-k">
+    <span class="wk-teaser-mark">AI at <u>Work</u></span>
+    <span class="wk-teaser-what">{home.featured ? "One thing to try this week" : "Try this week"}</span>
+  </p>
+  <a class="wk-teaser-link" href="/work" data-work-next="home-teaser" data-work-tool={card.tool}>
+    <span class="wk-tape">{card.tool}</span>
+    <span class="wk-teaser-title">{title}</span>
+  </a>
+  <div class="wk-teaser-foot">
+    <WorkChips cost={card.cost} costKind={card.costKind} effort={card.effort} compact />
+    <a class="wk-teaser-go" href="/work" data-work-next="home-teaser" tabindex="-1" aria-hidden="true">See how<span> →</span></a>
+  </div>
+</aside>

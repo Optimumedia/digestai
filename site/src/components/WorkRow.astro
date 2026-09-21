@@ -10,14 +10,17 @@ interface Props {
   story: Story;
   card: WorkCard;
   note?: string | null;
+  /** Recorded as a next_click event's detail when the line is clicked (public/app.js,
+      data-work-next); the home page's lines use it, the section's own pages do not. */
+  track?: string;
 }
-const { story, card, note } = Astro.props;
+const { story, card, note, track } = Astro.props;
 // The outcome headline when there is one (lib/work.ts, cardTitle); rows do not link out, so no Try.
 const { title } = cardTitle(card);
 ---
 
 <li class:list={["wk-row", { "is-skip": Boolean(card.skip) }]} data-jobs={card.jobs.join(" ")}>
   <span class="wk-row-tool">{card.tool}</span>
-  <a class="wk-row-what" href={`/story/${story.slug}`}>{title}</a>
+  <a class="wk-row-what" href={`/story/${story.slug}`} data-work-next={track}>{title}</a>
   {note ? <span class="wk-row-note">{note}</span> : <WorkChips cost={card.cost} costKind={card.costKind} effort={card.effort} compact />}
 </li>

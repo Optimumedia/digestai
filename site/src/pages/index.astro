@@ -4,23 +4,22 @@ import StoryRow from "../components/StoryRow.astro";
 import Coverage from "../components/Coverage.astro";
 import Rail from "../components/Rail.astro";
 import ListenPlayer from "../components/ListenPlayer.astro";
-import WorkCard from "../components/WorkCard.astro";
+import WorkHome from "../components/WorkHome.astro";
+import WorkTeaser from "../components/WorkTeaser.astro";
 import { briefing, briefingStories, storiesByDay, plain, firstSentence, categories, meta, formatDate, dateTime, shortDate, episodes, thumbImage } from "../lib/data";
-import { briefingItems, sectionStories } from "../lib/work";
+import { homeWork } from "../lib/work";
 
 const lead = briefingStories[0];
 const rest = briefingStories.slice(1);
 const briefingIds = new Set(briefingStories.map((s) => s.id));
-// AI at Work is a top focus: the three most useful practical items of the last week get their own
-// block directly under the briefing, as cards rather than story rows, and are not repeated in the
-// day lists below. The section's own briefing sets the order (usefulness, not news importance).
-const weekAgo = Date.parse(meta.generatedAt) - 7 * 24 * 3600 * 1000;
-const fresh = (s: { firstPublishedAt: string | null; updatedAt: string | null }) =>
-  Date.parse(s.firstPublishedAt || s.updatedAt || "0") >= weekAgo;
-const focusStories = [...briefingItems, ...sectionStories.filter((s) => !briefingItems.some((b) => b.id === s.id))]
-  .filter(fresh)
-  .slice(0, 3);
-const shownIds = new Set([...briefingIds, ...focusStories.map((s) => s.id)]);
+// AI at Work is a top focus, shown twice without crowding the news: a small teaser seen before any
+// scrolling (the head of the side rail on a desktop, above the briefing on a phone), and a band in
+// the section's own look directly under the briefing with the week's one thing to try, two more
+// and the job pages (lib/work.ts, homeWork). Neither renders when there is nothing good to show.
+// Its items are not repeated in the day lists below.
+const workHome = homeWork(meta.generatedAt);
+const workIds = workHome ? [...(workHome.featured ? [workHome.featured] : []), ...workHome.also].map((s) => s.id) : [];
+const shownIds = new Set([...briefingIds, ...workIds]);
 const episode = episodes[0];
 const leadThumb = lead?.imageUrl ? thumbImage(lead) : null;
 const episodeIsToday = episode?.date === briefing.date;
@@ -36,8 +35,10 @@ const jsonLd = {
 ---
 
 <Base title="Digest AI" jsonLd={jsonLd}>
-  <div class="grid">
-    <div>
+  {workHome && <link slot="head" rel="preload" href="/fonts/archivo-semicondensed-700-latin.woff2" as="font" type="font/woff2" crossorigin />}
+  <div class:list={["grid", { "has-teaser": Boolean(workHome) }]}>
+    {workHome && <WorkTeaser home={workHome} />}
+    <div class="grid-main">
       {lead && (
         <section class="briefing" aria-labelledby="briefing-h">
           <div class="briefing-head">
@@ -91,18 +92,7 @@ const jsonLd = {
         </section>
       )}
 
-      {focusStories.length > 0 && (
-        <section class="focus work-section" aria-labelledby="focus-h">
-          <div class="dayhead">
-            <h2 id="focus-h">AI at Work: for marketers &amp; small businesses</h2>
-            <a class="eyebrow" href="/work">More in AI at Work →</a>
-          </div>
-          <p class="muted work-note">What each one does, who it is for, what it costs, how long it takes and the catch.</p>
-          <div class="workgrid">
-            {focusStories.map((s) => <WorkCard story={s} card={s.workCard} level="h3" />)}
-          </div>
-        </section>
-      )}
+      {workHome && <WorkHome home={workHome} />}
 
       <section id="your-topics" class="your-topics" hidden>
         <div class="dayhead">
