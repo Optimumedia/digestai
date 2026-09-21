@@ -41,6 +41,9 @@ jobs:
       MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      # OpenRouter free models: 50 requests a day without credits; the pipeline stops at this many (default 45).
+      OPENROUTER_DAILY_REQUESTS: ${{ vars.OPENROUTER_DAILY_REQUESTS }}
       # Workers AI free plan: 10,000 neurons a day; the pipeline stops at this many (default 9000).
       CLOUDFLARE_DAILY_NEURONS: ${{ vars.CLOUDFLARE_DAILY_NEURONS }}
       # Mistral's Free plan is $10 a month; the pipeline stops at this month-to-date spend (default 9).

@@ -97,6 +97,8 @@ const usageToday = (admin?.llm?.usage || []).filter((u: any) => u.day === today 
 const mistral = admin?.llm?.mistral || null;
 // Cloudflare Workers AI is held by its free daily neurons (upgrade.py first, then a fallback).
 const cloudflare = admin?.llm?.cloudflare || null;
+// OpenRouter's free models: a daily request count (failures included), first for the top rewrites.
+const openrouter = admin?.llm?.openrouter || null;
 const llmDays = days.map((d) => { const row: any = { day: d, gemini: 0, groq: 0 }; for (const u of (admin?.llm?.usage || []).filter((u: any) => u.day === d)) row[u.provider] = u.requests; return row; });
 
 const sources = (admin?.sources || []).slice().sort((a: any, b: any) => b.published - a.published || b.articles - a.articles);
@@ -663,6 +665,7 @@ const homeData = JSON.stringify({
             <div class="tile"><span class="label">Model calls today</span><span class="value">{usageToday.reduce((n: number, u: any) => n + u.requests, 0)}</span><span class="sub">{Object.keys(budgets).map((p) => `${p} ${usageToday.find((u: any) => u.provider === p)?.requests ?? 0}/${budgets[p]}`).join(" · ")}</span></div>
             {mistral && <div class:list={["tile", { bad: mistral.share != null && mistral.share >= 0.8 }]} title={mistral.line}><span class="label">Mistral this month</span><span class="value">${Number(mistral.spentUSD).toFixed(2)} of ${Number(mistral.capUSD).toFixed(2)}</span><span class="sub">{mistral.callsToday} calls today · {mistral.callsMonth} this month{mistral.pausedUntil ? ` · paused until ${String(mistral.pausedUntil).slice(0, 16).replace("T", " ")} UTC` : ""}</span></div>}
             {cloudflare && <div class:list={["tile", { bad: cloudflare.share != null && cloudflare.share >= 1 }]} title={cloudflare.line}><span class="label">Cloudflare today</span><span class="value">{Number(cloudflare.neuronsToday).toLocaleString("en-US")} of {Number(cloudflare.limitNeurons).toLocaleString("en-US")}</span><span class="sub">neurons · {cloudflare.callsToday} calls today{cloudflare.pausedModels?.length ? ` · ${cloudflare.pausedModels.length} model(s) not on the plan` : ""}</span></div>}
+            {openrouter && <div class:list={["tile", { bad: openrouter.share != null && openrouter.share >= 1 }]} title={openrouter.line}><span class="label">OpenRouter today</span><span class="value">{openrouter.callsToday} of {openrouter.limit}</span><span class="sub">free calls · {openrouter.topToday} of {openrouter.topLimit} top rewrites{openrouter.pausedUntil ? ` · paused until ${String(openrouter.pausedUntil).slice(0, 16).replace("T", " ")} UTC` : ""}</span></div>}
             <div class="tile"><span class="label">Links fetched today</span><span class="value">{funnel[funnel.length - 1]?.fetched ?? 0}</span><span class="sub">{funnel[funnel.length - 1]?.pending ?? 0} waiting for a summary</span></div>
           </div>
           <div class="cards">

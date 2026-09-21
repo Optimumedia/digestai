@@ -24,6 +24,7 @@ NOW = datetime.now(timezone.utc)
 # make them live providers (the tests that want them patch them in).
 config.MISTRAL_API_KEY = ""
 config.CLOUDFLARE_ACCOUNT_ID = config.CLOUDFLARE_AI_TOKEN = ""
+config.OPENROUTER_API_KEY = ""
 
 
 @contextmanager

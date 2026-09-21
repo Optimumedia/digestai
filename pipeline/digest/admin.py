@@ -145,6 +145,23 @@ def cloudflare_card(conn) -> dict:
     }
 
 
+def openrouter_card(conn) -> dict:
+    """OpenRouter's free requests today against the daily limit, and the top rewrites it wrote:
+    "OpenRouter: 7 of 45 free calls today"."""
+    from . import enrich
+
+    u = enrich.openrouter_usage(conn)
+    limit = config.OPENROUTER_DAILY_REQUESTS
+    paused = u["pausedUntil"] if u["pausedUntil"] > db.utcnow().timestamp() else None
+    return {
+        "model": (enrich.openrouter_models() or [None])[0], "callsToday": u["calls"], "limit": limit,
+        "topToday": u["top"], "topLimit": config.OPENROUTER_UPGRADE_DAILY,
+        "share": round(u["calls"] / limit, 3) if limit else None,
+        "pausedUntil": datetime.fromtimestamp(paused, timezone.utc).isoformat() if paused else None,
+        "line": f"OpenRouter: {u['calls']} of {limit} free calls today",
+    }
+
+
 def _iso(dt):
     dt = db.as_utc(dt)
     return dt.isoformat().replace("+00:00", "Z") if dt else None
@@ -237,6 +254,8 @@ def run() -> dict:
             out["llm"]["mistral"] = mistral_card(conn)
         if config.CLOUDFLARE_ACCOUNT_ID and config.CLOUDFLARE_AI_TOKEN:
             out["llm"]["cloudflare"] = cloudflare_card(conn)
+        if config.OPENROUTER_API_KEY:
+            out["llm"]["openrouter"] = openrouter_card(conn)
 
         # ---- content mix.
         story_mirror = sorted((s for s in cache.stories(conn).values() if db.as_utc(s.updated_at) >= since), key=lambda s: s.id)

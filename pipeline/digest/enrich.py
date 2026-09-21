@@ -1,6 +1,7 @@
 """Step 4: one LLM call per article. Gemini Flash (free tier) first, then Ollama Cloud, Groq,
-Cloudflare Workers AI (daily neurons) and Mistral (Ministral 8B, capped by monthly spend), then a
-local model; a heuristic path when no key is configured so the pipeline always completes."""
+Cloudflare Workers AI (daily neurons), OpenRouter (free models, daily requests) and Mistral
+(Ministral 8B, capped by monthly spend), then a local model; a heuristic path when no key is
+configured so the pipeline always completes."""
 from __future__ import annotations
 
 import json
@@ -207,10 +208,11 @@ def usage_today(conn, provider: str) -> tuple[int, bool]:
     return (row.requests, row.exhausted) if row else (0, False)
 
 
-# Providers whose call function counts its own requests (call_mistral and call_cloudflare: they are
-# held by money or neurons, and also called from steps that record nothing, howto and simplify). A
-# caller's count for them is dropped here so nothing is counted twice; an "exhausted" mark goes through.
-SELF_COUNTING = frozenset({"mistral", "cloudflare"})
+# Providers whose call function counts its own requests (call_mistral, call_cloudflare and
+# call_openrouter: they are held by money, neurons or a daily request count that includes failures,
+# and are also called from steps that record nothing, howto and simplify). A caller's count for them
+# is dropped here so nothing is counted twice; an "exhausted" mark goes through.
+SELF_COUNTING = frozenset({"mistral", "cloudflare", "openrouter"})
 
 
 def record_usage(eng, provider: str, n: int = 1, exhausted: bool = False) -> None:
@@ -270,7 +272,7 @@ def spare(conn, provider: str) -> int:
 
 # ----------------------------------------------------------------- queue order
 # Which article the strongest model gets. The providers are tried in order (Gemini, then Ollama
-# Cloud, then Groq, then Cloudflare, then Mistral, then the local model), each with its share of the run, so whatever stands at
+# Cloud, then Groq, then Cloudflare, then OpenRouter, then Mistral, then the local model), each with its share of the run, so whatever stands at
 # the front of the queue is what the best model reads. Before this, that was whatever arrived
 # first, which on most mornings meant an arXiv listing rather than a lab's own announcement.
 
@@ -968,6 +970,232 @@ def call_cloudflare_upgrade(prompt: str) -> dict:
     return call_cloudflare(prompt, purpose="upgrade")
 
 
+# ----------------------------------------------------------------- OpenRouter (free models, daily requests)
+# Free models only: an id that does not end in ":free" is never sent, so a typo or a changed setting
+# cannot reach a paid model. The account has 50 requests a day, and OpenRouter counts failures too,
+# so every request sent is counted, before its answer is read. The fallback uses may send up to
+# OPENROUTER_FALLBACK_REQUESTS a day; the top rewrites (upgrade.py) have the whole
+# OPENROUTER_DAILY_REQUESTS.
+#
+# Rows, one per UTC day:
+#   provider "openrouter"        requests = requests sent that day (answered or not)
+#   provider "openrouter_top"    requests = top rewrites written with it that day (upgrade.py)
+#   provider "openrouter_pause"  requests = the minute (since the epoch) a 402 pause ends
+
+OR_CALLS, OR_TOP, OR_PAUSE = "openrouter", "openrouter_top", "openrouter_pause"
+OR_ANSWER_TOKENS = 3000
+OR_HEADERS = {"HTTP-Referer": "https://digestai.news", "X-Title": "Digest AI"}
+
+_or: dict = {}
+_or_run: dict = {"paused": None, "dead": set()}
+
+
+def openrouter_reset() -> None:
+    _or.clear()
+    _or_run.update(paused=None, dead=set())
+
+
+def openrouter_models() -> list[str]:
+    """The configured models that are free; anything else is refused, loudly."""
+    out = []
+    for m in config.OPENROUTER_MODELS:
+        if m.endswith(":free"):
+            out.append(m)
+        elif m not in _or_refused:
+            _or_refused.add(m)
+            log.warning("openrouter: %s is not a free model id (no ':free'); never sent", m)
+    return out
+
+
+_or_refused: set[str] = set()  # paid ids already reported, so the log says it once
+
+
+def openrouter_usage(conn) -> dict:
+    """OpenRouter's requests and top rewrites today and any pause: one grouped query, three rows."""
+    from sqlalchemy import case
+
+    today = db.utcnow().date()
+    u = db.llm_usage.c
+    rows = conn.execute(
+        select(u.provider,
+               func.sum(case((u.day == today.isoformat(), u.requests), else_=0)).label("today"),
+               func.max(u.requests).label("top"))
+        .where(u.provider.in_((OR_CALLS, OR_TOP, OR_PAUSE)), u.day >= (today - timedelta(days=1)).isoformat())
+        .group_by(u.provider)).all()
+    got = {r.provider: r for r in rows}
+    return {
+        "day": today.isoformat(),
+        "calls": int(getattr(got.get(OR_CALLS), "today", 0) or 0),
+        "top": int(getattr(got.get(OR_TOP), "today", 0) or 0),
+        "pausedUntil": int(getattr(got.get(OR_PAUSE), "top", 0) or 0) * 60.0,
+    }
+
+
+def _or_state(conn=None) -> dict:
+    today = db.utcnow().date().isoformat()
+    if _or.get("day") != today:
+        try:
+            if conn is not None:
+                fresh = openrouter_usage(conn)
+            else:
+                with db.engine().connect() as c:
+                    fresh = openrouter_usage(c)
+            fresh["error"] = None
+        except Exception as exc:  # noqa: BLE001
+            log.warning("openrouter: today's requests could not be read (%s); not using it", str(exc)[:120])
+            fresh = {"day": None, "error": str(exc)[:120], "calls": 0, "top": 0, "pausedUntil": 0.0}
+        _or.clear()
+        _or.update(fresh)
+    return _or
+
+
+def openrouter_limit(purpose: str = "fallback") -> int:
+    return config.OPENROUTER_DAILY_REQUESTS if purpose == "upgrade" else min(
+        config.OPENROUTER_FALLBACK_REQUESTS, config.OPENROUTER_DAILY_REQUESTS)
+
+
+def openrouter_block(conn=None, purpose: str = "fallback") -> str | None:
+    """Why OpenRouter may not be asked now for this purpose, or None."""
+    if not config.OPENROUTER_API_KEY:
+        return "no key"
+    if _or_run["paused"]:
+        return f"paused for this run ({_or_run['paused']})"
+    st = _or_state(conn)
+    if st.get("error"):
+        return "today's requests could not be read"
+    if st["pausedUntil"] > db.utcnow().timestamp():
+        return "payment required (paused until " + datetime.fromtimestamp(st["pausedUntil"], timezone.utc).strftime("%Y-%m-%d %H:%M UTC") + ")"
+    if not [m for m in openrouter_models() if m not in _or_run["dead"]]:
+        return "no free model left this run"
+    if st["calls"] >= openrouter_limit(purpose):
+        return f"daily requests reached ({st['calls']} of {openrouter_limit(purpose)} for {purpose})"
+    return None
+
+
+def openrouter_allowance(conn=None) -> int:
+    """Articles this run's enrich step may give OpenRouter: its fallback requests left today, spread
+    over the runs still to come so the morning does not take the whole day's."""
+    if openrouter_block(conn):
+        return 0
+    left = openrouter_limit("fallback") - _or_state(conn)["calls"]
+    runs_left = max(1, -(-_minutes_left_today() * config.RUNS_PER_DAY // (24 * 60)))
+    return max(0, min(config.MAX_ENRICH_PER_RUN, -(-left // runs_left)))
+
+
+def openrouter_top_left(conn=None) -> int:
+    """Top rewrites OpenRouter may still write today (upgrade.py)."""
+    if openrouter_block(conn, purpose="upgrade"):
+        return 0
+    return max(0, config.OPENROUTER_UPGRADE_DAILY - _or_state(conn)["top"])
+
+
+def openrouter_count_top() -> None:
+    st = _or_state()
+    st["top"] = st.get("top", 0) + 1
+    try:
+        _usage_add({OR_TOP: 1})
+    except Exception as exc:  # noqa: BLE001
+        log.warning("openrouter: top rewrite not counted (%s)", str(exc)[:120])
+
+
+def _or_count_request() -> None:
+    st = _or_state()
+    st["calls"] = st.get("calls", 0) + 1
+    try:
+        _usage_add({OR_CALLS: 1})
+    except Exception as exc:  # noqa: BLE001 - the in-memory count still holds this run to the limit
+        log.warning("openrouter: request not counted (%s)", str(exc)[:120])
+
+
+def _or_pause_day() -> None:
+    until = db.utcnow().timestamp() + config.OPENROUTER_PAUSE_HOURS * 3600
+    _or_state()["pausedUntil"] = until
+    try:
+        _usage_add({OR_PAUSE: int(until // 60)}, keep_max=True)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("openrouter: pause not stored (%s)", str(exc)[:120])
+
+
+def _or_error(resp) -> tuple[int, str] | None:
+    """(code, message) of an error, whether it came as an HTTP status or inside a 200 body (an
+    overloaded upstream answers 200 with an "error" object), or None."""
+    body = None
+    try:
+        body = resp.json()
+    except Exception:  # noqa: BLE001
+        pass
+    err = body.get("error") if isinstance(body, dict) else None
+    if resp.status_code >= 400 or err:
+        code = resp.status_code if resp.status_code >= 400 else 0
+        if isinstance(err, dict):
+            try:
+                code = int(err.get("code") or code)
+            except (TypeError, ValueError):
+                pass
+            return code or 500, str(err.get("message") or "")[:160]
+        return code or 500, (resp.text or "")[:160]
+    choice = (body.get("choices") or [{}])[0] if isinstance(body, dict) else {}
+    if isinstance(choice.get("error"), dict):  # a provider failing mid-answer
+        e = choice["error"]
+        return int(e.get("code") or 500) if str(e.get("code") or "").isdigit() else 500, str(e.get("message") or "")[:160]
+    return None
+
+
+def call_openrouter(prompt: str, purpose: str = "fallback") -> dict:
+    """OpenRouter's free models in order. 429 or 503 (as a status or in the body): that model is not
+    asked again this run and the next one is. 402: payment would be needed, so OpenRouter is skipped
+    for 24 hours. Every request counts against the day's allowance."""
+    reason = openrouter_block(purpose=purpose)
+    if reason:
+        raise ProviderPaused(f"openrouter: {reason}")
+    last: Exception | None = None
+    for model in openrouter_models():
+        if model in _or_run["dead"]:
+            continue
+        if not model.endswith(":free"):  # openrouter_models() already refuses these; never send one
+            continue
+        if openrouter_block(purpose=purpose):
+            break
+        _or_count_request()  # counted before the answer: OpenRouter counts failures too
+        resp = requests.post(
+            f"{config.OPENROUTER_URL}/chat/completions",
+            headers={"Authorization": f"Bearer {config.OPENROUTER_API_KEY}", **OR_HEADERS},
+            json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3,
+                  "response_format": {"type": "json_object"}, "max_tokens": OR_ANSWER_TOKENS,
+                  "reasoning": {"enabled": False}},
+            timeout=_request_timeout(180),
+        )
+        err = _or_error(resp)
+        if err:
+            code, message = err
+            if code == 402:
+                _or_pause_day()
+                _or_run["paused"] = "402 payment required"
+                log.warning("openrouter: 402 payment required (%s); skipped for %g hours", message, config.OPENROUTER_PAUSE_HOURS)
+                raise ProviderPaused(f"openrouter 402: {message}")
+            if code in (401, 403):
+                _or_run["paused"] = f"http {code}"
+                raise ProviderPaused(f"openrouter {code}: {message}")
+            _or_run["dead"].add(model)  # 429, 503, 404, anything else: the next model, not this one again
+            last = RuntimeError(f"openrouter {model} {code}: {message}")
+            log.info("openrouter %s answered %s (%s); trying the next model", model, code, message[:80])
+            continue
+        content = ((resp.json().get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+        try:
+            return _parse_json(content)
+        except Exception as exc:  # noqa: BLE001 - another model usually manages valid JSON
+            last = RuntimeError(f"openrouter {model} gave no usable JSON: {str(exc)[:80]}")
+            _or_run["dead"].add(model)
+    if last is None or all(m in _or_run["dead"] for m in openrouter_models()):
+        raise ProviderPaused(f"openrouter: no free model answered ({last})")
+    raise last
+
+
+def call_openrouter_upgrade(prompt: str) -> dict:
+    """call_openrouter with the whole day's requests: what upgrade.py's top rewrites use."""
+    return call_openrouter(prompt, purpose="upgrade")
+
+
 def call_ollama(prompt: str) -> dict:
     resp = requests.post(
         f"{config.OLLAMA_URL}/api/chat",
@@ -1241,6 +1469,13 @@ def run() -> dict:
                 providers.append((f"cloudflare:{config.CLOUDFLARE_AI_MODEL}", call_cloudflare))
             else:
                 stats["cloudflare"] = cloudflare_block(conn) or "no share this run"
+        # OpenRouter's free models, within the requests a day the top rewrites leave over.
+        if config.OPENROUTER_API_KEY:
+            budgets["openrouter"] = openrouter_allowance(conn)
+            if budgets["openrouter"] > 0:
+                providers.append((f"openrouter:{(openrouter_models() or ['none'])[0]}", call_openrouter))
+            else:
+                stats["openrouter"] = openrouter_block(conn) or "no share this run"
         # Mistral fills the gaps the free providers leave, before the weak local model. It is paid
         # by the token: its share is bounded by the month's spend cap and the run's call cap.
         if config.MISTRAL_API_KEY:
@@ -1250,7 +1485,7 @@ def run() -> dict:
             else:
                 stats["mistral"] = mistral_block(conn) or "no share this run"
     keyed = bool(config.GEMINI_API_KEY or config.GROQ_API_KEY or config.OLLAMA_API_KEY or config.MISTRAL_API_KEY
-                 or (config.CLOUDFLARE_ACCOUNT_ID and config.CLOUDFLARE_AI_TOKEN))
+                 or config.OPENROUTER_API_KEY or (config.CLOUDFLARE_ACCOUNT_ID and config.CLOUDFLARE_AI_TOKEN))
     # The local model is the safety net: it takes over when the keyed providers are out of quota
     # (for the day, or mid-run), so a run never leaves the site without fresh stories.
     if ollama_available():

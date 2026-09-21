@@ -163,16 +163,16 @@ def page_text(url: str) -> str | None:
 
 
 def ask_model(prompt: str) -> dict:
-    """Gemini, then Groq, then Ollama Cloud, then Cloudflare and Mistral (which refuse by themselves
-    once their daily neurons or monthly spend, or the run's call cap, are used); an exception when
-    none is configured or all refuse."""
+    """Gemini, then Groq, then Ollama Cloud, then Cloudflare, OpenRouter and Mistral (which refuse by
+    themselves once their daily neurons, daily requests or monthly spend, or the run's call cap, are
+    used); an exception when none is configured or all refuse."""
     from . import enrich
 
     errors = []
     cloudflare = config.CLOUDFLARE_ACCOUNT_ID and config.CLOUDFLARE_AI_TOKEN
     for key, call in ((config.GEMINI_API_KEY, enrich.call_gemini), (config.GROQ_API_KEY, enrich.call_groq),
                       (config.OLLAMA_API_KEY, enrich.call_ollama_cloud), (cloudflare, enrich.call_cloudflare),
-                      (config.MISTRAL_API_KEY, enrich.call_mistral)):
+                      (config.OPENROUTER_API_KEY, enrich.call_openrouter), (config.MISTRAL_API_KEY, enrich.call_mistral)):
         if not key:
             continue
         try:

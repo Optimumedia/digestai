@@ -155,9 +155,10 @@ CHECK_RETRY_MAX_PER_RUN = int(os.environ.get("CHECK_RETRY_MAX_PER_RUN") or "4")
 # --- second pass: stories that turned out to matter get a better summary (upgrade.py) ---
 UPGRADE_SUMMARIES = os.environ.get("UPGRADE_SUMMARIES", "1") == "1"
 # Providers worth upgrading to, best first; a summary already written by one of them is not redone.
-# Cloudflare (Nemotron 3 120B on its own daily neurons) first: Gemini and Ollama Cloud only have
-# what the queue leaves them.
-STRONG_PROVIDERS = [p.strip() for p in (os.environ.get("STRONG_PROVIDERS") or "cloudflare,gemini,cloud").split(",") if p.strip()]
+# OpenRouter (Nemotron 3 Ultra 550B, free) for the day's top rewrites only (OPENROUTER_UPGRADE_*),
+# then Cloudflare (Nemotron 3 120B on its own daily neurons) for the rest: Gemini and Ollama Cloud
+# only have what the queue leaves them.
+STRONG_PROVIDERS = [p.strip() for p in (os.environ.get("STRONG_PROVIDERS") or "openrouter,cloudflare,gemini,cloud").split(",") if p.strip()]
 UPGRADE_MAX_PER_RUN = int(os.environ.get("UPGRADE_MAX_PER_RUN") or "2")
 # At 12 a day, runs reported "daily upgrade limit reached" (Sep 2026): at 2 a run the day's cap is
 # used by the sixth of 24 runs, so the cap, not the providers, held the rewrites back. Cloudflare's neurons (~400 a multi-source rewrite, 9,000 a day of which at least
@@ -222,6 +223,24 @@ CLOUDFLARE_FALLBACK_SHARE = float(os.environ.get("CLOUDFLARE_FALLBACK_SHARE") or
 CLOUDFLARE_MAX_PER_RUN = int(os.environ.get("CLOUDFLARE_MAX_PER_RUN") or "20")
 # A model that answers 403 "not available on the Workers Free plan" is skipped this long.
 CLOUDFLARE_MODEL_PAUSE_HOURS = float(os.environ.get("CLOUDFLARE_MODEL_PAUSE_HOURS") or "24")
+# OpenRouter, free models only (checked 21 Sep 2026; no credits on the account, so it cannot spend
+# money): 50 requests a day, failures included, reset at 00:00 UTC. Nemotron 3 Ultra 550B is the
+# strongest and answered every time (~90 s for a summary); Nemotron 3 Super sometimes answers 503
+# "provider_overloaded", and GLM 5.2 429 "temporarily rate-limited upstream". Only ids ending in
+# ":free" are ever sent. First choice for the day's most important rewrites (upgrade.py), and a
+# fallback after Cloudflare in enrich, howto and simplify.
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_URL = (os.environ.get("OPENROUTER_URL") or "https://openrouter.ai/api/v1").rstrip("/")
+OPENROUTER_MODELS = [m.strip() for m in (os.environ.get("OPENROUTER_MODELS") or "nvidia/nemotron-3-ultra-550b-a55b:free,nvidia/nemotron-3-super-120b-a12b:free,z-ai/glm-5.2:free").split(",") if m.strip()]
+OPENROUTER_DAILY_REQUESTS = int(os.environ.get("OPENROUTER_DAILY_REQUESTS") or "45")
+# Requests a day the fallback uses (enrich, howto, simplify) may send; the rest are kept for the
+# top rewrites, which may need up to three tries each (one per model).
+OPENROUTER_FALLBACK_REQUESTS = int(os.environ.get("OPENROUTER_FALLBACK_REQUESTS") or "30")
+# The top rewrites: stories at or above this importance, at most this many a day.
+OPENROUTER_UPGRADE_MIN_IMPORTANCE = int(os.environ.get("OPENROUTER_UPGRADE_MIN_IMPORTANCE") or "8")
+OPENROUTER_UPGRADE_DAILY = int(os.environ.get("OPENROUTER_UPGRADE_DAILY") or "5")
+# 402 (payment would be needed): OpenRouter is skipped this long.
+OPENROUTER_PAUSE_HOURS = float(os.environ.get("OPENROUTER_PAUSE_HOURS") or "24")
 MAX_ENRICH_LOCAL_PER_RUN = int(os.environ.get("MAX_ENRICH_LOCAL_PER_RUN") or "10")
 # The local model answers inside a 4,096-token context (num_ctx in call_ollama) and writes up to
 # 900 of them, so prompt and article together have to stay near 3,000: the guidance it gets is the

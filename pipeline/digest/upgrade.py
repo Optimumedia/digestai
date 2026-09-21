@@ -156,11 +156,16 @@ def candidates(conn, now) -> list[SimpleNamespace]:
 
 
 def _providers(conn) -> list[tuple[str, object]]:
-    """The strong providers with room, in STRONG_PROVIDERS order (Cloudflare first, on its daily
-    neurons; Gemini and Ollama Cloud when they are ahead of their daily pace), then Mistral as the
-    fallback when the month's spend cap and the run's call cap leave room (enrich.mistral_block)."""
+    """The strong providers with room, in STRONG_PROVIDERS order (OpenRouter for the top stories,
+    Cloudflare on its daily neurons, Gemini and Ollama Cloud when they are ahead of their daily pace),
+    then Mistral as the fallback when the month's spend cap and the run's call cap leave room."""
     out = []
     for name in config.STRONG_PROVIDERS:
+        if name == "openrouter":
+            # Free requests a day, kept for the day's most important stories (see run()).
+            if enrich.openrouter_top_left(conn) > 0:
+                out.append((f"openrouter:{enrich.openrouter_models()[0]}", enrich.call_openrouter_upgrade))
+            continue
         if name == "cloudflare":
             # Held by its daily neurons, not by a request budget: the whole day's are for this step.
             if enrich.cloudflare_block(conn, purpose="upgrade") is None:
@@ -309,8 +314,14 @@ def run() -> dict:
                                                              published_at=lead_row.published_at),
                                              lead_row.text, "gemini")
             result, model_used, used = None, None, None
+            # One of the day's most important stories: OpenRouter's free Nemotron 3 Ultra writes it
+            # (at most OPENROUTER_UPGRADE_DAILY a day); every other rewrite starts with Cloudflare.
+            top = ((cand.story.importance or 0) >= config.OPENROUTER_UPGRADE_MIN_IMPORTANCE
+                   and enrich.openrouter_top_left() > 0)
             for name, fn in providers:
                 provider = name.split(":")[0]
+                if provider == "openrouter" and not top:
+                    continue
                 if provider not in config.STRONG_PROVIDERS and not multi:
                     # A single-article rewrite exists to put a stronger model on the story; the
                     # fallback (Mistral's 8B model) is not one, so it only writes multi-source digests.
@@ -359,6 +370,8 @@ def run() -> dict:
                 conn.execute(update(db.stories)
                              .where(db.stories.c.id == cand.story.id, db.stories.c.lead_article_id == lead_row.id)
                              .values(**values, source_notes=notes))
+            if model_used and model_used.startswith("openrouter"):
+                enrich.openrouter_count_top()
             written.append(cand.story.id)
             written_articles.append(lead_row.id)
             stats["upgraded"] += 1

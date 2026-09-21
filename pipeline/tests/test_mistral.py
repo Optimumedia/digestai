@@ -24,6 +24,7 @@ from digest import admin, cache, config, db, enrich, howto, morning, upgrade  # 
 # tests patch in test keys and a fake HTTP session).
 config.MISTRAL_API_KEY = ""
 config.CLOUDFLARE_ACCOUNT_ID = config.CLOUDFLARE_AI_TOKEN = ""
+config.OPENROUTER_API_KEY = ""
 
 NOW = datetime(2026, 9, 21, 10, 0, tzinfo=timezone.utc)
 ANSWER = ('{"headline": "Acme ships a model", "summary_md": "Acme released a model on Monday.", '
@@ -52,6 +53,7 @@ def fresh_db():
     cache.reset()
     enrich.mistral_reset()
     enrich.cloudflare_reset()
+    enrich.openrouter_reset()
     try:
         yield eng
     finally:
@@ -59,6 +61,7 @@ def fresh_db():
         cache.reset()
         enrich.mistral_reset()
         enrich.cloudflare_reset()
+        enrich.openrouter_reset()
         eng.dispose()
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -139,7 +142,7 @@ def seed_articles(eng, n=2):
                 status="gated", content_text="Acme released a model on Monday. " * 60, description="d"))
 
 
-def test_enrich_order_is_gemini_cloud_groq_cloudflare_mistral_then_local():
+def test_enrich_order_is_gemini_cloud_groq_cloudflare_openrouter_mistral_then_local():
     with fresh_db() as eng:
         seed_articles(eng, 2)
         tried: list[str] = []
@@ -154,7 +157,7 @@ def test_enrich_order_is_gemini_cloud_groq_cloudflare_mistral_then_local():
             tried.append("ollama")
             return enrich._parse_json(ANSWER)
 
-        # The first article: the four free providers refuse and Mistral answers. The second: Mistral
+        # The first article: the five free providers refuse and Mistral answers. The second: Mistral
         # answers 402 (out of money), so the local model, last in line, takes it.
         fake = FakeMistral()
         prompts: list[str] = []
@@ -173,9 +176,11 @@ def test_enrich_order_is_gemini_cloud_groq_cloudflare_mistral_then_local():
                    (enrich, "call_groq", refusing("groq")), (enrich, "call_ollama", local),
                    (config, "CLOUDFLARE_ACCOUNT_ID", "acct"), (config, "CLOUDFLARE_AI_TOKEN", "tok"),
                    (enrich, "cloudflare_allowance", lambda conn=None: 5), (enrich, "call_cloudflare", refusing("cloudflare")),
+                   (config, "OPENROUTER_API_KEY", "k"), (enrich, "openrouter_allowance", lambda conn=None: 5),
+                   (enrich, "call_openrouter", refusing("openrouter")),
                    (enrich.requests, "post", post), (enrich.time, "sleep", lambda s: None)):
             stats = enrich.run()
-        assert tried == ["gemini", "cloud", "groq", "cloudflare", "mistral", "mistral", "ollama"], tried
+        assert tried == ["gemini", "cloud", "groq", "cloudflare", "openrouter", "mistral", "mistral", "ollama"], tried
         assert stats["enriched"] == 2, stats
         # Mistral gets the full prompt (worked examples, importance ladder), not the trimmed local one.
         assert "Example 1" in prompts[0] and "8-9 = news a professional" in prompts[0]
@@ -214,10 +219,11 @@ def test_upgrade_and_howto_put_mistral_after_their_providers():
                (config, "MISTRAL_API_KEY", "k"), (enrich, "call_gemini", refusing("gemini")),
                (enrich, "call_groq", refusing("groq")), (enrich, "call_ollama_cloud", refusing("cloud")),
                (config, "CLOUDFLARE_ACCOUNT_ID", "acct"), (config, "CLOUDFLARE_AI_TOKEN", "tok"),
-               (enrich, "call_cloudflare", refusing("cloudflare")), (enrich, "call_mistral", mistral)):
+               (enrich, "call_cloudflare", refusing("cloudflare")), (config, "OPENROUTER_API_KEY", "k"),
+               (enrich, "call_openrouter", refusing("openrouter")), (enrich, "call_mistral", mistral)):
         assert howto.ask_model("prompt") == {"steps": ["Open the tool"]}
     # simplify.py asks through howto.ask_model, so it gets the same order.
-    assert tried == ["gemini", "groq", "cloud", "cloudflare", "mistral"], tried
+    assert tried == ["gemini", "groq", "cloud", "cloudflare", "openrouter", "mistral"], tried
 
 
 # ---------------------------------------------------------------------------- the cap
