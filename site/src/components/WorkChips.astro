@@ -1,0 +1,31 @@
+---
+/* The facts every AI at Work item carries, as chips: what it costs, how long it takes (a three-step
+   scale: minutes, an afternoon, needs a developer) and who it is for. `compact` drops the visible
+   "Cost" / "Time" keys for the one-line rows; screen readers still hear them. */
+import { EFFORT_STEPS, costLabel, isFree, whoLine } from "../lib/work";
+
+interface Props {
+  cost: string | null;
+  costKind: string | null;
+  effort: string | null;
+  whoFor?: string[];
+  compact?: boolean;
+}
+const { cost, costKind, effort, whoFor, compact = false } = Astro.props;
+const kind = costKind || "unknown";
+const effortStep = effort ? EFFORT_STEPS[effort] : undefined;
+---
+
+<ul class:list={["wk-chips", { "is-compact": compact }]} role="list">
+  <li class:list={["wk-chip", "wk-chip-cost", { "is-free": isFree(kind), "is-unknown": kind === "unknown" }]}>
+    <span class:list={["wk-chip-k", { "sr-only": compact }]}>Cost</span> {costLabel(cost, kind)}
+  </li>
+  <li class:list={["wk-chip", "wk-chip-time", { "is-unknown": !effortStep }]} data-step={effortStep?.step || 0}>
+    <span class:list={["wk-chip-k", { "sr-only": compact }]}>Time</span>
+    {effortStep && <span class="wk-scale" aria-hidden="true"><i></i><i></i><i></i></span>}
+    {effortStep ? effortStep.label : effort || "Not stated"}
+  </li>
+  {whoFor && whoFor.length > 0 && !compact && (
+    <li class="wk-chip wk-chip-who"><span class="wk-chip-k">For</span> {whoLine(whoFor)}</li>
+  )}
+</ul>

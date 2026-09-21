@@ -1,10 +1,15 @@
 ---
+/* The AI at Work hub. One thing to try, the five jobs, then everything that changed as one line
+   each, the podcast and the past weeks: a page to scan, not a wall of cards. The full cards live
+   on the job pages and the playbooks; every line here links to the story, which has the card. */
 import Work from "../../layouts/Work.astro";
-import WorkCard from "../../components/WorkCard.astro";
+import WorkEntry from "../../components/WorkEntry.astro";
+import WorkRow from "../../components/WorkRow.astro";
+import WorkNext from "../../components/WorkNext.astro";
 import ListenPlayer from "../../components/ListenPlayer.astro";
 import { WORK_MIN_ITEMS, formatDate, dateTime, meta, weekMonday } from "../../lib/data";
 import {
-  COST_LABELS, JOBS, SECTION_TAGLINE, briefingAlso, briefingItems, count, latestWorkEpisode, sectionStories, work, workBriefing,
+  JOBS, SECTION_TAGLINE, briefingAlso, briefingItems, count, isFree, latestWorkEpisode, sectionStories, work, workBriefing,
   workWeeks, weekStories,
 } from "../../lib/work";
 import { weekKey } from "../../lib/indexing.mjs";
@@ -13,22 +18,28 @@ const thisWeek = workWeeks[0];
 // The newest week with items is not always the current one (a quiet Monday): say so, not "this week".
 const isCurrentWeek = thisWeek === weekKey(work.generatedAt);
 const episode = latestWorkEpisode;
-const episodeWeek = episode?.week ? weekMonday(episode.week) : null;
-const episodeRange = episodeWeek
-  ? `${formatDate(episodeWeek.toISOString(), { day: "numeric", month: "short" })}–${formatDate(new Date(episodeWeek.getTime() + 6 * 864e5).toISOString(), { day: "numeric", month: "short" })}`
-  : "";
+const weekRange = (w: string, sep = "–") => {
+  const monday = weekMonday(w);
+  return `${formatDate(monday.toISOString(), { day: "numeric", month: "short" })}${sep}${formatDate(new Date(monday.getTime() + 6 * 864e5).toISOString(), { day: "numeric", month: "short" })}`;
+};
+const episodeRange = episode?.week ? weekRange(episode.week) : "";
 const week = thisWeek ? weekStories(thisWeek) : { changed: [], tryThis: [], skip: [], tools: 0, tryCount: 0, skipCount: 0 };
-const briefed = new Set([...briefingItems, ...briefingAlso].map((s) => s.id));
-const rest = sectionStories.filter((s) => !briefed.has(s.id)).slice(0, 18);
-// The filter works on every card the page shows, and only offers a job that has cards behind it.
-const shown = [...briefingItems, ...rest];
-const jobs = JOBS.map((j) => ({ ...j, count: shown.filter((s) => s.workCard.jobs.includes(j.key)).length }))
+
+// The one thing to try: the week's most useful item you can start now, else today's top pick.
+const featured = week.tryThis[0] || briefingItems[0] || sectionStories.find((s) => !s.workCard.skip) || sectionStories[0];
+// Everything else, one line each: today's picks first (most useful first), then the rest, newest first.
+const notFeatured = (s: { id: number }) => s.id !== featured?.id;
+const today = [...briefingItems, ...briefingAlso].filter(notFeatured);
+const todayIds = new Set(today.map((s) => s.id));
+const earlier = sectionStories.filter((s) => notFeatured(s) && !todayIds.has(s.id)).slice(0, 24);
+const listed = [...today, ...earlier];
+// The filter works on the lines the list shows, and only offers a job that has lines behind it.
+const filterJobs = JOBS.map((j) => ({ ...j, count: listed.filter((s) => s.workCard.jobs.includes(j.key)).length }))
   .filter((j) => j.count > 0);
-// Counted over the cards the filter counts, so "Everything 15" and "9 of 15" talk about the same cards.
-// "Today's five" only when there are five: a quiet day says how many there are.
-const briefHeading = briefingItems.length === 1 ? "Today's pick" : `Today's ${["", "", "two", "three", "four", "five"][briefingItems.length] || briefingItems.length}`;
-const free = shown.filter((s) => ["free", "free tier", "included"].includes(s.workCard.costKind)).length;
-const costText = (c: { cost: string; costKind: string }) => (c.cost && c.cost !== "unknown" && c.costKind !== "unknown" ? c.cost : COST_LABELS[c.costKind] || COST_LABELS.unknown);
+const free = listed.filter((s) => isFree(s.workCard.costKind)).length;
+// The job tiles count everything the section has for the job, as the job page does.
+const jobTiles = JOBS.map((j) => ({ ...j, count: sectionStories.filter((s) => s.workCard.jobs.includes(j.key)).length }));
+
 const description = briefingItems.length
   ? `${briefingItems.length} AI things a marketer or small business can use today: ${briefingItems.slice(0, 3).map((s) => s.workCard.tool).join(", ")}. What each one does, what it costs and the catch.`
   : SECTION_TAGLINE;
@@ -54,8 +65,8 @@ const jsonLd = [
 ---
 
 <Work title="AI at Work" description={description} current="home" jsonLd={jsonLd} thin={sectionStories.length < WORK_MIN_ITEMS}>
-  <header class="page-head work-head">
-    <div class="eyebrow">Practical AI · updated <time datetime={work.generatedAt}>{dateTime(work.generatedAt)}</time></div>
+  <header class="wk-head">
+    <p class="wk-eyebrow">Practical AI · updated <time datetime={work.generatedAt}>{dateTime(work.generatedAt)}</time></p>
     <h1>AI you can actually use this week</h1>
     <p>
       The AI that changes marketing output, brings in customers and takes admin off a small team's hands.
@@ -64,137 +75,158 @@ const jsonLd = [
     </p>
   </header>
 
-  {episode && (
-    <ListenPlayer
-      episode={episode}
-      heading={`AI at Work, the week of ${episodeRange}`}
-      edition={`Weekly · ${episodeRange}`}
-      note="A few minutes on what changed for marketers and small teams this week: what each thing does, what it costs, how long it takes and the catch."
-      moreHref={episode.week ? `/work/week/${episode.week}` : "/listen#work"}
-      moreLabel={episode.week ? "That week's playbook →" : "All episodes →"}
-      album="AI at Work"
-    />
-  )}
-
   {sectionStories.length === 0 && (
-    <p class="muted" style="padding: 32px 0">
+    <p class="wk-empty">
       Nothing here yet. Items appear as soon as the desk covers a tool, a feature or a how-to a small team can use.
       The <a href="/category/marketing">Marketing &amp; Small Business</a> stories are the nearest thing meanwhile.
     </p>
   )}
 
-  {week.changed.length > 0 && (
-    <section class="work-lead" aria-labelledby="changed-h">
-      <h2 id="changed-h">{isCurrentWeek ? "What changed this week" : "What changed last week"}</h2>
-      <p class="work-lead-line">
-        {count(week.changed.length, "thing")} worth knowing across {count(week.tools, "tool")}.
-        {week.tryCount > 0 && <> {week.tryCount} you can try now{week.skipCount > 0 && <>, {week.skipCount} to leave for later</>}.</>}
-        {week.tryCount === 0 && week.skipCount > 0 && <> {week.skipCount} to leave for later.</>}
-      </p>
-      <ul class="work-lead-list">
-        {week.changed.slice(0, 5).map((s) => (
-          <li>
-            <a href={`/story/${s.slug}`}><b>{s.workCard.tool}</b> {s.workCard.whatItDoes}</a>
-            <span class="mono muted">{s.workCard.effort || "effort not stated"} · {costText(s.workCard)}</span>
-          </li>
-        ))}
-      </ul>
-      <a class="eyebrow" href={`/work/week/${thisWeek}`}>The week's playbook →</a>
+  {featured && (
+    <section class="wk-sec" aria-labelledby="try-h">
+      <div class="wk-h2row">
+        <h2 id="try-h">{isCurrentWeek ? "This week's one thing to try" : "Last week's one thing to try"}</h2>
+        {week.tryCount > 1 && <span class="wk-h2-side">the most useful of {week.tryCount}</span>}
+      </div>
+      <WorkEntry story={featured} card={featured.workCard} level="h3" variant="feature" />
     </section>
   )}
 
-  {jobs.length > 1 && (
-    <div class="workjobs" role="group" aria-label="Filter by job" data-workfilter>
-      <button type="button" class="workjob" aria-pressed="true" data-job="all">Everything <span class="mono">{shown.length}</span></button>
-      {jobs.map((j) => (
-        <button type="button" class="workjob" aria-pressed="false" data-job={j.key} title={j.blurb}>{j.label} <span class="mono">{j.count}</span></button>
+  <section class="wk-sec" aria-labelledby="jobs-h">
+    <div class="wk-h2row"><h2 id="jobs-h">Find it by job</h2></div>
+    <ul class="wk-jobs" role="list">
+      {jobTiles.map((j) => (
+        <li>
+          <a class="wk-job" href={`/work/${j.slug}`}>
+            <span class="wk-job-name">{j.label}</span>
+            <span class="wk-job-blurb">{j.blurb}</span>
+            <span class="wk-job-count mono">{j.count ? count(j.count, "item") : "nothing yet"}<span aria-hidden="true"> →</span></span>
+          </a>
+        </li>
       ))}
-      <span class="mono muted workjob-note">{free} of {shown.length} cost nothing to start</span>
-    </div>
-  )}
-  {/* Each job also has its own page with everything for it and the tools that serve it. */}
-  <p class="workjob-pages" data-jobpages>
-    One page per job: {JOBS.map((j, i) => <>{i > 0 && " · "}<a href={`/work/${j.slug}`} data-job-page={j.key}>{j.label}</a></>)}
-  </p>
-  <p class="muted work-empty" data-workempty hidden>Nothing on this page does that job. The <a href="/work/tools">tool directory</a> goes back further.</p>
+    </ul>
+  </section>
 
-  {briefingItems.length > 0 && (
-    <section aria-labelledby="brief-h">
-      <div class="dayhead">
-        <h2 id="brief-h">{briefHeading}</h2>
-        <span class="eyebrow">
-          {formatDate(workBriefing.date + "T12:00:00Z", { day: "numeric", month: "long" })} · last {workBriefing.windowHours} hours · {workBriefing.stats.free} free
-        </span>
+  {listed.length > 0 && (
+    <section class="wk-sec" aria-labelledby="changed-h">
+      <div class="wk-h2row">
+        <h2 id="changed-h">{isCurrentWeek ? "What changed" : "What changed last week"}</h2>
+        {thisWeek && <a class="wk-h2-side" href={`/work/week/${thisWeek}`}>The week's playbook →</a>}
       </div>
-      <p class="muted work-note">
-        Ordered by how much use they are to a small team, not by how big the news is. The news order is on the <a href="/today">daily briefing</a>.
-      </p>
-      <div class="workgrid" data-workgrid>
-        {briefingItems.map((s) => <WorkCard story={s} card={s.workCard} level="h3" />)}
-      </div>
-      {briefingAlso.length > 0 && (
-        <ul class="coverage work-also">
-          {briefingAlso.map((s) => (
-            <li>
-              <a class="t" href={`/story/${s.slug}`}>{s.workCard.tool}: {s.workCard.whatItDoes}</a>
-              <span class="mono muted">{costText(s.workCard)}</span>
-            </li>
-          ))}
-        </ul>
+      {week.changed.length > 0 && (
+        <p class="wk-lede">
+          {count(week.changed.length, "thing")} worth knowing across {count(week.tools, "tool")}.
+          {week.tryCount > 0 && <> {week.tryCount} you can try now{week.skipCount > 0 && <>, {week.skipCount} to leave for later</>}.</>}
+          {week.tryCount === 0 && week.skipCount > 0 && <> {week.skipCount} to leave for later.</>}
+        </p>
       )}
+
+      {filterJobs.length > 1 && (
+        <div class="wk-filter" role="group" aria-label="Show items for one job" data-workfilter>
+          <button type="button" aria-pressed="true" data-job="all">Everything <span class="mono">{listed.length}</span></button>
+          {filterJobs.map((j) => (
+            <button type="button" aria-pressed="false" data-job={j.key} title={j.blurb}>{j.label} <span class="mono">{j.count}</span></button>
+          ))}
+          <span class="wk-filter-note mono">{free} of {listed.length} cost nothing to start</span>
+        </div>
+      )}
+      <p class="wk-empty" data-workempty hidden>Nothing on this page does that job. <a href="/work/tools">The tool directory</a> goes back further.</p>
+
+      {today.length > 0 && (
+        <div class="wk-group" data-workgroup>
+          <h3 class="wk-group-h">
+            Today's picks
+            <span class="mono">{formatDate(workBriefing.date + "T12:00:00Z", { day: "numeric", month: "long" })} · last {workBriefing.windowHours} hours · most useful first</span>
+          </h3>
+          <ul class="wk-rows" role="list" data-worklist>
+            {today.map((s) => <WorkRow story={s} card={s.workCard} />)}
+          </ul>
+        </div>
+      )}
+      {earlier.length > 0 && (
+        <div class="wk-group" data-workgroup>
+          {today.length > 0 && <h3 class="wk-group-h">Earlier <span class="mono">newest first</span></h3>}
+          <ul class="wk-rows" role="list" data-worklist>
+            {earlier.map((s) => <WorkRow story={s} card={s.workCard} />)}
+          </ul>
+        </div>
+      )}
+      <p class="wk-note">
+        Every line opens the story with the full card: who it is for, the catch and what to use it for.
+        The news order is on the <a class="wk-thread" href="/today">daily briefing</a>.
+      </p>
     </section>
   )}
 
-  {rest.length > 0 && (
-    <section aria-labelledby="more-h">
-      <div class="dayhead"><h2 id="more-h">More from the section</h2><a class="eyebrow" href="/work/tools">Tool directory →</a></div>
-      <div class="workgrid" data-workgrid>
-        {rest.map((s) => <WorkCard story={s} card={s.workCard} level="h3" />)}
-      </div>
+  {episode && (
+    <section class="wk-sec" aria-labelledby="listen-h">
+      <div class="wk-h2row"><h2 id="listen-h">Listen to the week</h2></div>
+      <ListenPlayer
+        episode={episode}
+        heading={`AI at Work, the week of ${episodeRange}`}
+        edition={`Weekly · ${episodeRange}`}
+        note="A few minutes on what changed for marketers and small teams this week: what each thing does, what it costs, how long it takes and the catch."
+        moreHref={episode.week ? `/work/week/${episode.week}` : "/listen#work"}
+        moreLabel={episode.week ? "That week's playbook →" : "All episodes →"}
+        album="AI at Work"
+      />
     </section>
   )}
 
-  {workWeeks.length > 1 && (
-    <section aria-labelledby="weeks-h">
-      <div class="dayhead"><h2 id="weeks-h">Earlier weeks</h2></div>
-      <ul class="coverage">
-        {workWeeks.slice(1, 9).map((w) => {
+  {workWeeks.length > 0 && (
+    <section class="wk-sec" aria-labelledby="weeks-h">
+      <div class="wk-h2row"><h2 id="weeks-h">{workWeeks.length > 1 ? "Past weeks" : "The weekly playbook"}</h2></div>
+      <ol class="wk-weeks" role="list">
+        {workWeeks.slice(0, 9).map((w, i) => {
           const data = weekStories(w);
           return (
             <li>
-              <a class="t" href={`/work/week/${w}`}>Week {w}</a>
-              <span class="mono muted">{count(data.changed.length, "item")} · {count(data.tools, "tool")}</span>
+              <a href={`/work/week/${w}`}>
+                <span class="wk-week-num" aria-hidden="true">{w.split("-W")[1]}</span>
+                <span class="wk-week-main">
+                  <span class="wk-week-name">Week {Number(w.split("-W")[1])}, {weekRange(w, " to ")}{i === 0 && isCurrentWeek && <span class="wk-week-now">this week</span>}</span>
+                  <span class="wk-week-meta mono">{count(data.changed.length, "item")} · {count(data.tools, "tool")} · {data.tryCount} to try</span>
+                </span>
+              </a>
             </li>
           );
         })}
-      </ul>
+      </ol>
     </section>
+  )}
+
+  {thisWeek ? (
+    <WorkNext href={`/work/week/${thisWeek}`} label={isCurrentWeek ? "This week's playbook" : "Last week's playbook"} why="What is worth an hour of your time, and what can wait." />
+  ) : (
+    <WorkNext href="/work/tools" label="The tool directory" why="Every tool the desk has covered, with what it costs and the catch." />
   )}
 </Work>
 
-{/* The filter is an extra, not the page: without JavaScript every card stays visible. */}
+{/* The filter is an extra, not the page: without JavaScript every line stays visible. */}
 <script is:inline>
   (() => {
     const bar = document.querySelector("[data-workfilter]");
-    const grids = [...document.querySelectorAll("[data-workgrid]")];
-    if (!bar || !grids.length) return;
+    const lists = [...document.querySelectorAll("[data-worklist]")];
+    if (!bar || !lists.length) return;
     bar.addEventListener("click", (e) => {
       const btn = e.target.closest("button[data-job]");
       if (!btn) return;
       const job = btn.dataset.job;
       for (const b of bar.querySelectorAll("button[data-job]")) b.setAttribute("aria-pressed", String(b === btn));
       let left = 0;
-      for (const grid of grids) {
-        for (const card of grid.querySelectorAll(".workcard")) {
-          const jobs = (card.dataset.jobs || "").split(" ");
-          card.hidden = job !== "all" && !jobs.includes(job);
-          if (!card.hidden) left++;
+      for (const list of lists) {
+        let here = 0;
+        for (const row of list.querySelectorAll("[data-jobs]")) {
+          const jobs = (row.dataset.jobs || "").split(" ");
+          row.hidden = job !== "all" && !jobs.includes(job);
+          if (!row.hidden) here++;
         }
+        const group = list.closest("[data-workgroup]");
+        if (group) group.hidden = here === 0;
+        left += here;
       }
       const empty = document.querySelector("[data-workempty]");
       if (empty) empty.hidden = left > 0;
-      // Point at the chosen job's own page, which has every item for it, not just this page's.
-      for (const a of document.querySelectorAll("[data-job-page]")) a.toggleAttribute("data-active", a.dataset.jobPage === job);
     });
   })();
 </script>

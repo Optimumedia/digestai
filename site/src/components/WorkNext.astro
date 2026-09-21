@@ -1,0 +1,18 @@
+---
+/* The one next step at the end of every AI at Work page: a single prominent link with the reason
+   to take it, instead of a grid of related links. */
+interface Props {
+  href: string;
+  label: string;
+  why?: string;
+}
+const { href, label, why } = Astro.props;
+---
+
+<nav class="wk-next" aria-label="Next">
+  <a href={href}>
+    <span class="wk-next-k">Next</span>
+    <span class="wk-next-label">{label}<span class="wk-next-arrow" aria-hidden="true">→</span></span>
+    {why && <span class="wk-next-why">{why}</span>}
+  </a>
+</nav>

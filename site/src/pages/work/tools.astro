@@ -1,7 +1,9 @@
 ---
 import Work from "../../layouts/Work.astro";
+import WorkChips from "../../components/WorkChips.astro";
+import WorkNext from "../../components/WorkNext.astro";
 import { WORK_MIN_ITEMS, formatDate, meta, topicInfo } from "../../lib/data";
-import { COST_LABELS, JOBS, JOB_LABELS, toolSlug, whoLine, work } from "../../lib/work";
+import { COST_LABELS, JOBS, JOB_LABELS, toolSlug, whoLine, work, workWeeks } from "../../lib/work";
 
 const rows = work.tools;
 const intro = topicInfo["page-work-directory"]?.description || "";
@@ -30,10 +32,10 @@ const jsonLd = {
 ---
 
 <Work title="AI tools for marketing and small business" description={description} current="tools" jsonLd={jsonLd} thin={rows.length < WORK_MIN_ITEMS}>
-  <header class="page-head work-head">
-    <div class="eyebrow">Directory · {rows.length} tools</div>
+  <header class="wk-head">
+    <p class="wk-eyebrow">Directory · {rows.length} tools</p>
     <h1>AI tools for marketing and small business</h1>
-    {intro && <p class="intro">{intro}</p>}
+    {intro && <p class="wk-intro">{intro}</p>}
     <p>
       Every tool the desk has covered that a marketer, a small-business owner or a small team can use, newest change
       first. The entries are built from the news, so this is a record of what changed and when, not a review:
@@ -43,70 +45,84 @@ const jsonLd = {
   </header>
 
   {rows.length === 0 && (
-    <p class="muted" style="padding: 32px 0">
+    <p class="wk-empty">
       No tools recorded yet. Rows appear as the desk covers tools a small team can use.
     </p>
   )}
 
   {rows.length > 0 && (
     <>
-      <p class="mono muted work-note">
-        {free} of {rows.length} can be started without paying{jobs.length > 0 && <> · {jobs.map((j, i) => <>{i > 0 && " · "}<a href={`/work/${j.slug}`}>{j.count} {j.label.toLowerCase()}</a></>)}</>}
-      </p>
-      <p class="workjob-pages">
-        By job: {JOBS.map((j, i) => <>{i > 0 && " · "}<a href={`/work/${j.slug}`}>AI tools {j.task}</a></>)}
-      </p>
-      <div class="tablewrap">
-        <table class="tracker">
-          <thead>
-            <tr><th>Tool</th><th>Maker</th><th>What it does</th><th>Who for</th><th>Cost</th><th>Effort</th><th>Last change</th><th>Official</th></tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr>
-                <td><b><a href={`#${toolSlug(r)}`}>{r.tool}</a></b></td>
-                <td>{r.maker || ""}</td>
-                <td>{r.whatItDoes}</td>
-                <td>{whoLine(r.whoFor)}</td>
-                <td>{r.cost && r.cost !== "unknown" && r.costKind !== "unknown" ? r.cost : COST_LABELS[r.costKind || "unknown"]}</td>
-                <td>{r.effort || ""}</td>
-                <td class="num">{formatDate(r.lastChange, { day: "numeric", month: "short", year: "numeric" })}</td>
-                <td>{r.link ? <a href={r.link} rel="noopener nofollow" target="_blank" data-source-link>Site ↗</a> : r.changes[0] ? <a class="muted" href={`/story/${r.changes[0].slug}`} title="The coverage names no official page">Coverage</a> : ""}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="dayhead"><h2>Every tool in full</h2></div>
-      <div class="worktools">
-        {rows.map((r) => (
-          <section class="worktool" id={toolSlug(r)}>
-            <h3>{r.tool} <span class="muted">{r.maker ? `by ${r.maker}` : ""}</span></h3>
-            <p>{r.whatItDoes}</p>
-            <dl class="workfacts">
-              <div><dt>Who for</dt><dd>{whoLine(r.whoFor)}</dd></div>
-              <div><dt>Cost</dt><dd>{r.cost && r.cost !== "unknown" && r.costKind !== "unknown" ? r.cost : COST_LABELS[r.costKind || "unknown"]}</dd></div>
-              {r.effort && <div><dt>Effort</dt><dd>{r.effort}</dd></div>}
-              <div><dt>Jobs</dt><dd>{r.jobs.length ? r.jobs.map((j, i) => { const job = JOBS.find((x) => x.key === j); return <>{i > 0 && ", "}{job ? <a href={`/work/${job.slug}`}>{job.label}</a> : JOB_LABELS[j] || j}</>; }) : "not classified"}</dd></div>
-            </dl>
-            {r.watchOut && <p class="workwatch"><b>Watch out</b> {r.watchOut}</p>}
-            <p class="mono muted">
-              {r.changeCount} {r.changeCount === 1 ? "change" : "changes"} covered
-              {r.firstSeen && r.firstSeen !== r.lastChange && <> · first seen {formatDate(r.firstSeen, { day: "numeric", month: "short", year: "numeric" })}</>}
-            </p>
-            <ul class="coverage">
-              {r.changes.map((c) => (
-                <li>
-                  <a class="t" href={`/story/${c.slug}`}>{c.headline}</a>
-                  <span class="mono muted"><time datetime={c.date || undefined} data-static>{formatDate(c.date, { day: "numeric", month: "short" })}</time></span>
-                </li>
+      <section class="wk-sec" aria-labelledby="table-h">
+        <div class="wk-h2row"><h2 id="table-h">At a glance</h2><span class="wk-h2-side">{free} of {rows.length} can be started without paying</span></div>
+        {jobs.length > 0 && (
+          <p class="wk-alljobs">
+            By job: {jobs.map((j, i) => <>{i > 0 && " · "}<a href={`/work/${j.slug}`}>AI tools {j.task}</a> <span class="mono">{j.count}</span></>)}
+          </p>
+        )}
+        <div class="tablewrap">
+          <table class="tracker">
+            <thead>
+              <tr><th>Tool</th><th>Maker</th><th>What it does</th><th>Who for</th><th>Cost</th><th>Effort</th><th>Last change</th><th>Official</th></tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr>
+                  <td><b><a href={`#${toolSlug(r)}`}>{r.tool}</a></b></td>
+                  <td>{r.maker || ""}</td>
+                  <td>{r.whatItDoes}</td>
+                  <td>{whoLine(r.whoFor)}</td>
+                  <td>{r.cost && r.cost !== "unknown" && r.costKind !== "unknown" ? r.cost : COST_LABELS[r.costKind || "unknown"]}</td>
+                  <td>{r.effort || ""}</td>
+                  <td class="num">{formatDate(r.lastChange, { day: "numeric", month: "short", year: "numeric" })}</td>
+                  <td>{r.link ? <a href={r.link} rel="noopener nofollow" target="_blank" data-source-link>Site ↗</a> : r.changes[0] ? <a class="muted" href={`/story/${r.changes[0].slug}`} title="The coverage names no official page">Coverage</a> : ""}</td>
+                </tr>
               ))}
-            </ul>
-            {r.link && <a class="work-btn" href={r.link} rel="noopener nofollow" target="_blank" data-source-link>Open {r.tool} ↗</a>}
-          </section>
-        ))}
-      </div>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="wk-sec" aria-labelledby="full-h">
+        <div class="wk-h2row"><h2 id="full-h">Every tool in full</h2></div>
+        {/* One sheet per tool, each at its own anchor: the shape a per-tool page can take later. */}
+        <div class="wk-sheets">
+          {rows.map((r) => (
+            <section class="wk-sheet" id={toolSlug(r)} aria-labelledby={`${toolSlug(r)}-h`}>
+              <div class="wk-sheet-id">
+                <h3 id={`${toolSlug(r)}-h`}><span class="wk-tape">{r.tool}</span></h3>
+                {r.maker && <p class="wk-maker">by {r.maker}</p>}
+                <p class="wk-sheet-count mono">
+                  {r.changeCount} {r.changeCount === 1 ? "change" : "changes"} covered
+                  {r.firstSeen && r.firstSeen !== r.lastChange && <> · first seen {formatDate(r.firstSeen, { day: "numeric", month: "short", year: "numeric" })}</>}
+                </p>
+                {r.link && <a class="wk-btn" href={r.link} rel="noopener nofollow" target="_blank" data-source-link>Open {r.tool}<span aria-hidden="true"> ↗</span></a>}
+              </div>
+              <div class="wk-sheet-body">
+                <p class="wk-sheet-what">{r.whatItDoes}</p>
+                <WorkChips cost={r.cost} costKind={r.costKind} effort={r.effort} whoFor={r.whoFor} />
+                <p class="wk-sheet-jobs">
+                  <b>Jobs</b> {r.jobs.length ? r.jobs.map((j, i) => { const job = JOBS.find((x) => x.key === j); return <>{i > 0 && ", "}{job ? <a href={`/work/${job.slug}`}>{job.label}</a> : JOB_LABELS[j] || j}</>; }) : "not classified"}
+                </p>
+                {r.watchOut && <p class="wk-watch"><b>Watch out</b> <span>{r.watchOut}</span></p>}
+                <ul class="wk-changes" role="list">
+                  {r.changes.map((c) => (
+                    <li>
+                      <a class="wk-thread" href={`/story/${c.slug}`}>{c.headline}</a>
+                      <time class="mono" datetime={c.date || undefined} data-static>{formatDate(c.date, { day: "numeric", month: "short" })}</time>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </section>
+          ))}
+        </div>
+      </section>
     </>
+  )}
+
+  {workWeeks[0] ? (
+    <WorkNext href={`/work/week/${workWeeks[0]}`} label="This week's playbook" why="What changed across these tools this week, and which ones are worth an hour now." />
+  ) : (
+    <WorkNext href="/work" label="AI at Work" why="The one thing to try this week, and everything that changed." />
   )}
 </Work>

@@ -24,6 +24,8 @@ interface Props {
   /** Content page too thin to index yet (a one-story hub, a single-source brief): "noindex, follow",
       no canonical, out of the sitemaps; everything else, analytics included, as on any page. */
   thin?: boolean;
+  /** A section with its own look (AI at Work): set as data-section on <body>, where its tokens live. */
+  section?: "work";
 }
 
 const {
@@ -42,6 +44,7 @@ const {
   articleId,
   noindex = false,
   thin = false,
+  section,
 } = Astro.props;
 const indexable = !noindex && !thin;
 
@@ -146,7 +149,7 @@ const clientConfig = {
       ],
     })} />
   </head>
-  <body data-story-id={storyId} data-article-id={articleId}>
+  <body data-story-id={storyId} data-article-id={articleId} data-section={section}>
     <header class="masthead">
       <div class="wrap masthead-row">
         <a class="brand" href="/" aria-label="Digest AI home">Digest<b>AI</b> <small>news desk</small></a>

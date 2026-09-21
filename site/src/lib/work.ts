@@ -29,6 +29,14 @@ export interface WorkCard {
       exports have no such field. */
   limits?: string[];
   usefulness: number;
+  /* The expanded card's blocks (components/WorkEntry.astro). Nothing fills them yet: each block
+     renders only when its field is there, so the pipeline can start writing them at any time. */
+  /** How to do it, one short step each. */
+  steps?: string[];
+  /** A prompt a reader can copy into the tool as it is. */
+  prompt?: string;
+  /** What the work looked like before and after, in a sentence or two each. */
+  example?: { before: string; after: string };
 }
 
 export interface WorkTool {
@@ -149,6 +157,18 @@ export const COST_LABELS: Record<string, string> = {
   included: "Already included",
   paid: "Paid",
   unknown: "Cost not stated",
+};
+
+/** The cost as a card shows it: the stated price, or the kind's label when there is none. */
+export const costLabel = (cost: string | null | undefined, kind: string | null | undefined): string =>
+  cost && cost !== "unknown" && kind && kind !== "unknown" ? cost : COST_LABELS[kind || "unknown"] || COST_LABELS.unknown;
+/** Free, a free tier or already paid for: nothing new to pay to start. */
+export const isFree = (kind: string | null | undefined): boolean => ["free", "free tier", "included"].includes(kind || "");
+/** The effort scale's step (1 to 3) and its words; a card whose coverage did not say has none. */
+export const EFFORT_STEPS: Record<string, { step: number; label: string }> = {
+  minutes: { step: 1, label: "Minutes" },
+  "an afternoon": { step: 2, label: "An afternoon" },
+  "needs a developer": { step: 3, label: "Needs a developer" },
 };
 
 export const work: WorkData = readJson<WorkData>("work.json", {
