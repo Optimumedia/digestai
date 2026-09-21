@@ -57,7 +57,7 @@ const url = canonical || new URL(cleanPath, site).toString();
 const ogImage = image || `${site}/og-default.png`;
 // The home page owns the brand; /today owns "AI news today" (its title and H1 lead with it), so the
 // two never compete for the same search.
-const fullTitle = title === "Digest AI" ? "Digest AI: AI news, digested and sourced every hour" : `${title} — Digest AI`;
+const fullTitle = title === "Digest AI" ? "Digest AI: Cut through the AI noise. AI news, sourced every hour" : `${title} — Digest AI`;
 // Broadcast-style ticker: the hottest stories interleaved with the newest, no repeats. Eight links,
 // rendered after the main content (CSS puts it back under the masthead) so the first thing a
 // crawler reads on every page is the page itself, not the same eight headlines.
@@ -158,7 +158,7 @@ const clientConfig = {
     <header class="masthead">
       <div class="wrap masthead-row">
         <a class="brand" href="/" aria-label="Digest AI home">Digest<b>AI</b> <small>news desk</small></a>
-        <p class="masthead-tag">AI news, digested. Every story with its sources, every hour.</p>
+        <p class="masthead-tag">Cut through the AI noise.</p>
         <div class="tools">
           <a class="icon-btn listen-btn" href="/listen" aria-label="Listen to the audio briefing" title="Listen to the briefing">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3" /><rect x="3" y="14" width="4.5" height="7" rx="1.5" /><rect x="16.5" y="14" width="4.5" height="7" rx="1.5" /></svg>
@@ -228,7 +228,7 @@ const clientConfig = {
             <span class="footer-mark" aria-hidden="true">D</span>
             <span class="footer-word">Digest<b>AI</b></span>
           </a>
-          <p class="footer-tagline">AI news, digested. Every story with its sources, every hour.</p>
+          <p class="footer-tagline">Cut through the AI noise. Every story sourced, updated every hour.</p>
           <p class="footer-follow" id="footer-follow">Follow &amp; subscribe</p>
           <nav aria-labelledby="footer-follow"><SocialLinks variant="footer" /></nav>
         </div>
