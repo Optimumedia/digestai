@@ -107,7 +107,38 @@
   // Every page counts as a view (the admin page does not); time on page and source clicks are story-only.
   // Not the admin page, and not "page not found": old addresses from the previous site are mostly
   // crawlers checking links that no longer exist.
-  if (!location.pathname.startsWith("/admin") && !document.title.startsWith("Page not found")) send("view", 1);
+  // The view is sent once the page has been on screen for VIEW_AFTER_MS in all, or at the first scroll,
+  // tap, click or key press, whichever comes first. Automated browsers that load a page and leave
+  // (in September most "direct" visitors were one view with no referrer, no time on page and no
+  // scroll, from one time zone) never send it; a reader nearly always stays a second and a half.
+  // A page opened in a background tab counts from when it is first shown.
+  if (!location.pathname.startsWith("/admin") && !document.title.startsWith("Page not found") && !noTrack) {
+    const VIEW_AFTER_MS = 1500;
+    const INPUTS = ["scroll", "pointerdown", "keydown", "touchstart"];
+    let viewSent = false, timer = null;
+    const sendView = () => {
+      if (viewSent) return;
+      viewSent = true;
+      clearTimeout(timer);
+      INPUTS.forEach((t) => removeEventListener(t, sendView, true));
+      document.removeEventListener("visibilitychange", onVisibility);
+      send("view", 1);
+    };
+    let shown = 0, since = null;
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        since = Date.now();
+        timer = setTimeout(sendView, Math.max(0, VIEW_AFTER_MS - shown));
+      } else if (since != null) {
+        shown += Date.now() - since;
+        since = null;
+        clearTimeout(timer);
+      }
+    };
+    INPUTS.forEach((t) => addEventListener(t, sendView, { capture: true, passive: true }));
+    document.addEventListener("visibilitychange", onVisibility);
+    if (document.visibilityState === "visible") onVisibility();
+  }
   // AI at Work pages (/work, /work/<job>, /work/tools, /work/week/<week>) are not stories: their time
   // on page and read depth are sent with no story_id, under the page key (the path without ".html"
   // or a trailing slash), which the events guard accepts.

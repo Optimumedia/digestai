@@ -26,9 +26,9 @@ LIVE_HOURS = 48            # a story first published this recently is shown as n
 OLD_DAYS = 10              # an article this much older than the story's first publication is old news
 URL_DATE_DAYS = 62         # a /2024/03/ style link path this much older is old news
 # A story is full at CLUSTER_MAX_ARTICLES shown sources and keeps counting the rest as overflow
-# (cluster.py), so a big story legitimately passes the cap; twice the cap means unrelated articles
-# were merged.
-MAX_SOURCES = 2 * config.CLUSTER_MAX_ARTICLES
+# (cluster.py), so a big story legitimately passes the cap; past CLUSTER_MAX_TOTAL (twice the cap)
+# it takes nothing more, so a story above it means unrelated articles were merged.
+MAX_SOURCES = config.CLUSTER_MAX_TOTAL
 MAX_IMAGES = 30            # image checks per run
 MAX_LINKS = 8              # source-link checks per run (front-page stories)
 MAX_STORY_PAGES = 6        # checks of our own older story pages

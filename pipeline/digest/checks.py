@@ -366,7 +366,7 @@ def _rules(headline: str, title_hedges: bool) -> tuple[str, list[str]]:
 _WORD = re.compile(r"[A-Za-z][A-Za-z0-9'’.+&-]*")
 _ALWAYS_UPPER = {"ai", "agi", "api", "apis", "gpu", "gpus", "cpu", "llm", "llms", "us", "uk", "eu", "ceo", "cto", "cfo",
                  "ipo", "hls", "rtl", "sdk", "saas", "seo", "crm", "nlp", "rag", "tpu", "tpus", "nasa", "fda", "ftc", "sec",
-                 "doj", "gdpr", "hr", "it", "ui", "ux", "vr", "ar", "pc", "iot", "ml", "gb", "tb", "mcp"}
+                 "doj", "gdpr", "hr", "it", "ui", "ux", "vr", "ar", "pc", "iot", "ml", "gb", "tb", "mcp", "url", "urls"}
 _NOT_UPPER_WHEN_WORD = {"us", "it"}  # "told us", "made it": only upper case when the title writes them so
 
 
@@ -377,47 +377,112 @@ def entity_names(entities) -> list[str]:
     return [str(n) for v in entities.values() if isinstance(v, list) for n in v if n]
 
 
-def restore_case(headline: str, title: str | None = None, names: list[str] | None = None) -> str:
-    """Capitals put back into a headline a model wrote in lower case: words spelled with capitals in
-    the source's title or in the story's names take that spelling, known acronyms go upper case, and
-    the first letter is a capital. A headline that already has capitals only gets its first letter
-    raised (unless the first word is written like "iPhone" or "mini-AGI")."""
-    h = (headline or "").strip()
-    if not h:
-        return h
-    if any(c.isupper() for c in h):
-        first = _WORD.search(h)
-        if first and first.start() == 0 and h[0].islower() and not any(c.isupper() for c in first.group(0)[1:]):
-            return h[0].upper() + h[1:]
-        return h
+_POSSESSIVE = re.compile(r"['’]s$")
+# Names a headline may carry that neither its title nor its entities spell ("Muse AI agent for mac").
+# Only names that are never an ordinary lower-case word in a headline.
+_KNOWN_SPELLINGS = {
+    "openai": "OpenAI", "chatgpt": "ChatGPT", "deepmind": "DeepMind", "deepseek": "DeepSeek", "github": "GitHub",
+    "youtube": "YouTube", "linkedin": "LinkedIn", "tiktok": "TikTok", "whatsapp": "WhatsApp", "nvidia": "Nvidia",
+    "anthropic": "Anthropic", "iphone": "iPhone", "ipad": "iPad", "macos": "macOS", "ios": "iOS", "mac": "Mac",
+    "macbook": "MacBook", "xai": "xAI", "huggingface": "Hugging Face", "gpt": "GPT",
+}
+# Words a title may start with that are capitalised only for being first ("When ChatGPT's answers...").
+_COMMON_FIRST = set("""a an the this that these those it its is are was were be will would can could should may might
+must do does did has have had how why what when where who which whose while if as at by for from in into of on
+onto to with without about after before over under new more most less all any some every each no not our your
+their my his her we you they i here there study report researchers says said just only why inside""".split())
+
+
+def _spellings(title: str | None, names: list[str] | None) -> dict[str, str]:
+    """lower case -> the spelling with capitals the source's title or the story's names use.
+
+    In a Title Case title every word has a capital ("Revolutionize Government AI Operations"), so
+    there only spellings that are not plain title case count ("OpenAI", "AI", "GPT-6"), plus the
+    first word ("Trump announces..."). A first word that is an ordinary sentence opener is capitalised
+    only for coming first ("When ChatGPT's answers..."), so it does not count. A possessive counts
+    for its name too."""
     spelled: dict[str, str] = {}
     words = _WORD.findall(title or "")
     long_words = [w for w in words if len(w) > 3]
-    # In a Title Case title every word has a capital ("Revolutionize Government AI Operations"), so only
-    # spellings that are not plain title case count: "OpenAI", "AI", the title's first word, a name.
     title_case = bool(long_words) and sum(w[0].isupper() for w in long_words) >= 0.6 * len(long_words)
     for i, w in enumerate(words):
-        if not any(c.isupper() for c in w) or w.lower() in spelled:
+        inner = any(c.isupper() for c in w[1:])
+        if not (inner or w[0].isupper()):
             continue
-        if title_case and i > 0 and not any(c.isupper() for c in w[1:]):
+        if not inner and ((i == 0 and w.lower() in _COMMON_FIRST) or (i > 0 and title_case)):
             continue
-        spelled[w.lower()] = w
+        for form in {w, _POSSESSIVE.sub("", w)}:
+            spelled.setdefault(form.lower(), form)
     for name in names or []:
         for w in _WORD.findall(name):
             if any(c.isupper() for c in w):
-                spelled.setdefault(w.lower(), w)
-    title_words = {w for w in _WORD.findall(title or "")}
+                for form in {w, _POSSESSIVE.sub("", w)}:
+                    # A name's spelling wins over the title's plain capital ("Donald Trump").
+                    if form.lower() not in spelled or not any(c.isupper() for c in spelled[form.lower()][1:]):
+                        spelled[form.lower()] = form
+    for low, form in _KNOWN_SPELLINGS.items():
+        spelled.setdefault(low, form)
+    return spelled
 
-    def fix(m: re.Match) -> str:
-        w = m.group(0)
-        if w in spelled:
+
+def _intentionally_lower(word: str) -> bool:
+    """A first word written in lower case on purpose: "iPhone", "mini-AGI", "xAI", "eBay"."""
+    return any(c.isupper() for c in word[1:])
+
+
+def restore_case(headline: str, title: str | None = None, names: list[str] | None = None) -> str:
+    """Capitals put back into a headline a model wrote (partly) in lower case: words spelled with
+    capitals in the source's title or in the story's names take that spelling, known acronyms go
+    upper case, and the first letter is a capital unless the first word is written like "iPhone" or
+    "mini-AGI". Words that already carry a capital are left as they are.
+
+    It acts when the headline has no capital at all, when its first letter is lower case, or when
+    most of the words the title and names spell with capitals are written in lower case in it. One
+    "AI" used to be enough to keep "openai launches astra for law, a gpt-6 legal AI platform" as it
+    was; a headline that spells most of its names right keeps its other words ("meta" as a word)."""
+    h = (headline or "").strip()
+    if not h:
+        return h
+    spelled = _spellings(title, names)
+    title_words = set(_WORD.findall(title or ""))
+
+    def upper_form(w: str) -> str | None:
+        if w in spelled and spelled[w] != w:
             return spelled[w]
         if w in _ALWAYS_UPPER and (w not in _NOT_UPPER_WHEN_WORD or w.upper() in title_words):
             return w.upper()
-        return w
+        return None
+
+    tokens = list(_WORD.finditer(h))
+    first = tokens[0] if tokens and tokens[0].start() == 0 else None
+    lower_first = bool(first) and h[0].islower() and not _intentionally_lower(first.group(0))
+    # Names written in lower case against names written right: the words the title or names spell
+    # with capitals, and the acronyms.
+    def inner_form(w: str) -> str | None:
+        """"Openai" -> "OpenAI": a first letter raised on a name spelled in mixed case. Not an
+        all-capitals spelling: "Nvidia" stays when a title writes "NVIDIA"."""
+        form = spelled.get(w.lower())
+        if form and w[0].isupper() and w[1:].islower() and any(c.isupper() for c in form[1:]) and not form.isupper():
+            return form
+        return None
+
+    wrong = sum(1 for m in tokens if (m.group(0).islower() and upper_form(m.group(0))) or inner_form(m.group(0)))
+    right = sum(1 for m in tokens if m.group(0) == spelled.get(m.group(0).lower())
+                or (m.group(0).lower() in _ALWAYS_UPPER and m.group(0).isupper()))
+    no_capitals = not any(c.isupper() for c in h)
+    if not (no_capitals or lower_first or (wrong and wrong > right)):
+        return h
+
+    def fix(m: re.Match) -> str:
+        w = m.group(0)
+        if not w.islower():
+            return inner_form(w) or w  # otherwise its capitals stay: "AI Force", "mini-AGI"
+        return upper_form(w) or w
 
     out = _WORD.sub(fix, h)
-    return out[0].upper() + out[1:] if out[0].islower() else out
+    if out[0].islower() and not (first and _intentionally_lower(first.group(0))):
+        out = out[0].upper() + out[1:]
+    return out
 
 
 def discipline_headline(headline: str | None, title: str | None = None, names: list[str] | None = None) -> tuple[str, list[str]]:

@@ -24,12 +24,11 @@ import time
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import requests
 from PIL import Image, ImageDraw, ImageFont
 
-from . import config, media
+from . import config, media, primary
 from .textutil import slugify
 
 log = logging.getLogger("digest.images")
@@ -277,39 +276,13 @@ PRIMARY_TIME_BUDGET_SECONDS = 30
 PRIMARY_HEAD_BYTES = 512_000           # the size is in the first bytes; nothing more is downloaded
 PRIMARY_TIMEOUT = (5, 10)
 
-# The makers' own sites. The primary domains that are not a company (arXiv, GitHub, governments) are
-# left out, and a few company sites the feeds do not tag as primary yet are added, so they count
-# the day they are. An article qualifies only when the export also marked it primary.
-NOT_COMPANY = frozenset({"arxiv.org", "github.com", "qwenlm.github.io", "europa.eu", "whitehouse.gov",
-                         "gov.uk", "nist.gov", "ftc.gov", "sec.gov"})
-COMPANY_DOMAINS = frozenset((config.PRIMARY_DOMAINS - NOT_COMPANY) | {
-    "google", "amazon.com", "aboutamazon.com", "canva.com", "hubspot.com", "shopify.com", "adobe.com",
-    "salesforce.com", "ibm.com", "intel.com", "amd.com", "samsung.com", "qualcomm.com", "oracle.com",
-})
-# Hosts on a company domain whose pages are not the company speaking: model cards, Spaces and
-# datasets on Hugging Face are uploaded by anyone, so only its blog counts.
-COMPANY_PATHS = {"huggingface.co": "/blog/"}
-
-
-def _on_domain(host: str, domains) -> str | None:
-    host = (host or "").lower().removeprefix("www.")
-    for d in domains:
-        if host == d or host.endswith("." + d):
-            return d
-    return None
-
-
-def company_announcement(article: dict) -> bool:
-    """True when the article is the company's own announcement: marked primary by the export and on
-    one of the makers' own domains (not a preprint, a repository, a government or a news outlet)."""
-    if article.get("sourceType") != "primary":
-        return False
-    host = (article.get("domain") or urlsplit(article.get("url") or "").netloc or "").lower()
-    d = _on_domain(host, COMPANY_DOMAINS)
-    if not d:
-        return False
-    need = COMPANY_PATHS.get(d)
-    return not need or need in urlsplit(article.get("url") or "").path
+# The makers' own sites and the test for a company's own post live in primary.py, shared with the
+# briefing's confirmed-first rule (export.build_briefing), the morning note and the share shortlist.
+NOT_COMPANY = primary.NOT_COMPANY
+COMPANY_DOMAINS = primary.COMPANY_DOMAINS
+COMPANY_PATHS = primary.COMPANY_PATHS
+_on_domain = primary.on_domain
+company_announcement = primary.company_announcement
 
 
 def primary_candidate(story: dict) -> dict | None:

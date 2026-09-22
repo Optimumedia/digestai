@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
 
-from . import checks, config, hold, images
+from . import checks, config, hold, images, primary
 
 SHARED_FILE = Path(__file__).with_name("shared.json")
 NETWORKS = ("linkedin", "x")
@@ -107,16 +107,19 @@ def publishers(story: dict) -> int:
 
 
 def confirmed(story: dict) -> bool:
-    """The export's rule (export.build_briefing): two publishers, the lab's own post, or a pin."""
-    return bool(story.get("pinned") or story.get("hasPrimary") or publishers(story) >= 2)
+    """The export's rule (export.confirmed): two publishers, the lab's own post, or a pin. A paper
+    (arXiv, a journal, a repository) is not the lab's own post (primary.py)."""
+    return bool(story.get("pinned") or primary.announced(story) or publishers(story) >= 2)
 
 
 def _backing(story: dict) -> str:
     n = publishers(story)
     if n >= 2:
         return f"{n} publishers"
-    if story.get("hasPrimary"):
+    if primary.announced(story):
         return "the lab's own post"
+    if story.get("hasPrimary"):
+        return "single source (a paper)" if primary.paper_only(story) else "single source"
     return "single outlet"
 
 

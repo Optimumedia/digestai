@@ -1337,7 +1337,8 @@ def test_briefing_leads_with_confirmed_stories():
 
     def story(i, score, domains, primary=False, pinned=False, category="models"):
         return {"id": i, "score": score, "pinned": pinned, "category": category, "hasPrimary": primary, "firstPublishedAt": iso(2),
-                "articles": [{"publishedAt": iso(2), "domain": d} for d in domains], "articleCount": len(domains), "summaryMd": "w " * 40}
+                "articles": [{"publishedAt": iso(2), "domain": d, "sourceType": "primary" if primary else "press"} for d in domains],
+                "articleCount": len(domains), "summaryMd": "w " * 40}
 
     one, two = ["404media.co"], ["reuters.com", "theverge.com"]
     # Four single-outlet stories outscore a widely covered one and a lab's own announcement.

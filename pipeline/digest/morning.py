@@ -40,7 +40,7 @@ from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, select
 
-from . import checks, config, db
+from . import checks, config, db, primary
 from .quality import numbers_in
 
 log = logging.getLogger("digest.morning")
@@ -116,14 +116,15 @@ def publishers_of(story: dict) -> set[str]:
 
 
 def primary_name(story: dict) -> str | None:
-    for a in story.get("articles") or []:
-        if a.get("sourceType") == "primary":
-            return a.get("source") or a.get("domain")
-    return None
+    """The company's own announcement when the story has one, else the first primary source."""
+    arts = [a for a in story.get("articles") or [] if a.get("sourceType") == "primary"]
+    a = next((a for a in arts if primary.announcement(a)), arts[0] if arts else None)
+    return (a.get("source") or a.get("domain")) if a else None
 
 
 def confirmed(story: dict) -> bool:
-    return bool(story.get("pinned") or story.get("hasPrimary") or len(publishers_of(story)) >= 2)
+    """The export's rule (export.confirmed): two publishers, the company's own announcement, or a pin."""
+    return bool(story.get("pinned") or primary.announced(story) or len(publishers_of(story)) >= 2)
 
 
 def briefing_facts(briefing: dict | None, stories: list[dict]) -> dict | None:

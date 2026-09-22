@@ -294,6 +294,12 @@ def run(eng, thr: float, max_merges: int | None = None) -> dict:
             keep, drop = sorted((a, b), key=lambda s: (db.as_utc(s.first_published_at) or now, s.id))
             members = sorted((m for m in cache.articles(conn).values()
                               if m.story_id in (keep.id, drop.id) and m.status in ("published", "overflow")), key=lambda m: m.id)
+            if len(members) > config.CLUSTER_MAX_TOTAL:
+                # A merge used to move every member over whatever the size: chained merges grew one
+                # story to 161 sources. Two stories that would pass the ceiling together stay two
+                # (the cluster step's repair keeps the shown part of a merged story at its cap).
+                stats["too_big"] = stats.get("too_big", 0) + 1
+                continue
             texts = cache.article_text(conn, [m for m in members if m.status == "published"])
             done = merge_stories(conn, keep, drop, members, texts, primary, vecs.get(keep.id), vecs.get(drop.id), now)
             moved[drop.id] = keep.id

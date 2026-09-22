@@ -277,6 +277,12 @@ PAGE_DATE_MIN_GAP_DAYS = float(os.environ.get("PAGE_DATE_MIN_GAP_DAYS") or "3")
 # Clustering: a story stops absorbing articles at this size (threads link related stories), and
 # oversized stories are split back on later runs, at most this many articles detached per run.
 CLUSTER_MAX_ARTICLES = int(os.environ.get("CLUSTER_MAX_ARTICLES") or "40")
+# All members, shown and overflow together: past this a story takes no more articles (a matching one
+# starts a story of its own) and no merge may take it past it. Overflow used to have no ceiling, and
+# merges folded whole stories in regardless of size: "AI experts warn of 10% chance of human
+# extinction" (9 Sep) grew by chained merges into a 161-source story about the AI slowdown debate
+# with a Zuckerberg headline. Twice the page's cap, the dashboard's alarm level (quality.MAX_SOURCES).
+CLUSTER_MAX_TOTAL = int(os.environ.get("CLUSTER_MAX_TOTAL") or str(2 * CLUSTER_MAX_ARTICLES))
 CLUSTER_REPAIR_MAX_PER_RUN = int(os.environ.get("CLUSTER_REPAIR_MAX_PER_RUN") or "300")
 # An article must also be this close to the story's lead article: the merge threshold minus this
 # margin (0.82 - 0.03 = 0.79 with the embedding model). Stops the mean drifting to a generic topic.

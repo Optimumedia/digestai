@@ -78,6 +78,10 @@ const delta = (now: number, before: number) => { const p = pct(now, before); ret
 const eng = admin?.engagement || { available: false, perDay: [], topStories: [] };
 const views7 = week(eng.perDay, "views"), viewsPrev = prevWeek(eng.perDay, "views");
 const visitors7 = week(eng.perDay, "visitors");
+// Likely automated visitors (admin.py automated_summary): one direct view and nothing else, from a
+// time zone where most visitors do only that. Shown apart and left out of the visitor tile.
+const auto7 = eng.automated7 || { visitors: 0, views: 0, zones: [] };
+const readers7 = Math.max(0, visitors7 - (auto7.visitors || 0));
 const clicks7 = week(eng.perDay, "clicks"), saves7 = week(eng.perDay, "saves"), follows7 = week(eng.perDay, "follows"), shares7 = week(eng.perDay, "shares");
 const dwell7 = week(eng.perDay, "dwellSeconds");
 const reads7 = week(eng.perDay, "dwellReads");
@@ -498,7 +502,7 @@ const homeData = JSON.stringify({
           {!eng.available && <div class="alerts"><div class="alert warning"><span class="st warn">●</span> No reader events yet. They appear as soon as people open any page.</div></div>}
           <div class="tiles">
             <div class="tile"><span class="label">Views, 7 days</span><span class="value">{views7}</span><span class="sub">{delta(views7, viewsPrev) || "first week"}</span></div>
-            <div class="tile"><span class="label">Visitors, 7 days</span><span class="value">{visitors7}</span><span class="sub">{visitors7 ? `${(views7 / visitors7).toFixed(1)} pages per visitor · one per browser per day` : "one per browser per day"}</span></div>
+            <div class="tile"><span class="label">Visitors, 7 days</span><span class="value">{readers7}</span><span class="sub">{auto7.visitors ? `${auto7.visitors} likely automated, not counted · ` : ""}{readers7 ? `${((views7 - (auto7.views || 0)) / readers7).toFixed(1)} pages per visitor · one per browser per day` : "one per browser per day"}</span></div>
             <div class="tile"><span class="label">Time on story</span><span class="value">{avgDwell != null ? `${avgDwell}s` : "—"}</span><span class="sub">average per reading session</span></div>
             <div class="tile"><span class="label">Actions, 7 days</span><span class="value">{engagedActions7}</span><span class="sub">{clicks7} to source · {saves7} saved · {follows7} follows · {shares7} shares</span></div>
           </div>
@@ -516,6 +520,9 @@ const homeData = JSON.stringify({
                 <ol class="ranked">{eng.sources7.map((s: any) => <li><span>{s.name}</span><span class="mono muted">{s.visitors} visitor{s.visitors === 1 ? "" : "s"} · {s.views} view{s.views === 1 ? "" : "s"}</span></li>)}</ol>
               ) : <p class="muted">Appears with the first counted visit.</p>}
               <p class="muted">From the link a visitor followed: a tag on our own posts (Bluesky, the newsletter), else the site they came from. Direct means typed in, bookmarked or an app that hides where it came from.</p>
+              {auto7.visitors > 0 && (
+                <p class="muted">Likely automated, not counted in the visitor total (still in Direct above): {auto7.visitors} visitor{auto7.visitors === 1 ? "" : "s"} with one direct view and nothing else, from {auto7.zones.map((z: any) => `${z.country} (${z.visitors} of ${z.of})`).join(", ")}. Nothing is deleted.</p>
+              )}
             </article>
             <article class="card">
               <h2>Where readers are <span class="muted">7 days</span></h2>

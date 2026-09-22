@@ -194,6 +194,65 @@ def test_lower_case_headlines_get_their_capitals_back():
     assert fix("the startup told us it made it") == "The startup told us it made it"
     assert fix("OpenAI ships GPT-6 to all API users") == "OpenAI ships GPT-6 to all API users"
 
+
+def test_partly_lower_case_headlines_get_their_capitals_back():
+    """Live on 21 Sep: one capital ("AI") kept a headline out of the repair, so names stayed lower
+    case. Titles and entities are the stories' own (digestai.news/story/<slug>.json)."""
+    from digest import checks
+
+    fix = lambda h, t=None, names=None: checks.discipline_headline(h, t, names)[0]  # noqa: E731
+    astra = ["OpenAI", "Harvey", "Legora", "Latham & Watkins", "GPT-6 Astra", "Astra for Law", "Michael Rubin"]
+    assert fix("openai launches astra for law, a gpt-6 legal AI platform with 230 million‑url search index",
+               "OpenAI Introduces Astra for Law With Legal Search and Trusted Access", astra) == \
+        "OpenAI launches Astra for Law, a GPT-6 legal AI platform with 230 million‑URL search index"
+    # What the old rule stored when it raised only the first letter is repaired the same way.
+    assert fix("Openai launches astra for law, a gpt-6 legal AI platform with 230 million‑url search index",
+               "OpenAI Introduces Astra for Law With Legal Search and Trusted Access", astra) == \
+        "OpenAI launches Astra for Law, a GPT-6 legal AI platform with 230 million‑URL search index"
+    assert fix("google confirms gemini hacked three companies during may test",
+               "Google confirms Gemini models hacked three companies in May 2026",
+               ["Google", "Gemini", "Irregular", "Heather Adkins"]) == \
+        "Google confirms Gemini hacked three companies during May test"
+    assert fix("meta platforms launches muse ai agent for mac",
+               "Meta (META) Hands its New AI Agent the Keys to Your Inbox and Wallet",
+               ["Meta Platforms, Inc.", "OpenClaw", "Stripe", "WhatsApp", "Apple", "Muse Spark", "Mark Zuckerberg"]) == \
+        "Meta Platforms launches Muse AI agent for Mac"
+    trump = ["OpenAI", "Anthropic", "Nvidia", "Donald Trump", "Dario Amodei", "Sam Altman", "Mark Zuckerberg"]
+    assert fix("donald trump announces creation of AI Force and plans AI czar",
+               "Trump announces a new 'AI Force,' but says he will not 'stifle' AI", trump) == \
+        "Donald Trump announces creation of AI Force and plans AI czar"
+    # First letter already raised, but most names still lower case.
+    assert fix("Prompt chatgpt to ask for missing information to improve answer relevance",
+               "When ChatGPT's answers are off-base, ask it to check for \"missing information\"", ["ChatGPT"]) == \
+        "Prompt ChatGPT to ask for missing information to improve answer relevance"
+    assert fix("Opinion: origins of chatgpt, gemini, and claude names explained",
+               "[Showa AI-70/Challenge Record 11] I looked into the origins of the three names: ChatGPT, Gemini, and Claude",
+               ["OpenAI", "Google", "ChatGPT", "Gemini", "Claude", "Claude Shannon"]) == \
+        "Opinion: origins of ChatGPT, Gemini, and Claude names explained"
+
+
+def test_headlines_with_their_capitals_right_do_not_change():
+    from digest import checks
+
+    keep = [
+        ("mini-AGI is a continual learning byte-level model that trains on a single 8 GB GPU", "mini-AGI: continual learning on one GPU", []),
+        ("xAI releases Grok Voice Transcribe 2.0 speech-to-text model", "xAI launches Grok Voice Transcribe 2.0", ["xAI", "Grok"]),
+        ("iPhone 18 gets Apple Intelligence summaries in Mail", "Apple brings AI summaries to Mail on iPhone 18", ["Apple"]),
+        ("Nvidia launches DSX Ready program to qualify power and cooling products",
+         "Nvidia Launches DSX Ready Program To Qualify Power And Cooling Products", ["Nvidia"]),
+        # Most names spelled right: a lone lower-case "meta" is left as the word it is.
+        ("OpenAI and Anthropic publish a meta review of Claude and ChatGPT safety tests",
+         "OpenAI, Anthropic publish joint safety review", ["OpenAI", "Anthropic", "Meta", "Claude", "ChatGPT"]),
+        # The title's first word is capitalised only for coming first.
+        ("OpenAI says when agents fail, users blame the model", "When agents fail, users blame the model, OpenAI says", ["OpenAI"]),
+        ("Opinion: using AI does not make you dumber", "Using AI does not make you dumber", []),
+        ("Nvidia stock rises after earnings beat", "NVIDIA stock rises after earnings beat", ["NVIDIA"]),
+        ("Shopify CEO calls AI‑generated unchecked work “slop grenades”", "Shopify CEO: unchecked AI work is a 'slop grenade'", ["Shopify"]),
+    ]
+    for headline, title, names in keep:
+        assert checks.restore_case(headline, title, names) == headline, headline
+        assert "capitals restored" not in checks.discipline_headline(headline, title, names)[1], headline
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

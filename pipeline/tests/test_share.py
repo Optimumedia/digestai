@@ -40,7 +40,9 @@ def work_story(sid: int) -> dict:
 
 
 def day_of_stories():
-    stories = [story(1, domains=("a.com",)), story(2), story(3, hasPrimary=True, domains=("openai.com",)),
+    lab_post = story(3, hasPrimary=True, domains=("openai.com",))
+    lab_post["articles"][0].update(sourceType="primary", url="https://openai.com/index/model-3")
+    stories = [story(1, domains=("a.com",)), story(2), lab_post,
                story(4), story(5), story(6, "policy", importance=8), story(7, "research", importance=5), work_story(8),
                story(9, "hardware", firstPublishedAt="2026-09-01T00:00:00Z", importance=9)]
     briefing = {"date": "2026-09-21", "storyIds": [1, 2, 3, 4, 5], "alsoIds": [6, 7]}
@@ -65,6 +67,17 @@ def test_shortlist_leads_with_confirmed_briefing_stories_then_the_work_pick_and_
     assert variety["id"] == 6 and variety["category"] not in {"models", "marketing"}, "a category not on the list yet"
     assert 9 not in ids, "an old story outside the briefing is never offered"
     assert all(p["reason"] for p in items)
+
+
+def test_a_paper_alone_does_not_confirm_a_story_for_the_shortlist():
+    # The arXiv preprint is "primary" for the coverage bar, but it is one source, not the lab's post.
+    paper = story(30, "research", hasPrimary=True, domains=("arxiv.org",))
+    paper["articles"][0].update(sourceType="primary", sourceKey="arxiv-cs-cl", url="https://arxiv.org/abs/2609.01234")
+    assert not share.confirmed(paper)
+    assert share._backing(paper) == "single source (a paper)"
+    lab = story(31, hasPrimary=True, domains=("anthropic.com",))
+    lab["articles"][0].update(sourceType="primary", url="https://www.anthropic.com/news/x")
+    assert share.confirmed(lab) and share._backing(lab) == "the lab's own post"
 
 
 def test_shortlist_skips_what_was_shared_on_an_earlier_day_and_keeps_todays():

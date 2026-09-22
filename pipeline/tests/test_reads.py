@@ -425,6 +425,102 @@ def test_merge_follows_chains_and_skips_stories_off_the_site():
     assert export.story_redirects(stories, titles, {1: "a"}) == [{"from": "b", "to": "a"}, {"from": "c", "to": "a"}]
 
 
+def test_a_merge_never_takes_a_story_past_the_ceiling():
+    from digest import merge
+
+    with fresh_db() as (eng, _tmp):
+        rng = np.random.default_rng(11)
+        vec = unit(rng)
+        with eng.begin() as conn:
+            conn.execute(insert(db.sources).values(id=3, key="press", name="Press", url="https://press.test/feed", source_type="press"))
+            aid = 0
+            for sid, first in ((70, NOW - timedelta(hours=5)), (71, NOW - timedelta(hours=2))):
+                conn.execute(insert(db.stories).values(
+                    id=sid, slug=f"story-{sid}", headline="Acme closes a record funding round", summary_md="S.", key_points=["k"],
+                    category="business", entities={"companies": ["Acme"]}, lead_article_id=sid * 10, article_count=3, importance=6,
+                    score=0.4, embedding=db.pack_vec(vec), status="published", first_published_at=first, updated_at=first))
+                for k in range(3):
+                    conn.execute(insert(db.articles).values(
+                        id=sid * 10 + k, url=f"https://dup.test/{sid}/{k}", source_id=3, story_id=sid, slug=f"a-{sid}-{k}",
+                        title="Acme closes a record funding round", headline="Acme closes a record funding round", domain=f"d{k}.test",
+                        published_at=first, fetched_at=first, created_at=first, status="published" if k < 2 else "overflow",
+                        summary_md="s", content_type="news", importance=6, embedding=db.pack_vec(vec), engagement=0.0))
+                    aid += 1
+        was = config.CLUSTER_MAX_TOTAL
+        try:
+            config.CLUSTER_MAX_TOTAL = 5  # six members together: the two stay two
+            new_process()
+            stats = merge.run(eng, 0.97)
+            assert stats["merged_stories"] == 0 and stats.get("too_big") == 1, stats
+            config.CLUSTER_MAX_TOTAL = 6
+            new_process()
+            assert merge.run(eng, 0.97)["merged_stories"] == 1
+        finally:
+            config.CLUSTER_MAX_TOTAL = was
+
+
+def test_oversized_story_repair_detaches_the_furthest_members_in_bounded_batches():
+    from digest import repair
+
+    with fresh_db() as (eng, _tmp):
+        rng = np.random.default_rng(5)
+        base, other = unit(rng), unit(rng)
+        first = NOW - timedelta(days=12)
+        with eng.begin() as conn:
+            conn.execute(insert(db.sources).values(id=3, key="press", name="Press", url="https://press.test/feed", source_type="press"))
+            conn.execute(insert(db.stories).values(
+                id=1, slug="ai-experts-warn", headline="Zuckerberg opposes a coordinated AI slowdown", summary_md="S.", key_points=["k"],
+                category="policy", entities={"people": ["Mark Zuckerberg"]}, lead_article_id=1, article_count=100, importance=7,
+                score=0.46, embedding=db.pack_vec(base), status="published", first_published_at=first, updated_at=first))
+            # 100 members: 40 shown and 60 overflow; 25 of the overflow are about something else.
+            for aid in range(1, 101):
+                far = aid > 75
+                conn.execute(insert(db.articles).values(
+                    id=aid, url=f"https://pub.test/{aid}", source_id=3, story_id=1, slug=f"a-{aid}", title=f"T{aid}",
+                    headline=f"H{aid}", domain=f"pub{aid}.test", published_at=first + timedelta(hours=aid), fetched_at=first,
+                    created_at=first + timedelta(hours=aid), status="published" if aid <= 40 else "overflow", summary_md="s",
+                    content_type="news", importance=5,
+                    embedding=db.pack_vec(unit(rng, base=other if far else base, noise=0.4)), engagement=0.0))
+        new_process()
+        assert repair.oversized_stories(eng, max_total=80, limit=10) == {"stories": 1, "detached": 10}  # bounded
+        new_process()
+        assert repair.oversized_stories(eng, max_total=80, limit=300) == {"stories": 1, "detached": 10}
+        new_process()
+        assert repair.oversized_stories(eng, max_total=80) == {}  # nothing left: reads nothing more
+        with eng.connect() as conn:
+            rows = {r.id: r for r in conn.execute(select(db.articles.c.id, db.articles.c.story_id, db.articles.c.status,
+                                                         db.articles.c.embedding)).all()}
+            story = conn.execute(select(db.stories.c.article_count, db.stories.c.lead_article_id)).one()
+        detached = sorted(i for i, r in rows.items() if r.story_id is None)
+        assert len(detached) == 20 and all(i > 75 for i in detached), detached  # the ones about something else
+        assert all(rows[i].status == "enriched" and rows[i].embedding for i in detached)  # clustered again next run
+        assert story.article_count == 80 and story.lead_article_id == 1
+        assert sum(1 for r in rows.values() if r.status == "published") == 40
+
+
+def test_likely_automated_visitors_are_counted_apart():
+    from digest import admin
+
+    with fresh_db() as (eng, _tmp):
+        t = NOW - timedelta(hours=3)
+        rows = []
+        for i in range(6):  # one direct view each, nothing else, all from one zone
+            rows.append({"type": "view", "value": 1, "session": f"cn{i}", "visitor": f"cn{i}", "source": "direct", "tz": "Asia/Shanghai", "path": "/", "created_at": t})
+        rows += [{"type": "view", "value": 1, "session": "cnr", "visitor": "cnr", "source": "direct", "tz": "Asia/Shanghai", "path": "/", "created_at": t},
+                 {"type": "dwell", "value": 40, "session": "cnr", "visitor": "cnr", "source": "direct", "tz": "Asia/Shanghai", "path": "/", "created_at": t}]
+        for i in range(3):  # a few one-view visits from a zone where most people read: counted
+            rows.append({"type": "view", "value": 1, "session": f"us{i}", "visitor": f"us{i}", "source": "direct", "tz": "America/New_York", "path": "/", "created_at": t})
+        rows += [{"type": "view", "value": 1, "session": "usr", "visitor": "usr", "source": "direct", "tz": "America/New_York", "path": "/a", "created_at": t},
+                 {"type": "view", "value": 1, "session": "usr", "visitor": "usr", "source": "direct", "tz": "America/New_York", "path": "/b", "created_at": t},
+                 {"type": "view", "value": 1, "session": "bsky", "visitor": "bsky", "source": "bsky.app", "tz": "Europe/Warsaw", "path": "/", "created_at": t}]
+        with eng.begin() as conn:
+            conn.execute(insert(db.events), rows)
+        with eng.connect() as conn:
+            got = admin.automated_summary(admin.automated_rows(conn, NOW - timedelta(days=7)))
+        assert got["visitors"] == 6 and got["views"] == 6, got
+        assert got["zones"] == [{"zone": "Asia/Shanghai", "country": "China", "visitors": 6, "of": 7}], got
+
+
 # ---------------------------------------------------------------------------- tidy
 
 def test_tidy_empties_unused_columns_in_bounded_batches():

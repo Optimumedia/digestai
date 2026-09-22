@@ -85,6 +85,51 @@ def countries_summary(rows) -> list[dict]:
     return sorted(by.values(), key=lambda r: (r["code"] is None, -r["visitors"], -r["views"]))
 
 
+# Likely automated visitors (the Readers tab shows them apart, nothing is deleted): one event in
+# seven days, a view with no referrer and no time on page, read depth, click or card seen, from a
+# time zone where most visitors look like that. A zone is "bot-heavy" by the data, not by a list:
+# at least BOT_ZONE_MIN such visitors and BOT_ZONE_SHARE of all its visitors. In September 36
+# visitors from China each opened one page and did nothing else; readers from a zone mostly stay.
+# Since app.js sends the view only after 1.5 s on screen or a first scroll, tap or key, most such
+# loads no longer send anything; this label covers what is already recorded and whatever still does.
+BOT_ZONE_MIN = 5
+BOT_ZONE_SHARE = 0.8
+
+
+def automated_summary(rows) -> dict:
+    """rows: (time zone, visitors, single-view direct visitors, their views) per zone, 7 days.
+    {"visitors": n, "views": n, "zones": [{"zone", "visitors", "of"}]}: the likely automated ones."""
+    out = {"visitors": 0, "views": 0, "zones": []}
+    for zone, visitors, bare, bare_views in rows:
+        visitors, bare = int(visitors or 0), int(bare or 0)
+        if bare >= BOT_ZONE_MIN and visitors and bare >= BOT_ZONE_SHARE * visitors:
+            out["visitors"] += bare
+            out["views"] += int(bare_views or 0)
+            out["zones"].append({"zone": zone or "unknown", "country": country_name(country_of(zone)), "visitors": bare, "of": visitors})
+    out["zones"].sort(key=lambda z: -z["visitors"])
+    return out
+
+
+def automated_rows(conn, since):
+    """Per time zone: its visitors, and those whose only event in the window is one view that came
+    direct. One grouped query; the database returns a row per zone, not a row per visitor."""
+    e = db.events.c
+    who = func.coalesce(e.visitor, e.session)
+    per_visitor = (
+        select(who.label("who"), func.max(e.tz).label("tz"), func.count().label("n"),
+               func.sum(case((e.type == "view", 1), else_=0)).label("views"),
+               func.max(func.coalesce(e.source, "direct")).label("src"))
+        .where(e.created_at >= since)
+        .group_by(who)
+    ).subquery()
+    bare = and_(per_visitor.c.n == 1, per_visitor.c.views == 1, per_visitor.c.src == "direct")
+    return conn.execute(
+        select(per_visitor.c.tz, func.count(), func.sum(case((bare, 1), else_=0)), func.sum(case((bare, per_visitor.c.views), else_=0)))
+        .where(per_visitor.c.views > 0)
+        .group_by(per_visitor.c.tz)
+    ).all()
+
+
 def source_name(raw: str | None) -> str:
     """'direct', a utm_source tag or a referring host, as a readable name."""
     s = (raw or "").strip().lower()
@@ -380,6 +425,12 @@ def run() -> dict:
             top_engaged = [{"slug": r.slug, "headline": r.headline, "engagement": round(float(r.e or 0), 1)} for r in rows]
         out["engagement"] = {"available": has_events, "perDay": list(per_day_ev.values()), "topStories": top_engaged,
                              "sources7": sources7, "pages7": pages7, "countries7": countries7}
+        # Visitors that look automated, shown apart on the Readers tab ("12 likely automated, not counted").
+        try:
+            with conn.begin_nested():  # a failure rolls back to here, not the whole read
+                out["engagement"]["automated7"] = automated_summary(automated_rows(conn, since7))
+        except Exception as exc:  # noqa: BLE001 - a label must never cost the dashboard
+            log.warning("automated visitor count failed: %s", str(exc)[:160])
 
         # ---- site searches and how far stories are read.
         out["engagement"]["searches7"] = search_summary(conn.execute(

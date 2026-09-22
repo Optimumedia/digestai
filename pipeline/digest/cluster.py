@@ -89,7 +89,8 @@ def _vec(value) -> np.ndarray | None:
 
 # ------------------------------------------------------------------ merge rule
 
-def pick_story(v: np.ndarray, stories: dict[int, dict], thr: float, lead_thr: float) -> tuple[int | None, float]:
+def pick_story(v: np.ndarray, stories: dict[int, dict], thr: float, lead_thr: float,
+               max_total: int | None = None) -> tuple[int | None, float]:
     """The story an article joins, or None for a new story.
 
     A story's embedding is the running mean of its shown members. As a story grows that mean turns
@@ -97,10 +98,15 @@ def pick_story(v: np.ndarray, stories: dict[int, dict], thr: float, lead_thr: fl
     446 sources), so an article must also be close to the story's lead article. A full story
     (CLUSTER_MAX_ARTICLES shown) still matches: the caller attaches the article as overflow, which
     counts as coverage but is not shown, rather than starting a second story for the same event.
-    `stories` maps id -> {"vec": mean, "lead_vec": lead embedding or None, ...}.
+    A story holding `max_total` members in all (CLUSTER_MAX_TOTAL, shown and overflow) is closed:
+    it matches nothing, and the article joins another story or starts its own.
+    `stories` maps id -> {"vec": mean, "lead_vec": lead embedding or None, "count": members, ...}.
     """
+    max_total = config.CLUSTER_MAX_TOTAL if max_total is None else max_total
     best_id, best_sim = None, -1.0
     for sid, s in stories.items():
+        if max_total and (s.get("count") or 0) >= max_total:
+            continue
         sv = s["vec"]
         if sv is None or sv.shape != v.shape:
             continue
@@ -140,6 +146,30 @@ def split_members(lead_id: int, lead_vec: np.ndarray, members: list[tuple[int, n
     ranked = [lead_id] + close + unjudged
     # Least similar first, so a bounded run detaches the worst matches before the borderline ones.
     return ranked[:cap], ranked[cap:], list(reversed(far))
+
+
+def split_by_centroid(lead_id: int, members: list[tuple[int, np.ndarray | None, bool]],
+                      keep_n: int) -> tuple[list[int], list[int]]:
+    """Repair of a story holding more members than CLUSTER_MAX_TOTAL (repair.oversized_stories).
+    members: (article id, embedding or None, shown). The centroid is the mean of the shown members'
+    embeddings (what the page is about; all members when none has one); the lead and the keep_n - 1
+    members closest to it stay, the rest are returned least similar first, so a bounded run detaches
+    the worst matches before the borderline ones. Members without a comparable embedding rank after
+    every judged one. Returns (kept ids, detached ids)."""
+    lead_vec = next((v for aid, v, _ in members if aid == lead_id and v is not None), None)
+    dims = [v.shape for _, v, _ in members if v is not None]
+    shape = lead_vec.shape if lead_vec is not None else (max(set(dims), key=dims.count) if dims else None)
+    comparable = [(aid, v, shown) for aid, v, shown in members if v is not None and v.shape == shape]
+    centroid = _mean_vec([v for _, v, shown in comparable if shown]) if any(s for _, _, s in comparable) else None
+    if centroid is None:
+        centroid = _mean_vec([v for _, v, _ in comparable])
+    judged = sorted(((float(np.dot(v, centroid)), aid) for aid, v, _ in comparable if aid != lead_id),
+                    key=lambda x: (-x[0], x[1])) if centroid is not None else []
+    judged_ids = {aid for _, aid in judged}
+    unjudged = sorted(aid for aid, _, _ in members if aid != lead_id and aid not in judged_ids)
+    ranked = [lead_id] + [aid for _, aid in judged] + unjudged
+    keep, rest = ranked[:max(1, keep_n)], ranked[max(1, keep_n):]
+    return keep, list(reversed(rest))
 
 
 def _mean_vec(vecs: list[np.ndarray]) -> np.ndarray | None:
@@ -267,9 +297,12 @@ def run() -> dict:
         recent = [s for s in recent if story_vecs.get(s.id) is not None]
         mirror = cache.articles(conn)
         shown: dict[int, int] = {}
+        total: dict[int, int] = {}  # shown and overflow: what CLUSTER_MAX_TOTAL counts
         for m in mirror.values():
-            if m.status == "published" and m.story_id:
-                shown[m.story_id] = shown.get(m.story_id, 0) + 1
+            if m.story_id and m.status in ("published", "overflow"):
+                total[m.story_id] = total.get(m.story_id, 0) + 1
+                if m.status == "published":
+                    shown[m.story_id] = shown.get(m.story_id, 0) + 1
         lead_rows = [mirror[s.lead_article_id] for s in recent if s.lead_article_id in mirror]
         lead_vecs = cache.article_vectors(conn, lead_rows)
         # A lead outside the copy's window (rare): read its embedding directly.
@@ -282,7 +315,7 @@ def run() -> dict:
         story_text = cache.story_text(conn, recent)
         source_type = dict(conn.execute(select(db.sources.c.id, db.sources.c.source_type)).all())
         candidates = {s.id: {"vec": story_vecs[s.id], "lead_vec": lead_vecs.get(s.lead_article_id),
-                             "count": s.article_count or 1, "shown": shown.get(s.id, 1)}
+                             "count": max(s.article_count or 1, total.get(s.id, 0)), "shown": shown.get(s.id, 1)}
                       for s in recent}
         story_meta = {}
         for s in recent:
@@ -294,7 +327,7 @@ def run() -> dict:
 
         for row, vec in zip(rows, vectors):
             v = np.asarray(vec, dtype=np.float32)
-            best_id, _sim = pick_story(v, candidates, thr, lead_thr)
+            best_id, _sim = pick_story(v, candidates, thr, lead_thr, config.CLUSTER_MAX_TOTAL)
             now = db.utcnow()
             base_slug = slugify(row.headline or row.title)
             # A re-clustered article keeps its slug (links to it must not change).

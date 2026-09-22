@@ -9,7 +9,7 @@ from pathlib import Path
 import yaml
 from sqlalchemy import select, update
 
-from . import archive, cache, checks, config, db, funding as funding_rules, hold, trackers as tracker_rules, work as work_rules
+from . import archive, cache, checks, config, db, funding as funding_rules, hold, primary, trackers as tracker_rules, work as work_rules
 from . import work_learn
 from .enrich import headline_hedged
 from .textutil import word_count
@@ -81,6 +81,38 @@ def entity_out(ent: dict) -> dict:
     return {"name": name, "kind": ent["kind"], "storyIds": ent["storyIds"]}
 
 
+def confirmed(s: dict) -> bool:
+    """Reported by two or more publishers, or announced by the lab or company itself. A single
+    outlet's story can be in the briefing, but never above a confirmed one (a pin is the owner's call).
+    A paper is not an announcement: an arXiv preprint, a journal article, a repository or a government
+    PDF is one source like any other (primary.py), so it confirms nothing on its own."""
+    publishers = {hold.registrable(a.get("domain") or "") for a in s.get("articles") or []} - {""}  # news.x.com and x.com are one
+    return bool(s.get("pinned") or primary.announced(s) or len(publishers) >= 2)
+
+
+PAPER_LEAD_PLACE = 3  # the highest place (1-based) a research story may take unless it is pinned
+
+
+def demote_papers(pool: list[dict], size: int = BRIEFING_SIZE, focus: str | None = None) -> list[dict]:
+    """A research story (the research category, or a paper as its only primary source) can be in the
+    briefing but not lead it: the first PAPER_LEAD_PLACE - 1 places go to the best other stories, in
+    their order. They come from the top `size` first; only when those are nearly all papers is one
+    brought up from further down, and then the lowest story of the top that is not the focus
+    category's gives way."""
+    lead_ok = lambda s: s.get("pinned") or not primary.research_story(s)  # noqa: E731
+    need = PAPER_LEAD_PLACE - 1
+    head = pool[:size]
+    if all(lead_ok(s) for s in head[:need]):
+        return pool
+    front = [s for s in head if lead_ok(s)][:need]
+    front += [s for s in pool[size:] if lead_ok(s)][: need - len(front)]
+    new_head = front + [s for s in head if s not in front]
+    while len(new_head) > size:
+        drop = next((s for s in reversed(new_head[need:]) if s.get("category") != focus), new_head[-1])
+        new_head.remove(drop)
+    return new_head + [s for s in pool if s not in new_head]
+
+
 def build_briefing(stories: list[dict], now) -> dict:
     """Today's top stories: first new ones, then developing ones only to fill empty places.
 
@@ -95,12 +127,6 @@ def build_briefing(stories: list[dict], now) -> dict:
         return sum(1 for a in s["articles"] if (a["publishedAt"] or "") >= cutoff) >= 2
 
     rank = lambda s: (not s["pinned"], -s["score"])  # noqa: E731
-
-    def confirmed(s: dict) -> bool:
-        """Reported by two or more publishers, or by the lab or company itself. A single outlet's
-        story can be in the briefing, but never above a confirmed one (a pin is the owner's call)."""
-        publishers = {hold.registrable(a.get("domain") or "") for a in s["articles"]} - {""}  # news.x.com and x.com are one
-        return bool(s["pinned"] or s.get("hasPrimary") or len(publishers) >= 2)
 
     for window in (24, 48, 96):
         cutoff = db.iso_z(now - timedelta(hours=window))
@@ -130,6 +156,8 @@ def build_briefing(stories: list[dict], now) -> dict:
             keep = next(s for s in pool[:BRIEFING_SIZE] if s.get("category") == focus)
             head = head[: BRIEFING_SIZE - 1] + [keep]  # the focus category keeps its place
         pool = head + [s for s in pool if s not in head]
+    # A paper never leads: research stories start at PAPER_LEAD_PLACE (a pin still decides).
+    pool = demote_papers(pool, BRIEFING_SIZE, focus)
     top = pool[:BRIEFING_SIZE]
     also = pool[BRIEFING_SIZE : BRIEFING_SIZE + BRIEFING_ALSO]
     words = sum(word_count(s.get("summaryMd") or "") for s in top) + 25 * len(also)
@@ -399,6 +427,9 @@ def run() -> dict:
             "overflowCount": len(overflow),
             "coverage": coverage,
             "hasPrimary": coverage["primary"] > 0,
+            # The company's or lab's own announcement among them (primary.py): what confirms a story on
+            # its own for the briefing; a paper, a repository or a government PDF does not.
+            "hasAnnouncement": any(primary.announcement(a) for a in articles),
             "discussions": discussions,
             "threadId": s.thread_id,
             "pulse": s.pulse or None,

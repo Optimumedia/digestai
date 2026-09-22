@@ -11,7 +11,8 @@ follows, shares), recorded in the events table when Supabase is configured.
    reader data, external popularity stands in as the target, so the model still learns
    what kind of story the web reacts to.
 3. Story score = predicted engagement + editorial importance + freshness + breadth +
-   popularity velocity, which drives the front page and the briefing.
+   popularity velocity + community traction (a bounded bonus for a big HN thread), which
+   drives the front page and the briefing.
 4. Feedback into sourcing: source weights drift toward the sources whose stories perform,
    and hot entities become temporary search feeds.
 """
@@ -111,6 +112,26 @@ def _engagement(conn) -> dict[int, float]:
 def popularity(points: int | None, trend: int | None) -> float:
     """External popularity on a log scale: 0 for nothing, ~5 for a big HN thread."""
     return math.log1p(max(points or 0, 0)) + 0.6 * math.log1p(max(trend or 0, 0))
+
+
+# Community traction: a bounded, log-scaled bonus for the story's biggest discussion thread (Hacker
+# News points). Before it, points only reached the score through velocity (popularity per hour,
+# worth 0.10 at most and gone after a day) and the learned prediction, so a 676-point thread with
+# seven publishers scored 0.38 and sat below single-outlet stories. Points up to TRACTION_FLOOR add
+# nothing (a 20-point thread is noise), the bonus grows with log10 of the points above that and
+# reaches TRACTION_WEIGHT at TRACTION_FULL points, and never more.
+TRACTION_WEIGHT = 0.15
+TRACTION_FLOOR = 30
+TRACTION_FULL = 1000
+
+
+def traction(points: int | None) -> float:
+    """0..1: min(1, max(0, log10(1 + p) - log10(1 + FLOOR)) / (log10(1 + FULL) - log10(1 + FLOOR)))."""
+    p = max(int(points or 0), 0)
+    if p <= TRACTION_FLOOR:
+        return 0.0
+    lo = math.log10(1 + TRACTION_FLOOR)
+    return min(1.0, (math.log10(1 + p) - lo) / (math.log10(1 + TRACTION_FULL) - lo))
 
 
 def _recency(published_at, now) -> float:
@@ -244,6 +265,7 @@ def score_stories(conn) -> int:
         # Freshness belongs to when the story broke. A new article on a days-old story is a
         # development, worth at most half the freshness of genuinely new news.
         freshness = max(_recency(first, now), 0.5 * _recency(latest, now))
+        points = max((m.discussion_points or 0) for m in members)
         score = round(
             0.30 * predicted
             + 0.20 * (s.importance or 5) / 10.0
@@ -251,6 +273,7 @@ def score_stories(conn) -> int:
             + 0.10 * breadth
             + 0.10 * velocity
             + 0.08 * min(1.0, math.log1p(engagement) / 6.0)
+            + TRACTION_WEIGHT * traction(points)
             + focus,
             4,
         )
