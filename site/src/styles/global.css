@@ -1373,3 +1373,10 @@ details.wk-card-more[open] { padding-bottom: 4px; }
 .share-fold { margin-left: 8px; min-height: 36px; font-weight: 500; }
 .share-stats { margin-top: 20px; }
 
+/* About: the publisher, with photo. */
+.about-person { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 16px; align-items: start; margin: 20px 0 8px; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; max-width: 68ch; }
+.about-person img { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; display: block; }
+.about-person p { margin: 0 0 6px; }
+.about-person-name { font-weight: 600; }
+@media (max-width: 480px) { .about-person { grid-template-columns: 64px minmax(0, 1fr); } .about-person img { width: 64px; height: 64px; } }
+

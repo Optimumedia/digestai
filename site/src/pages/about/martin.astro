@@ -1,0 +1,65 @@
+---
+import Base from "../../layouts/Base.astro";
+import Rail from "../../components/Rail.astro";
+import { PUBLISHER } from "../../lib/publisher";
+
+// The person responsible for Digest AI. Stories are machine-written from their linked sources; this
+// page says who runs the desk, what that means day to day, and how to reach him.
+const site = "https://digestai.news";
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "ProfilePage",
+  mainEntity: {
+    "@type": "Person",
+    "@id": `${site}/about/martin#person`,
+    name: PUBLISHER.name,
+    jobTitle: PUBLISHER.role,
+    image: `${site}${PUBLISHER.photo}`,
+    url: `${site}/about/martin`,
+    worksFor: { "@id": `${site}/#organization` },
+    email: "mailto:hello@digestai.news",
+  },
+};
+---
+
+<Base title={`${PUBLISHER.name}, ${PUBLISHER.role} of Digest AI`} description={`${PUBLISHER.name} publishes Digest AI: he chose its sources, set its editorial rules and decides what is corrected, removed and shared.`} image={`${site}${PUBLISHER.photo}`} imageWidth={400} imageHeight={400} jsonLd={jsonLd}>
+  <div class="grid">
+    <article class="article person">
+      <header class="page-head person-head">
+        <picture>
+          <source srcset="/team/martin-400.webp 400w, /team/martin-800.webp 800w" sizes="160px" type="image/webp" />
+          <img class="person-photo" src="/team/martin-400.jpg" srcset="/team/martin-400.jpg 400w, /team/martin-800.jpg 800w" sizes="160px" width="160" height="160" alt={`${PUBLISHER.name}, ${PUBLISHER.role} of Digest AI`} />
+        </picture>
+        <div>
+          <div class="eyebrow">{PUBLISHER.role}</div>
+          <h1>{PUBLISHER.name}</h1>
+          <p class="lede">I publish Digest AI. I started it because keeping up with AI meant reading the same story in six places and still not knowing which numbers were right.</p>
+        </div>
+      </header>
+
+      <h2>What I do</h2>
+      <ul>
+        <li><strong>Choose the sources.</strong> Which labs, publications, newsletters and communities the desk reads, and how much weight each carries.</li>
+        <li><strong>Set the rules.</strong> The <a href="/about#standards">editorial standards</a>: every claim linked to its source, confirmed stories before single-outlet ones, figures and names checked against the articles, no paid placement.</li>
+        <li><strong>Correct and remove.</strong> I pin, correct and unpublish stories, and I answer the <a href="/about#corrections">corrections address</a>.</li>
+        <li><strong>Decide what we share.</strong> The stories posted on LinkedIn and X each day are picked and posted by me.</li>
+      </ul>
+
+      <h2>How the stories are written</h2>
+      <p>I do not write each story by hand, and I would rather say so. Headlines, key points and digests are written by language models from the articles linked on each page, then checked by rules against those articles; every page says this. What I am responsible for is the system that does it, the sources it trusts, and fixing it when it gets something wrong. How it works is written up in <a href="/about/how-it-works">How Digest AI runs a round-the-clock AI news desk on free tiers</a>.</p>
+
+      <h2>Contact</h2>
+      <p>Write to <a href="mailto:hello@digestai.news">hello@digestai.news</a> with corrections, source suggestions or anything else. Digest AI is also on <a href="https://www.linkedin.com/company/digestai-news/" rel="noopener" target="_blank">LinkedIn</a>, <a href="https://bsky.app/profile/digestai.bsky.social" rel="noopener" target="_blank">Bluesky</a> and <a href="https://x.com/DigestAINews" rel="noopener" target="_blank">X</a>.</p>
+    </article>
+    <Rail />
+  </div>
+</Base>
+
+<style>
+  .person-head { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 24px; align-items: center; }
+  .person-photo { width: 160px; height: 160px; border-radius: 50%; object-fit: cover; display: block; background: var(--surface-2); }
+  @media (max-width: 560px) {
+    .person-head { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+    .person-photo { width: 112px; height: 112px; }
+  }
+</style>
