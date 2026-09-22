@@ -174,30 +174,120 @@ def _feed_body(entry) -> str | None:
     return summary if summary and word_count(summary) > 50 else None
 
 
-def _rss_items(source) -> list[dict]:
-    resp = SESSION.get(source.url, timeout=config.FETCH_TIMEOUT, headers=_headers(source.key))
-    resp.raise_for_status()
-    feed = feedparser.parse(resp.content)
-    if feed.bozo and not feed.entries:
-        raise ValueError(f"unparseable feed: {feed.bozo_exception}")
-    items = []
+# Characters XML 1.0 forbids (a stray \x0b or \x1f in one item made a whole feed unreadable), an "&"
+# that starts no entity ("R&D"), and anything a server printed before the XML declaration (a PHP
+# warning): AI News failed with "not well-formed (invalid token)" on 21 Sep for one of these.
+_XML_BAD_CHARS = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+_XML_BARE_AMP = re.compile(rb"&(?!(?:[A-Za-z][A-Za-z0-9]{0,31}|#[0-9]{1,7}|#x[0-9A-Fa-f]{1,6});)")
+_XML_START = re.compile(rb"<\?xml|<rss\b|<feed\b|<rdf:RDF\b")
+_CDATA = re.compile(rb"(<!\[CDATA\[.*?\]\]>)", re.S)
+
+
+def repair_xml(content: bytes) -> bytes:
+    """A feed with the mistakes that make a strict XML parser give up, put right: forbidden control
+    characters removed, bare ampersands escaped (outside CDATA, where they are allowed), and
+    whatever comes before the XML itself dropped."""
+    start = _XML_START.search(content or b"")
+    body = _XML_BAD_CHARS.sub(b"", content[start.start():] if start else (content or b""))
+    parts = _CDATA.split(body)
+    return b"".join(p if p.startswith(b"<![CDATA[") else _XML_BARE_AMP.sub(b"&amp;", p) for p in parts)
+
+
+def parse_feed(content: bytes):
+    """feedparser's result. A feed that is not well-formed is repaired (repair_xml) and read again:
+    feedparser's loose fallback either finds nothing or garbles what it finds ("R&D;"), so the
+    repaired reading wins whenever it finds at least as many items."""
+    feed = feedparser.parse(content)
+    if feed.bozo:
+        fixed = feedparser.parse(repair_xml(content))
+        if fixed.entries and len(fixed.entries) >= len(feed.entries):
+            return fixed
+    return feed
+
+
+# Aggregators (Techmeme) link their own page; the article is the first outside link in the item's
+# HTML that is not an outlet's home page ("link_from: description" in sources.yaml).
+_HREF = re.compile(r"""href\s*=\s*["']([^"']+)["']""", re.I)
+_OUTLET_SUFFIX = re.compile(r"\s*\((?:[^()]{1,60})\)\s*$")
+
+
+def link_in_description(html: str, skip_host: str) -> str | None:
+    from urllib.parse import urlsplit
+
+    for href in _HREF.findall(html or ""):
+        href = href.replace("&amp;", "&").strip()
+        parts = urlsplit(href)
+        host = (parts.hostname or "").lower()
+        if parts.scheme not in ("http", "https") or not host:
+            continue
+        if host == skip_host or host.endswith("." + skip_host):
+            continue
+        if parts.path in ("", "/") and not parts.query:
+            continue  # the outlet's name links its home page
+        return href
+    return None
+
+
+def _entry_items(source, feed) -> list[dict]:
+    cfg = _source_cfg(source.key)
     ai_only = _ai_only(source.key)
+    link_from = cfg.get("link_from")
+    keep_domain = (cfg.get("keep_domain") or "").lower() or None
+    feed_host = domain_of(source.url)
+    items = []
     for e in feed.entries:
         link = e.get("link") or ""
+        title = e.get("title") or ""
+        if link_from == "description":
+            # The aggregator is only how the article was found: its original address is stored, so
+            # the outlet is credited and the outlet's own feed finds it already known.
+            link = link_in_description(e.get("summary") or "", feed_host) or ""
+            title = _OUTLET_SUFFIX.sub("", title)  # "... (Bloomberg)"
         if not link.startswith("http"):
             continue
-        if ai_only and not AI_WORDS.search(f"{e.get('title') or ''} {re.sub(r'<[^>]+>', ' ', e.get('summary') or '')[:600]}"):
+        if keep_domain:
+            try:
+                dom = domain_of(normalize_url(link))
+            except ValueError:
+                continue
+            if not dom or not (dom == keep_domain or dom.endswith("." + keep_domain)):
+                continue
+        if ai_only and not AI_WORDS.search(f"{title} {re.sub(r'<[^>]+>', ' ', e.get('summary') or '')[:600]}"):
             continue
+        description = e.get("summary") or ""
+        if link_from == "description":
+            description = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", description)).strip()
         items.append({
             "url": link,
-            "title": e.get("title") or "",
+            "title": title,
             "published_at": _parse_date(e),
-            "description": (e.get("summary") or "")[:2000],
-            "feed_content": _feed_body(e),
-            "image_url": _feed_image(e),
-            "author": (e.get("author") or "")[:300] or None,
+            "description": description[:2000],
+            "feed_content": None if link_from == "description" else _feed_body(e),
+            "image_url": None if link_from == "description" else _feed_image(e),
+            "author": None if link_from == "description" else ((e.get("author") or "")[:300] or None),
         })
     return items
+
+
+def _rss_items(source) -> list[dict]:
+    """The feed's items. When the feed fails (an error status, or nothing readable) and sources.yaml
+    names a `fallback` feed, that one is read instead (Unite.AI answers 503 to some runs)."""
+    fallback = _source_cfg(source.key).get("fallback")
+    try:
+        resp = SESSION.get(source.url, timeout=config.FETCH_TIMEOUT, headers=_headers(source.key))
+        resp.raise_for_status()
+        feed = parse_feed(resp.content)
+        if feed.bozo and not feed.entries:
+            raise ValueError(f"unparseable feed: {feed.bozo_exception}")
+    except Exception:
+        if not fallback:
+            raise
+        resp = SESSION.get(fallback, timeout=config.FETCH_TIMEOUT)
+        resp.raise_for_status()
+        feed = parse_feed(resp.content)
+        if feed.bozo and not feed.entries:
+            raise ValueError(f"unparseable feed and fallback: {feed.bozo_exception}") from None
+    return _entry_items(source, feed)
 
 
 def _hn_items(source) -> list[dict]:

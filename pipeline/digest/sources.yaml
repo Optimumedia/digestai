@@ -4,7 +4,9 @@
 # fields: name, url, kind (rss|hn|reddit), category (hint), weight (0-2),
 #         fulltext (false = show digest only, never republish body),
 #         content_from_feed (true = trust the feed body, do not fetch the page),
-#         max_items (per run)
+#         max_items (per run), agent (browser = a browser-like User-Agent),
+#         fallback (a feed read when the main one fails), keep_domain (only items on this domain),
+#         link_from (description = the article is the first outside link in the item's HTML)
 
 # Source types drive the coverage bar on the site: primary = the lab, paper or company itself;
 # newsletter = independent writers; community = Hacker News, Reddit, Product Hunt; everything
@@ -15,7 +17,7 @@ types:
             arxiv-cs-ai, arxiv-cs-cl, nature-ml]
   newsletter: [import-ai, interconnects, latent-space, simon-willison, one-useful-thing, ai-snake-oil,
                raschka, last-week-in-ai, rundown, bens-bites, towards-ds, eu-ai-act, semianalysis]
-  community: [hn, reddit-ai, producthunt-ai, producthunt-marketing, mastodon-trends]
+  community: [hn, reddit-ai, producthunt-ai, producthunt-marketing, mastodon-trends, techmeme]
 
 sources:
   # ---- Labs and companies -------------------------------------------------
@@ -137,7 +139,13 @@ sources:
     weight: 1.4
   - key: venturebeat-ai
     name: VentureBeat AI
-    url: https://feeds.feedburner.com/venturebeat/SZYF
+    # The FeedBurner address (feeds.feedburner.com/venturebeat/SZYF) stopped updating on 3 Sep. The
+    # site's own AI feed answered 429 to this machine on 22 Sep with either agent, so a Bing News
+    # search limited to venturebeat.com stands in whenever it fails.
+    url: https://venturebeat.com/category/ai/feed/
+    agent: browser
+    fallback: https://www.bing.com/news/search?q=venturebeat+AI&format=rss
+    keep_domain: venturebeat.com
     category: enterprise
     weight: 1.2
   - key: cnbc-tech
@@ -205,6 +213,10 @@ sources:
   - key: unite-ai
     name: Unite.AI
     url: https://www.unite.ai/feed/
+    # Its firewall answers 503 to some runs (five in a row on 21 Sep); then a Bing News search for
+    # its own articles is read instead.
+    fallback: https://www.bing.com/news/search?q=%22unite.ai%22&format=rss
+    keep_domain: unite.ai
     category: agents
     weight: 0.7
   - key: kdnuggets
@@ -215,7 +227,8 @@ sources:
     agent: browser  # its WAF answered the bot agent with 403 on 17 Sept
   - key: eu-ai-act
     name: EU AI Act Newsletter
-    url: https://artificialintelligenceact.eu/feed/
+    # The newsletter moved to Substack: artificialintelligenceact.eu/feed/ last updated 7 Aug.
+    url: https://artificialintelligenceact.substack.com/feed
     category: policy
     weight: 1.0
   - key: tomshardware
@@ -310,6 +323,19 @@ sources:
     kind: mastodon
     category: society
     weight: 0.9
+  # Techmeme: the fastest free signal for big tech news, and only the way it is found. Each item links
+  # a techmeme.com permalink; the original article is the first outside link in the item's HTML, and
+  # that address is stored, so the outlet is credited (Techmeme shows as "via") and the outlet's own
+  # feed finds it already known. ai_only keeps the tech items that are not about AI out before any
+  # page is fetched; the gate checks the rest. Fifteen items a feed, about ten new a day.
+  - key: techmeme
+    name: Techmeme
+    url: https://www.techmeme.com/feed.xml
+    link_from: description
+    category: business
+    weight: 1.2
+    ai_only: true
+    max_items: 15
   - key: producthunt-ai
     name: Product Hunt AI
     url: https://www.producthunt.com/feed?category=artificial-intelligence
