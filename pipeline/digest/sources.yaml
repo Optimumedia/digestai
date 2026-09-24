@@ -228,7 +228,12 @@ sources:
   - key: eu-ai-act
     name: EU AI Act Newsletter
     # The newsletter moved to Substack: artificialintelligenceact.eu/feed/ last updated 7 Aug.
+    # Substack answers 403 to the runner (fine from a home connection), so a browser-like agent
+    # first and, when that fails too, a Bing News search limited to the newsletter's own site.
     url: https://artificialintelligenceact.substack.com/feed
+    agent: browser
+    fallback: https://www.bing.com/news/search?q=%22artificialintelligenceact%22+OR+%22EU+AI+Act+newsletter%22&format=rss
+    keep_domain: artificialintelligenceact.eu
     category: policy
     weight: 1.0
   - key: tomshardware

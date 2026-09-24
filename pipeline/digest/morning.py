@@ -305,11 +305,18 @@ def decide_facts(admin: dict, stories: list[dict], readers: dict, budget: dict, 
     usage = (admin.get("llm") or {}).get("usage") or []
     budgets = (admin.get("llm") or {}).get("budgets") or {}
     last3 = {(now.date() - timedelta(days=i)).isoformat() for i in range(1, FAILING_DAYS + 1)}
-    for p in budgets:
-        days_out = {u["day"] for u in usage if u.get("provider") == p and u.get("exhausted") and u.get("day") in last3}
-        if len(days_out) == FAILING_DAYS:
-            out.append({"kind": "provider", "provider": p, "budget": budgets[p]})
-            break
+    # One provider running out is how the chain is meant to work (Gemini empties every morning and
+    # the others carry the day). It is only worth asking about when every provider with a budget was
+    # out on the same day, three days running: then the last resort is the small local model.
+    if budgets:
+        out_days = 0
+        for day in sorted(last3):
+            done_that_day = {u["provider"] for u in usage if u.get("day") == day and u.get("exhausted")}
+            if all(p in done_that_day for p in budgets):
+                out_days += 1
+        if out_days == FAILING_DAYS:
+            worst = max(budgets, key=lambda p: budgets[p])
+            out.append({"kind": "provider", "provider": worst, "budget": budgets[worst]})
     quota, projected = budget.get("quotaMB"), budget.get("projectedMB")
     if projected and quota and projected > quota:
         out.append({"kind": "egress", "projectedMB": projected, "quotaMB": quota})

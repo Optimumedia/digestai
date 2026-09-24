@@ -836,6 +836,16 @@ def test_the_admin_work_engagement_line_is_one_narrow_query():
     assert empty["depthAvg"] is None and empty["actionsPer100"] is None and empty["featuredTryRate"] is None
 
 
+def test_a_card_without_an_official_link_offers_the_article_it_came_from():
+    story = {"slug": "s", "articles": [{"url": "https://press.example/post", "isLead": True}]}
+    out = work.card_out(work.clean_card(card(link=None)), story)
+    assert (out["link"], out["linkKind"]) == ("https://press.example/post", "source")
+    official = work.card_out(work.clean_card(card()), story)
+    assert official["linkKind"] == "official" and official["link"].startswith("http")
+    # Nothing to offer at all: no link, and the page falls back to the story itself.
+    assert work.card_out(work.clean_card(card(link=None)), {"slug": "s", "articles": []})["link"] == ""
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

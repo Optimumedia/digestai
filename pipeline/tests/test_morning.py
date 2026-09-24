@@ -216,6 +216,22 @@ def test_budget_and_reader_wording_for_early_limits_and_zero_views():
     assert "drew no views" in text and "0 views" not in text, text
 
 
+def test_the_provider_question_waits_until_every_model_is_out():
+    from datetime import timedelta
+
+    from digest import morning
+
+    days = [(NOW.date() - timedelta(days=i)).isoformat() for i in (1, 2, 3)]
+    budgets = {"gemini": 54, "groq": 2400, "cloud": 400}
+    one_out = [{"day": d, "provider": "gemini", "requests": 54, "exhausted": True} for d in days]
+    admin = {"llm": {"budgets": budgets, "usage": one_out}, "sources": [], "stories": []}
+    kinds = [i["kind"] for i in morning.decide_facts(admin, [], {}, {"quotaMB": 5120}, NOW)["issues"]]
+    assert "provider" not in kinds, "one provider running out is how the chain works"
+    all_out = [{"day": d, "provider": p, "requests": 1, "exhausted": True} for d in days for p in budgets]
+    admin["llm"]["usage"] = all_out
+    assert "provider" in [i["kind"] for i in morning.decide_facts(admin, [], {}, {"quotaMB": 5120}, NOW)["issues"]]
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

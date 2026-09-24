@@ -873,7 +873,20 @@ def action_label(card: dict) -> str:
 
 # ---------------------------------------------------------------------------- export shapes
 
+def action_link(card: dict, story: dict | None = None) -> tuple[str, str]:
+    """(url, kind) for the card's one action: the tool's own page when the article gave one
+    ("official"), else the article it came from ("source"), else ("", "")."""
+    link = str(card.get("link") or "").strip()
+    if link.startswith("https://") or link.startswith("http://"):
+        return link, "official"
+    articles = (story or {}).get("articles") or []
+    lead = next((a for a in articles if a.get("isLead")), None) or (articles[0] if articles else None)
+    url = str((lead or {}).get("url") or "").strip()
+    return (url, "source") if url.startswith("http") else ("", "")
+
+
 def card_out(card: dict, story: dict | None = None) -> dict:
+    _link_url, _link_kind = action_link(card, story)
     """The card as the site reads it, with the facts the pages derive from it."""
     headline = card.get("headline") or fallback_headline(card)
     jobs = jobs_for(card)
@@ -890,7 +903,9 @@ def card_out(card: dict, story: dict | None = None) -> dict:
         "costKind": cost_kind(card.get("cost") or ""),
         "effort": card.get("effort"),
         "watchOut": card["watch_out"],
-        "link": card.get("link"),
+        "link": _link_url,
+        # "official" (the tool's own page) or "source" (the article the card came from).
+        "linkKind": _link_kind,
         "jobs": jobs,
         "skip": skip_reason(card),
         "limits": limits(card),
