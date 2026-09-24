@@ -370,7 +370,7 @@ jobs:
 
       - name: Upload site for GitHub Pages
         if: steps.data.outputs.ok == 'true' && env.CF_TOKEN == ''
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: site/dist
 
