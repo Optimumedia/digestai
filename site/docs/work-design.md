@@ -62,8 +62,9 @@ newsroom's Newsreader serif.
 
 - **Section band** under the site menu: graph-paper background, "Digest AI" kicker in blue, the
   "AI at Work" wordmark with a highlighter underline, the section tagline, the way back to the news
-  desk, and index tabs (This week · Tool directory · Playbooks · Podcast · RSS) standing on a 2px ink
-  rule, the current tab joined to the page like a notebook divider.
+  desk, and index tabs (This week · Tool directory · Prices · Playbooks · Podcast · RSS) standing on
+  a 2px ink rule, the current tab joined to the page like a notebook divider. The Prices tab appears
+  once the price history has something to show (`workPrices.changes`).
 - **Headings a scanner can navigate by**: every section is an H2 in the display face with a small
   accent square, and a hairline under it instead of the newsroom's heavy rule.
 - **Calmer rhythm**: 8px spacing base, 40–48px between sections, generous card padding, a 68ch
@@ -203,6 +204,63 @@ above, this wins.
 - **List rows:** headline, cost and time, a Try link. Nothing else.
 - A card without a rule-keeping headline or any use has `hub: false`: its story page shows it, the
   hub's lists and the featured slot do not. A "Needs a developer" card is never featured.
+
+## What is a card at all (September 2026)
+
+Three rules-only screens sit beside the model's own judgement (`work.screen_card`), each with its
+own drop reason, counted in the export's `dropped` and named on the admin line:
+
+- **developer** — developer and infrastructure tooling (`developer_only`).
+- **course** — a course, a certificate or a reseller listing (`developer_only`).
+- **not a product** — a category rather than something a reader can open (`not_a_product`): a name
+  that lists other tools ("AI agents (Codex, Claude)"), a name made only of category words ("AI
+  Search", "Specialized AI Agents"), a job written out as a name, or a plural kind of software with
+  no maker behind it ("AI SEO tools"). A maker's own word inside the name is what keeps the real
+  products whose names contain generic words: "Google AI Studio", "AI Max for Search", "Copilot
+  Studio", "Ink Canvas", "Gemini Notebook", "ChatGPT Images 2.5".
+
+Tool and maker names are cleaned on the way in (`clean_name`): no zero-width or bidirectional
+characters, ordinary hyphens, single spaces, so "React​iv AI Scheduler" is the same tool as
+"Reactiv AI Scheduler" both when it is compared and when it is shown.
+
+## One card per tool, and one meaning per number
+
+- **One card per tool per week.** `work.fold_by_tool` keeps the most useful card of each tool (the
+  newer one when they are equally useful) and records what it now stands for under the week's
+  `folded`. The week's lists, the section briefing and the hub's rows all fold this way; the hub
+  uses the export's own `toolKey` (`lib/work.ts`, `oneCardPerTool`), so the site never has a second
+  copy of the rule. Different products from the same maker keep their own keys, so "ChatGPT",
+  "ChatGPT Plus" and "ChatGPT voice" are never folded together.
+- **Every count on the hub means the same thing**: what that page lists. The job tiles, the job
+  filter and the "costs nothing to start" note all count the same rows, and the tiles print the
+  section's whole total for the job only beside it and only labelled ("20 items this week · 86 in
+  total"). The job pages keep their own totals, which is what "in total" points at. The tool
+  directory's "by job" counts say "tools", because that page counts tools.
+
+## Prices (`pipeline/digest/prices.py`)
+
+The card carries the price as data as well as words: `price: {plan, amount, currency, period,
+freeLimit, quoted}`, written by the summary model and held to the same grounding as everything else
+(`work.price_grounded`: every figure has to be the article's own, or the whole price goes; a quoted
+sentence the article does not carry is dropped on its own). The free-text `cost` is unchanged, and
+the cost chip falls back to the price when the words said nothing (`work.effective_cost`), so
+"Price not stated" now means nothing is known rather than nothing was written.
+
+One row per tool per observation is kept in `pipeline/data/cache/work-prices.json.gz` (the runner
+cache the workflow keeps between runs) and exported to `site/src/data/work-prices.json`, the way
+`work.json` and `media.json` are handled: the rows were already read as part of the cards, so a
+table would add database egress for data the run already has. A price that has not changed is not a
+second row; it only moves "last checked".
+
+- On a card: "Price checked 22 Sept" inside the cost chip, and "was $12/mo in August" under it.
+- In the tool directory: the current price in the table and on the sheet, with the same "was" line.
+- `/work/prices`: what rose, what fell, whose free tier changed and who opened up, each with the
+  sentence that stated it, the date and a link to check it; then "Watching", the tools with one
+  price on record. Indexable only from `WORK_PRICES_MIN_ENTRIES` (5) tools that actually moved
+  (`indexing.mjs`).
+- Gaps are filled from the maker's own pricing page, the way `howto.py` takes setup steps: at most
+  five pages a run inside a time budget, cached by address, free providers only, never a forum, a
+  code host or a news site, and every failure is a tool without a price rather than a failed run.
 - `card_view` (public/app.js, `[data-work-card]`): once per card per page view when half of it is on
   screen, at most 10 a page. The admin line shows tries plus prompt copies per 100 /work views and
   the featured card's try rate (`work-briefing.json` `featuredTool`).

@@ -1,0 +1,137 @@
+---
+/* What AI at Work's tools cost, and what they used to cost (/work/prices).
+
+   The section used to keep a price only as long as the week that reported it. pipeline/digest/prices.py
+   now keeps one row per tool per observation, so this page can say what moved: a price that rose or
+   fell, a free tier that changed, and a tool that opened up (a free tier where there was none, or a
+   paid tool that went free). Every row carries the sentence that stated the price, the date and a
+   link to where it was said, because a price nobody can check is a rumour.
+
+   The page is built whatever the history holds, and is linked from the section's tabs, but it
+   carries noindex until at least WORK_PRICES_MIN_ENTRIES tools have actually moved (indexing.mjs):
+   a page about movement with two rows on it is a stub. */
+import Work from "../../layouts/Work.astro";
+import WorkNext from "../../components/WorkNext.astro";
+import { WORK_PRICES_MIN_ENTRIES } from "../../lib/indexing.mjs";
+import { formatDate, meta } from "../../lib/data";
+import {
+  PRICE_CHANGE_LABELS, PRICE_CHANGE_ORDER, priceText, toolSlug, work, workPrices, workWeeks, type PriceChange,
+} from "../../lib/work";
+
+const changes = workPrices.changes;
+const thin = changes.length < WORK_PRICES_MIN_ENTRIES;
+// The tools with a price we know but nothing to compare it with yet: they are what the page will be
+// made of next month, so they are worth showing rather than hiding. Never a tool already above.
+const moved = new Set(changes.map((c) => c.key));
+const watching = workPrices.tools.filter((t) => !moved.has(t.key) && priceText(t.current));
+const groups = PRICE_CHANGE_ORDER
+  .map((kind) => ({ kind, label: PRICE_CHANGE_LABELS[kind], rows: changes.filter((c) => c.kind === kind) }))
+  .filter((g) => g.rows.length > 0);
+const toolRow = (key: string) => work.tools.find((t) => t.key === key);
+const anchor = (c: PriceChange) => { const row = toolRow(c.key); return row ? `/work/tools#${toolSlug(row)}` : "/work/tools"; };
+const sourceOf = (c: PriceChange) => c.now.sourceUrl || (c.now.storySlug ? `/story/${c.now.storySlug}` : null);
+const sourceLabel = (c: PriceChange) => (c.now.source === "maker" ? "the maker's own pricing page" : "the coverage");
+
+const description = changes.length
+  ? `What ${changes.length} AI tools cost now and what they cost before: prices that went up or down, free tiers that changed, and tools that opened up. Each with the sentence that stated it.`
+  : "What the AI tools in AI at Work cost, tracked over time: prices that went up or down, free tiers that changed, and tools that opened up.";
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "ItemList",
+  name: "AI tool price changes",
+  description,
+  numberOfItems: changes.length,
+  itemListElement: changes.slice(0, 100).map((c, i) => ({
+    "@type": "ListItem", position: i + 1, name: `${c.tool}: ${PRICE_CHANGE_LABELS[c.kind]}`,
+    url: `${meta.siteUrl}${anchor(c)}`,
+  })),
+};
+---
+
+<Work title="AI tool prices: what changed" description={description} current="prices" jsonLd={jsonLd} thin={thin}>
+  <header class="wk-head">
+    <p class="wk-eyebrow">Prices · {changes.length} {changes.length === 1 ? "tool moved" : "tools moved"}</p>
+    <h1>What these tools cost, and what they used to</h1>
+    <p class="wk-intro">
+      Every price the desk has seen for a tool is kept, so this page can say what moved rather than only what
+      it costs today.
+    </p>
+    <p>
+      Nothing here is tested or negotiated by us. Each row shows the sentence that stated the price, when it was
+      said and where, so you can check it on the maker's own page before you pay.
+    </p>
+  </header>
+
+  {changes.length === 0 && (
+    <p class="wk-empty">
+      No price has changed yet. Prices are recorded as the desk covers each tool; this page fills in as soon as
+      one of them moves. The <a href="/work/tools">tool directory</a> has what each one costs today.
+    </p>
+  )}
+
+  {groups.map((group) => (
+    <section class="wk-sec" aria-labelledby={`price-${group.kind}`}>
+      <div class="wk-h2row">
+        <h2 id={`price-${group.kind}`}>{group.label}</h2>
+        <span class="wk-h2-side">{group.rows.length} {group.rows.length === 1 ? "tool" : "tools"}</span>
+      </div>
+      <ul class="wk-prices" role="list">
+        {group.rows.map((c) => (
+          <li class="wk-price-row" data-kind={c.kind}>
+            <p class="wk-card-tool">
+              <a href={anchor(c)}><span class="wk-tape">{c.tool}</span></a>
+              {c.maker && <span class="wk-maker">by {c.maker}</span>}
+              <time class="mono" datetime={c.at || undefined} data-static>{formatDate(c.at, { day: "numeric", month: "short", year: "numeric" })}</time>
+            </p>
+            <p class="wk-price-move">
+              <span class="wk-price-now">{priceText(c.now) || "Free"}</span>
+              {c.was && <span class="wk-was"> · {c.was}</span>}
+              {c.now.plan && <span class="wk-price-plan"> · on {c.now.plan}</span>}
+              {c.now.freeLimit && <span class="wk-price-free"> · free: {c.now.freeLimit}</span>}
+            </p>
+            {c.now.quoted && <blockquote class="wk-quote"><p>{c.now.quoted}</p></blockquote>}
+            <p class="wk-price-src mono">
+              From {sourceLabel(c)}
+              {sourceOf(c) && (
+                <> · <a href={sourceOf(c)!} rel={c.now.sourceUrl ? "noopener nofollow" : undefined} target={c.now.sourceUrl ? "_blank" : undefined} data-source-link>
+                  {c.now.sourceUrl ? <>Check it{" "}<span aria-hidden="true">↗</span></> : "What happened"}
+                </a></>
+              )}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  ))}
+
+  {watching.length > 0 && (
+    <section class="wk-sec" aria-labelledby="watching-h">
+      <div class="wk-h2row">
+        <h2 id="watching-h">Watching</h2>
+        <span class="wk-h2-side">a price on record, nothing to compare it with yet</span>
+      </div>
+      <div class="tablewrap">
+        <table class="tracker">
+          <thead><tr><th>Tool</th><th>Maker</th><th>Price</th><th>Free tier</th><th>Recorded</th></tr></thead>
+          <tbody>
+            {watching.slice(0, 60).map((t) => (
+              <tr>
+                <td><b>{toolRow(t.key) ? <a href={`/work/tools#${toolSlug(toolRow(t.key)!)}`}>{t.tool}</a> : t.tool}</b></td>
+                <td>{t.maker || ""}</td>
+                <td>{priceText(t.current)}</td>
+                <td>{t.current.freeLimit || "—"}</td>
+                <td class="num">{formatDate(t.checkedAt, { day: "numeric", month: "short", year: "numeric" })}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )}
+
+  {workWeeks[0] ? (
+    <WorkNext href={`/work/week/${workWeeks[0]}`} label="This week's playbook" why="What changed across these tools this week, and which ones are worth an hour now." track="playbook" />
+  ) : (
+    <WorkNext href="/work/tools" label="The tool directory" why="Every tool the desk has covered, with what it costs and the catch." track="tools" />
+  )}
+</Work>

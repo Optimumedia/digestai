@@ -211,8 +211,11 @@ export const newsletters: Record<string, { publicUrl: string | null; subject: st
 export const threads: Thread[] = readJson<Thread[]>("threads.json", []);
 export const topicInfo: Record<string, { name: string; kind: string; description: string }> = readJson("topics.json", {});
 export const trackers: { models: ModelRelease[]; funding: Funding[] } = readJson("trackers.json", { models: [], funding: [] });
+/* What the tools cost over time (pipeline/digest/prices.py). Read here rather than through lib/work
+   so the noindex rule for /work/prices is decided from the same file the sitemap reads. */
+const priceChanges: { at: string }[] = readJson<{ changes?: { at: string }[] }>("work-prices.json", {}).changes || [];
 /** Paths built but kept out of the index and the sitemaps (thin hubs, single-source briefs, quiet days). */
-export const noindex: Set<string> = noindexPaths(stories, entities, trackers.models);
+export const noindex: Set<string> = noindexPaths(stories, entities, trackers.models, priceChanges);
 
 /* ---- media store (pipeline/digest/media.py) ----
    media.json maps a story slug to where its share image and thumbnail are: a site path ("/og/…",

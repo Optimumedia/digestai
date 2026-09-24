@@ -1183,6 +1183,8 @@ details.wk-card-more[open] { padding-bottom: 4px; }
 .wk-job-name { font-family: var(--font-work); font-weight: 700; font-size: 19px; line-height: 1.15; }
 .wk-job-blurb { font-size: 14.5px; line-height: 1.4; color: var(--ink-2); }
 .wk-job-count { margin-top: auto; padding-top: 6px; color: var(--accent); font-size: 12.5px; }
+/* The section's whole count for the job, beside the hub's own: always labelled, never on its own. */
+.wk-job-total { color: var(--ink-3); }
 @media (max-width: 640px) { .wk-job { padding: 12px; } .wk-job-name { font-size: 17px; } .wk-job-blurb { font-size: 14px; } }
 
 /* Numbered weeks. */
@@ -1230,6 +1232,35 @@ details.wk-card-more[open] { padding-bottom: 4px; }
 .wk-changes .wk-thread { font-weight: 400; }
 .wk-changes time { color: var(--ink-3); }
 @media (max-width: 760px) { .wk-sheet { grid-template-columns: minmax(0, 1fr); padding: 18px 16px; } }
+
+/* Prices (/work/prices, pipeline/digest/prices.py). What a tool costs now sits in the ink face, what
+   it cost before is struck through in the muted colour, and the sentence that stated it is quoted so
+   a reader can check it. No colour carries the meaning on its own: every row says which way it went
+   in its heading and in words. */
+.wk-price { margin: 0 0 12px; font-size: 15px; line-height: 1.5; color: var(--ink-2); }
+.wk-price b { margin-right: 6px; font-family: var(--font-work); font-weight: 700; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.wk-price-now { font-family: var(--font-work); font-weight: 700; font-size: 17px; color: var(--ink); }
+/* "was $12/mo in August": the word carries the meaning, so the sentence is not struck through. */
+.wk-was { color: var(--ink-3); }
+/* In the directory's cost cell it goes on its own line: the price a reader wants is the first one. */
+table.tracker .wk-was { display: block; font-size: 13px; }
+.wk-was-line { margin: -6px 0 14px; font-size: 14px; }
+.wk-was-line .wk-thread { margin-left: 6px; font-weight: 400; font-size: 13.5px; }
+/* "Price checked 22 Sept" rides inside the cost chip, quieter than the price itself. */
+.wk-chip-checked { padding-left: 8px; margin-left: 2px; border-left: 1px solid var(--w-line); color: var(--ink-3); font-size: 12px; white-space: nowrap; }
+.wk-prices { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
+.wk-price-row { padding: 18px 20px; background: var(--surface); border: 1.5px solid var(--w-rule); border-left: 5px solid var(--w-rule); border-radius: 3px; }
+.wk-price-row[data-kind="fell"], .wk-price-row[data-kind="opened"] { border-left-color: var(--accent); }
+.wk-price-row[data-kind="rose"] { border-left-color: var(--w-caution-ink); }
+.wk-price-row[data-kind="free"] { border-left-color: var(--w-marker); }
+.wk-price-move { margin: 8px 0 10px; font-size: 15px; color: var(--ink-2); }
+.wk-price-src { margin: 8px 0 0; font-size: 13px; color: var(--ink-3); }
+.wk-price-src a { color: var(--w-thread); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.wk-quote { margin: 0; padding: 10px 14px; background: var(--w-inset); border-radius: 2px; }
+.wk-quote p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--ink); }
+.wk-quote p::before { content: "\201C"; }
+.wk-quote p::after { content: "\201D"; }
+@media (max-width: 640px) { .wk-price-row { padding: 14px 14px 14px 12px; } .wk-chip-checked { font-size: 11.5px; } }
 
 /* The listen player, in the section's materials. */
 .work-theme .listen { margin: 0; border: 1.5px solid var(--w-rule); border-radius: 3px; background: var(--surface); box-shadow: none; }

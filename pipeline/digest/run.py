@@ -19,10 +19,13 @@ log = logging.getLogger("digest")
 # issue. "howto" (setup steps from a maker's own page for AI at Work cards) comes after "export", so
 # its page fetches never delay the site update; what it finds reaches the site with the next export.
 # "simplify" (plain-words rewrites of recent AI at Work cards, simplify.py) runs after it the same way.
+# "prices" (what a tool costs, from the maker's own pricing page when the coverage did not say,
+# prices.py) is the third of those: same bar, same budget, and the export already wrote the history
+# the page reads, so a slow pricing page only costs this run's gap-filling.
 # Each step is the run() of the module of the same name, imported when it starts:
 # a run of one step (the workflow's export after an early stop) does not load the other 25 modules,
 # and extract's HTML libraries (trafilatura, ~0.6 s) are loaded by the extract step alone.
-ORDER = ["fetch", "extract", "gate", "enrich", "cluster", "threads", "discuss", "pulse", "rank", "upgrade", "repair", "export", "push", "topics", "intros", "images", "howto", "simplify", "audio", "media", "social", "newsletter", "gsc", "tidy", "backup", "admin", "morning", "notify", "indexnow"]
+ORDER = ["fetch", "extract", "gate", "enrich", "cluster", "threads", "discuss", "pulse", "rank", "upgrade", "repair", "export", "push", "topics", "intros", "images", "howto", "prices", "simplify", "audio", "media", "social", "newsletter", "gsc", "tidy", "backup", "admin", "morning", "notify", "indexnow"]
 
 
 def step_fn(name: str):

@@ -157,7 +157,7 @@ def test_prompt_stays_inside_every_provider_window():
             assert sizes[provider] <= cap, (provider, sizes[provider], cap)
         # Every provider gets the whole schema: the blocks other parts of the pipeline read must
         # not fall out of the short version.
-        for field in ('"work_card"', '"model_release"', '"funding"', '"key_points"', '"importance"',
+        for field in ('"work_card"', '"price"', '"model_release"', '"funding"', '"key_points"', '"importance"',
                       '"is_ai_news"', '"entities"', '"content_type"', '"category"'):
             assert field in prompt, (provider, field)
         assert "Keep the source's hedging" in prompt

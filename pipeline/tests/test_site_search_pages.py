@@ -79,7 +79,11 @@ def test_templates_use_the_shared_rules():
     config = (SITE / "astro.config.mjs").read_text(encoding="utf-8")
     rules = (SITE / "src" / "lib" / "indexing.mjs").read_text(encoding="utf-8")
     assert "sitemapIndex({" in config and "plan.include(p)" in config
-    assert "noindexPaths(stories, entities, models)" in rules
+    assert "noindexPaths(stories, entities, models, priceChanges)" in rules
+    # /work/prices is built and linked whatever the history holds, and indexable only once enough
+    # tools have actually moved (WORK_PRICES_MIN_ENTRIES).
+    assert "WORK_PRICES_MIN_ENTRIES" in rules and '"/work/prices"' in rules
+    assert 'priceChanges: read("work-prices.json", {}).changes' in config
 
 
 if __name__ == "__main__":

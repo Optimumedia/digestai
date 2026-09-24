@@ -9,6 +9,7 @@
    `cost`, `costKind` and `effort` (the tool directory, older exports). `compact` hides the visible
    "Cost" / "Time" keys for one-line rows; screen readers still hear them. `whoFor` and `includedIn`
    are for the story page and the directory, never the collapsed card. */
+import { shortDate } from "../lib/data";
 import { EFFORT_STEPS, costLabel, isFree, whoLine, type WorkLabel } from "../lib/work";
 
 interface Props {
@@ -19,8 +20,12 @@ interface Props {
   whoFor?: string[];
   compact?: boolean;
   includedIn?: string | null;
+  /** When the tool's price was last confirmed (pipeline/digest/prices.py): "Price checked 22 Sept"
+      inside the cost chip. Left out on one-line rows, and whenever nothing has been recorded. */
+  checkedAt?: string | null;
 }
-const { cost, costKind, effort, labels, whoFor, compact = false, includedIn } = Astro.props;
+const { cost, costKind, effort, labels, whoFor, compact = false, includedIn, checkedAt } = Astro.props;
+const checked = !compact && checkedAt ? shortDate(checkedAt) : "";
 const plan = (includedIn || "").trim();
 const kind = (labels?.find((l) => l.kind === "cost")?.costKind as string | undefined) || costKind || "unknown";
 const effortStep = effort ? EFFORT_STEPS[effort] : undefined;
@@ -38,6 +43,7 @@ const KEYS: Record<string, string> = { cost: "Cost", time: "Time", ease: "Good t
     l.kind === "cost" ? (
       <li class:list={["wk-chip", "wk-chip-cost", { "is-free": isFree(kind), "is-unknown": kind === "unknown", "is-paid": kind === "paid" }]}>
         <span class:list={["wk-chip-k", { "sr-only": compact }]}>{KEYS.cost}</span> {l.text}
+        {checked && <span class="wk-chip-checked">Price checked <time datetime={checkedAt || undefined} data-static>{checked}</time></span>}
       </li>
     ) : l.kind === "time" ? (
       <li class="wk-chip wk-chip-time" data-step={effortStep?.step || Object.values(EFFORT_STEPS).find((s) => s.label === l.text)?.step || 0}>

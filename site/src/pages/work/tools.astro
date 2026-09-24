@@ -3,9 +3,16 @@ import Work from "../../layouts/Work.astro";
 import WorkChips from "../../components/WorkChips.astro";
 import WorkNext from "../../components/WorkNext.astro";
 import { WORK_MIN_ITEMS, formatDate, meta, topicInfo } from "../../lib/data";
-import { COST_LABELS, JOBS, JOB_LABELS, toolSlug, whoLine, work, workWeeks } from "../../lib/work";
+import {
+  COST_LABELS, JOBS, JOB_LABELS, priceHistoryForKey, priceText, priceWas, toolSlug, whoLine, work, workPrices, workWeeks,
+} from "../../lib/work";
 
 const rows = work.tools;
+// What each tool costs now, and what it cost before (pipeline/digest/prices.py). A row without a
+// history shows the cost the coverage stated, exactly as it did before.
+const history = (key: string) => priceHistoryForKey(key);
+const priceNow = (key: string) => priceText(priceHistoryForKey(key)?.current);
+const pricedTools = rows.filter((r) => priceNow(r.key)).length;
 const intro = topicInfo["page-work-directory"]?.description || "";
 const jobs = JOBS.map((j) => ({ ...j, count: rows.filter((r) => r.jobs.includes(j.key)).length })).filter((j) => j.count > 0);
 const free = rows.filter((r) => ["free", "free tier", "included"].includes(r.costKind || "")).length;
@@ -48,10 +55,16 @@ const jsonLd = {
   {rows.length > 0 && (
     <>
       <section class="wk-sec" aria-labelledby="table-h">
-        <div class="wk-h2row"><h2 id="table-h">At a glance</h2><span class="wk-h2-side">{free} of {rows.length} can be started without paying</span></div>
+        <div class="wk-h2row">
+          <h2 id="table-h">At a glance</h2>
+          <span class="wk-h2-side">
+            {free} of {rows.length} can be started without paying
+            {workPrices.changes.length > 0 && <> · <a href="/work/prices">{pricedTools} with a tracked price</a></>}
+          </span>
+        </div>
         {jobs.length > 0 && (
           <p class="wk-alljobs">
-            By job: {jobs.map((j, i) => <>{i > 0 && " · "}<a href={`/work/${j.slug}`}>AI tools {j.task}</a> <span class="mono">{j.count}</span></>)}
+            By job: {jobs.map((j, i) => <>{i > 0 && " · "}<a href={`/work/${j.slug}`}>AI tools {j.task}</a> <span class="mono">{j.count} {j.count === 1 ? "tool" : "tools"}</span></>)}
           </p>
         )}
         <div class="tablewrap">
@@ -66,7 +79,10 @@ const jsonLd = {
                   <td>{r.maker || ""}</td>
                   <td>{r.whatItDoes}</td>
                   <td>{whoLine(r.whoFor)}</td>
-                  <td>{r.cost && r.cost !== "unknown" && r.costKind !== "unknown" ? r.cost : COST_LABELS[r.costKind || "unknown"]}</td>
+                  <td>
+                    {priceNow(r.key) || (r.cost && r.cost !== "unknown" && r.costKind !== "unknown" ? r.cost : COST_LABELS[r.costKind || "unknown"])}
+                    {priceWas(history(r.key)) && <span class="wk-was">{priceWas(history(r.key))}</span>}
+                  </td>
                   <td>{r.effort || ""}</td>
                   <td class="num">{formatDate(r.lastChange, { day: "numeric", month: "short", year: "numeric" })}</td>
                   <td>{r.link ? <a href={r.link} rel="noopener nofollow" target="_blank" data-source-link data-work-try={r.tool}>Site ↗</a> : r.changes[0] ? <a class="muted" href={`/story/${r.changes[0].slug}`} title="The coverage names no official page">Coverage</a> : ""}</td>
@@ -94,7 +110,16 @@ const jsonLd = {
               </div>
               <div class="wk-sheet-body">
                 <p class="wk-sheet-what">{r.whatItDoes}</p>
-                <WorkChips cost={r.cost} costKind={r.costKind} effort={r.effort} whoFor={r.whoFor} />
+                <WorkChips cost={r.cost} costKind={r.costKind} effort={r.effort} whoFor={r.whoFor} checkedAt={history(r.key)?.checkedAt} />
+                {priceNow(r.key) && (
+                  <p class="wk-price">
+                    <b>Price</b> <span class="wk-price-now">{priceNow(r.key)}</span>
+                    {history(r.key)?.current?.plan && <span class="wk-price-plan"> on {history(r.key)!.current.plan}</span>}
+                    {history(r.key)?.current?.freeLimit && <span class="wk-price-free"> · free: {history(r.key)!.current.freeLimit}</span>}
+                    {priceWas(history(r.key)) && <span class="wk-was"> · {priceWas(history(r.key))}</span>}
+                    {" "}<a class="wk-thread" href="/work/prices">Price history →</a>
+                  </p>
+                )}
                 <p class="wk-sheet-jobs">
                   <b>Jobs</b> {r.jobs.length ? r.jobs.map((j, i) => { const job = JOBS.find((x) => x.key === j); return <>{i > 0 && ", "}{job ? <a href={`/work/${job.slug}`}>{job.label}</a> : JOB_LABELS[j] || j}</>; }) : "not classified"}
                 </p>

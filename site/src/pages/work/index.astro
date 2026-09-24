@@ -9,8 +9,8 @@ import WorkNext from "../../components/WorkNext.astro";
 import ListenPlayer from "../../components/ListenPlayer.astro";
 import { WORK_MIN_ITEMS, formatDate, dateTime, meta, weekMonday } from "../../lib/data";
 import {
-  JOBS, SECTION_TAGLINE, briefingAlso, briefingItems, count, featuredPick, isFree, latestWorkEpisode, sectionStories, work, workBriefing,
-  workWeeks, weekStories,
+  JOBS, SECTION_TAGLINE, briefingAlso, briefingItems, count, featuredPick, isFree, latestWorkEpisode, oneCardPerTool,
+  sectionStories, toolKeyOf, work, workBriefing, workWeeks, weekStories,
 } from "../../lib/work";
 import { weekKey } from "../../lib/indexing.mjs";
 
@@ -30,18 +30,31 @@ const week = thisWeek ? weekStories(thisWeek) : { changed: [], tryThis: [], skip
 // never a forum handle: the week's try list in the pipeline's order, then today's picks, then the
 // rest. No such card means no featured block at all (lib/work.ts, featuredPick).
 const featured = featuredPick([...week.tryThis, ...briefingItems, ...briefingAlso, ...sectionStories]);
-// Everything else, one line each: today's picks first (most useful first), then the rest, newest first.
+// Everything else, one line each: today's picks first (most useful first), then the rest, newest
+// first. One line per tool across the whole page (oneCardPerTool): "Ink Canvas" covered twice in a
+// week was two rows for one thing to try, and the featured card is never repeated below itself.
 const notFeatured = (s: { id: number }) => s.id !== featured?.id;
-const today = [...briefingItems, ...briefingAlso].filter(notFeatured);
-const todayIds = new Set(today.map((s) => s.id));
-const earlier = sectionStories.filter((s) => notFeatured(s) && !todayIds.has(s.id)).slice(0, 24);
+const featuredKey = featured ? toolKeyOf(featured.workCard) : null;
+const notFeaturedTool = (s: { workCard: { tool: string } }) => toolKeyOf((s as any).workCard) !== featuredKey;
+const today = oneCardPerTool([...briefingItems, ...briefingAlso].filter(notFeatured).filter(notFeaturedTool));
+const takenKeys = new Set(today.map((s) => toolKeyOf(s.workCard)));
+const earlier = oneCardPerTool(
+  sectionStories.filter((s) => notFeatured(s) && notFeaturedTool(s) && !takenKeys.has(toolKeyOf(s.workCard))),
+).slice(0, 24);
 const listed = [...today, ...earlier];
-// The filter works on the lines the list shows, and only offers a job that has lines behind it.
-const filterJobs = JOBS.map((j) => ({ ...j, count: listed.filter((s) => s.workCard.jobs.includes(j.key)).length }))
-  .filter((j) => j.count > 0);
+// One meaning for every count on this page: what this page lists. The filter, the tiles and the
+// "costs nothing to start" note all count `listed`, so no two numbers on the hub disagree.
+const hubCount = (key: string) => listed.filter((s) => s.workCard.jobs.includes(key)).length;
+// The whole section's count for the job, which is what its own page shows: only ever printed beside
+// the hub's number and labelled "in total", never on its own.
+const totalCount = (key: string) => sectionStories.filter((s) => s.workCard.jobs.includes(key)).length;
+const filterJobs = JOBS.map((j) => ({ ...j, count: hubCount(j.key) })).filter((j) => j.count > 0);
 const free = listed.filter((s) => isFree(s.workCard.costKind)).length;
-// The job tiles count everything the section has for the job, as the job page does.
-const jobTiles = JOBS.map((j) => ({ ...j, count: sectionStories.filter((s) => s.workCard.jobs.includes(j.key)).length }));
+// The lede counts the same list as the filter and the tiles, not the whole week: the week's own
+// totals live on its playbook, one link away.
+const listedSkip = listed.filter((s) => s.workCard.skip).length;
+const listedTry = listed.length - listedSkip;
+const jobTiles = JOBS.map((j) => ({ ...j, count: hubCount(j.key), total: totalCount(j.key) }));
 
 const description = briefingItems.length
   ? `${briefingItems.length} AI things a marketer or small business can use today: ${briefingItems.slice(0, 3).map((s) => s.workCard.tool).join(", ")}. What each one does, what it costs and the catch.`
@@ -92,14 +105,21 @@ const jsonLd = [
   )}
 
   <section class="wk-sec" aria-labelledby="jobs-h">
-    <div class="wk-h2row"><h2 id="jobs-h">Find it by job</h2></div>
+    <div class="wk-h2row">
+      <h2 id="jobs-h">Find it by job</h2>
+      <span class="wk-h2-side">counts are what this page lists; the job page has the rest</span>
+    </div>
     <ul class="wk-jobs" role="list">
       {jobTiles.map((j) => (
         <li>
           <a class="wk-job" href={`/work/${j.slug}`}>
             <span class="wk-job-name">{j.label}</span>
             <span class="wk-job-blurb">{j.blurb}</span>
-            <span class="wk-job-count mono">{j.count ? count(j.count, "item") : "nothing yet"}<span aria-hidden="true"> →</span></span>
+            <span class="wk-job-count mono">
+              {j.count ? `${count(j.count, "item")} ${isCurrentWeek ? "this week" : "here"}` : "nothing new"}
+              {j.total > j.count && <span class="wk-job-total"> · {j.total} in total</span>}
+              <span aria-hidden="true"> →</span>
+            </span>
           </a>
         </li>
       ))}
@@ -112,9 +132,10 @@ const jsonLd = [
         <h2 id="changed-h">{isCurrentWeek ? "What changed" : "What changed last week"}</h2>
         {thisWeek && <a class="wk-h2-side" href={`/work/week/${thisWeek}`} data-work-next="playbook">The week's playbook →</a>}
       </div>
-      {week.changed.length > 0 && (
+      {listed.length > 0 && (
         <p class="wk-lede">
-          {week.tryCount > 0 ? <>{week.tryCount} to try now{week.skipCount > 0 && <>, {week.skipCount} to leave for later</>}.</> : <>{week.skipCount} to leave for later.</>}
+          {listedTry > 0 ? <>{listedTry} to try now{listedSkip > 0 && <>, {listedSkip} to leave for later</>}.</> : <>{listedSkip} to leave for later.</>}
+          {thisWeek && week.changed.length > listed.length && <> <a href={`/work/week/${thisWeek}`}>All {week.changed.length} of this week →</a></>}
         </p>
       )}
 

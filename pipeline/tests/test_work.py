@@ -187,6 +187,88 @@ def test_courses_and_reseller_listings_are_not_tools():
     assert work.clean_card(card(use_for=["Sell gift certificates", "Write captions", "Plan posts"])) is not None
 
 
+# Every one of these was on /work on 24 September 2026. A reader cannot open any of them.
+LIVE_CATEGORIES = [
+    ("AI SEO tools", None),
+    ("AI agents (Codex, Claude)", None),
+    ("Specialized AI Agents", "Zendesk"),
+    ("AI Search", "Grid My Business"),
+]
+# Real products whose names are made partly of the same words. A named maker inside the name, or any
+# word that is not a category word, is what tells them apart.
+LIVE_PRODUCTS = [
+    ("Google AI Studio", "Google"), ("ChatGPT Images 2.5", "OpenAI"), ("Gemini Notebook", "Google"),
+    ("Ink Canvas", "Microsoft"), ("AI Max for Search", "Google"), ("Copilot Studio", "Microsoft"),
+    ("Search Console", "Google"), ("Seller Assistant", "Amazon"), ("1min.AI", "1min.AI"),
+    ("Omneky AI Growth Agent", "Omneky"), ("ChatGPT voice", "OpenAI"), ("Video Super Resolution", "Microsoft"),
+]
+
+
+def test_a_category_is_not_a_tool_a_reader_can_open():
+    for tool, maker in LIVE_CATEGORIES:
+        assert work.not_a_product({"tool": tool, "maker": maker}), tool
+    for tool, maker in LIVE_PRODUCTS:
+        assert not work.not_a_product({"tool": tool, "maker": maker}), tool
+    # A plural kind of software with nobody standing behind it, and a job written out as a name.
+    assert work.not_a_product({"tool": "Scheduling tools", "maker": None})
+    assert not work.not_a_product({"tool": "Scheduling tools", "maker": "Calendly"}), "a maker makes it a product"
+    assert work.not_a_product({"tool": "Customer support", "maker": "Acme"})
+    assert work.not_a_product({"tool": "", "maker": "Acme"})
+    # A parenthesised list of other tools, whatever else the name says; one name in brackets is fine.
+    assert work.not_a_product({"tool": "Writing helpers (Copy.ai, Jasper)", "maker": "Someone"})
+    assert not work.not_a_product({"tool": "Gemini (formerly Bard)", "maker": "Google"})
+
+
+def test_a_category_card_is_dropped_with_its_own_reason():
+    assert work.screen_card(card(tool="AI SEO tools", maker=None))[1] == "not a product"
+    assert work.screen_card(card(tool="AI agents (Codex, Claude)"))[1] == "not a product"
+    assert work.screen_card(card(tool="Specialized AI Agents", maker="Zendesk"))[1] == "not a product"
+    # The reason is the one the export counts and the admin line names, beside the older two.
+    assert work.screen_card(card(tool="Ink Canvas", maker="Microsoft"))[1] is None
+    assert work.screen_card(card(tool="Gemini Notebook", maker="Google"))[0]["tool"] == "Gemini Notebook"
+
+
+def test_an_invisible_character_does_not_make_a_second_tool():
+    # Live on /work: "React​iv AI Scheduler" and "Reactiv AI Scheduler" are one tool.
+    assert work.clean_name("React​iv AI Scheduler") == "Reactiv AI Scheduler"
+    assert work.clean_name("Salesforce All‑in‑One") == "Salesforce All-in-One"
+    zero = work.clean_card(card(tool="React​iv AI Scheduler", maker="Reactiv"))
+    plain_name = work.clean_card(card(tool="Reactiv AI Scheduler", maker="Reactiv"))
+    assert zero["tool"] == plain_name["tool"] == "Reactiv AI Scheduler", "cleaned on the way in, so pages show it too"
+    assert work.tool_key(zero["tool"], "Reactiv") == work.tool_key(plain_name["tool"], "Reactiv")
+
+
+def test_one_card_per_tool_per_week_keeps_the_best_and_folds_the_rest():
+    # Live on /work: "Ink Canvas" had two cards in one week, and "ChatGPT" three.
+    ms = {"maker": "Microsoft", "link": "https://www.microsoft.com/ink-canvas"}
+    oa = {"maker": "OpenAI", "link": "https://chatgpt.com/"}
+    weak = work.clean_card(card(tool="Ink Canvas", maker="Microsoft", link=None, effort=None, use_for=["Sketch a mood board"]))
+    strong = work.clean_card(card(tool="Ink Canvas", **ms))
+    other = work.clean_card(card(tool="ChatGPT", **oa))
+    plus = work.clean_card(card(tool="ChatGPT Plus", **oa))
+    voice = work.clean_card(card(tool="ChatGPT voice", **oa))
+    stories = [with_card(1, {1: weak}), with_card(2, {2: strong}), with_card(3, {3: other}),
+               with_card(4, {4: plus}), with_card(5, {5: voice})]
+    kept, folded = work.fold_by_tool(stories)
+    assert [s["id"] for s in kept] == [2, 3, 4, 5], "the more useful Ink Canvas card stays, in the list's own order"
+    assert folded == {2: [1]}, "the folded card is remembered, not lost"
+    # Different products from the same maker are never folded together.
+    week = next(iter(work.weeks(stories).values()))
+    assert week["changed"] == [2, 3, 4, 5] and week["tools"] == 4
+    assert week["tryCount"] == 4 and week["folded"] == {"2": [1]}
+    # The hub's briefing folds the same way, keeping the first of each tool in the order it was given.
+    assert sorted(work.build_briefing(stories, NOW)["storyIds"]) == [2, 3, 4, 5]
+
+
+def test_the_newer_card_wins_when_two_are_equally_useful():
+    a = work.clean_card(card(tool="Ink Canvas", maker="Microsoft"))
+    b = work.clean_card(card(tool="Ink Canvas", maker="Microsoft"))
+    old = with_card(9, {9: a})   # story() dates by id: id 9 is nine hours ago
+    new = with_card(1, {1: b})   # id 1 is one hour ago
+    kept, folded = work.fold_by_tool([old, new])
+    assert [s["id"] for s in kept] == [1] and folded == {1: [9]}
+
+
 def test_a_maker_that_does_not_match_its_link_is_taken_from_the_link():
     assert work.clean_card(card(maker="Canva Pty Ltd"))["maker"] == "Canva Pty Ltd", "the link is Canva's own"
     assert work.clean_card(card(tool="Claude for Sheets", maker="Claude AI",
@@ -638,6 +720,99 @@ def test_the_exported_card_uses_the_names_the_site_reads():
     assert out["prompt"].startswith("Here are my customer reviews")
     assert out["example"] == {"before": "3 hours writing a week of social posts", "after": "40 minutes"}
     assert out["includedIn"] == "Canva Pro" and out["headline"] == "Turn 20 customer reviews into three ad angles"
+
+
+# ---------------------------------------------------------------------------- the price, as data
+
+PRICE_ARTICLE = (
+    "Canva said on Tuesday that Magic Studio is now part of Canva Pro, which costs $12 a month. "
+    "The free plan still gets 50 uses a month, with a watermark on video exports. "
+    "Canva raised the Pro price this year; it was $10 a month when Magic Studio launched."
+)
+
+
+def test_the_price_is_kept_as_data_beside_the_words():
+    out = work.clean_card(card(cost="paid from $12 a month", price={
+        "plan": "Canva Pro", "amount": 12, "currency": "USD", "period": "month",
+        "free_limit": "50 uses a month", "quoted": "Canva Pro, which costs $12 a month"}))
+    assert out["price"] == {"plan": "Canva Pro", "amount": 12.0, "currency": "USD", "period": "month",
+                            "free_limit": "50 uses a month", "quoted": "Canva Pro, which costs $12 a month"}
+    assert out["cost"] == "paid from $12 a month", "the free-text cost is untouched"
+    # The currency and the period are read from the sentence when the model does not name them.
+    loose = work._price({"amount": "$19.99/mo", "quoted": "Pro is $19.99/mo."})
+    assert loose["amount"] == 19.99 and loose["currency"] == "USD" and loose["period"] == "month"
+    assert work._price({"amount": "€99 one-time"}, cost="paid from €99")["period"] == "one-off"
+    assert work._price({"amount": 0.81, "quoted": "$0.81 per million input tokens"})["period"] == "usage"
+    # Nothing usable is no price at all: a "price" with neither a figure nor a free tier is the
+    # free-text cost written twice.
+    assert work._price({"plan": "Pro", "quoted": "Pro is the paid plan."}) is None
+    assert work._price(None) is None and work._price("free") is None
+    assert work._price({"amount": -4}) is None and work._price({"amount": 10 ** 9}) is None
+    assert work._price({"free_limit": "500 images a month"})["amount"] is None
+
+
+def test_a_price_the_article_does_not_state_is_dropped_whole():
+    priced = work.clean_card(card(price={"plan": "Canva Pro", "amount": 12, "currency": "USD", "period": "month",
+                                         "free_limit": "50 uses a month",
+                                         "quoted": "Canva Pro, which costs $12 a month"}))
+    kept = work.ground_card(priced, PRICE_ARTICLE)["price"]
+    assert kept["amount"] == 12.0 and kept["quoted"] == "Canva Pro, which costs $12 a month"
+    # A figure the article does not have takes the whole price with it: half a price is a wrong price.
+    invented = work.clean_card(card(price={"plan": "Canva Pro", "amount": 15, "currency": "USD", "period": "month",
+                                           "quoted": "Canva Pro costs $15 a month"}))
+    assert work.ground_card(invented, PRICE_ARTICLE)["price"] is None
+    # A free limit the article does not give fails the same way.
+    limit = work.clean_card(card(price={"amount": 12, "currency": "USD", "period": "month",
+                                        "free_limit": "500 uses a month", "quoted": "costs $12 a month"}))
+    assert work.ground_card(limit, PRICE_ARTICLE)["price"] is None
+    # A right figure with a sentence the article never wrote keeps the figure and drops the quote:
+    # the page must not put words in the article's mouth.
+    paraphrased = work.clean_card(card(price={"amount": 12, "currency": "USD", "period": "month",
+                                              "quoted": "Canva now charges twelve dollars monthly for Pro"}))
+    grounded = work.ground_card(paraphrased, PRICE_ARTICLE)["price"]
+    assert grounded["amount"] == 12.0 and grounded["quoted"] == ""
+    # Without enough article text there is nothing to check against, so there is no price.
+    assert work.ground_card(priced, "Canva launches a thing.")["price"] is None
+
+
+def test_the_cost_chip_uses_the_price_when_the_words_said_nothing():
+    silent = work.clean_card(card(cost="not stated", price={"amount": 12, "currency": "USD", "period": "month",
+                                                            "quoted": "costs $12 a month"}))
+    assert work.cost_label(silent) == "Price not stated", "the words alone still say nothing"
+    assert work.effective_cost(silent) == ("paid", "Paid: from $12/mo")
+    out = work.card_out(silent)
+    assert out["costKind"] == "paid" and out["cost"] == "$12/mo"
+    assert out["labels"][0]["text"] == "Paid: from $12/mo"
+    assert out["price"] == {"plan": "", "amount": 12.0, "currency": "USD", "period": "month",
+                            "freeLimit": "", "quoted": "costs $12 a month"}
+    # A free tier and nothing else still beats "Price not stated".
+    free = work.clean_card(card(cost="not stated", price={"free_limit": "50 uses a month"}))
+    assert work.effective_cost(free) == ("free tier", "Free to try")
+    # The model's own words always win where it has any.
+    spoken = work.clean_card(card(cost="free tier", price={"amount": 12, "currency": "USD", "period": "month"}))
+    assert work.effective_cost(spoken)[0] == "free tier"
+    # A card with no price at all is exactly as it was.
+    assert "price" not in work.card_out(work.clean_card(card(cost="not stated")))
+    assert work.card_out(work.clean_card(card(cost="not stated")))["costKind"] == "unknown"
+
+
+def test_the_exported_card_carries_the_tool_key_the_site_groups_by():
+    google = {"maker": "Google", "link": "https://gemini.google.com/"}
+    out = work.card_out(work.clean_card(card(tool="Notebooks in Gemini", **google)))
+    assert out["toolKey"] == work.tool_key("Notebooks in Gemini", "Google")
+    assert out["toolKey"] == work.card_out(work.clean_card(card(tool="Gemini Notebook", **google)))["toolKey"]
+    assert out["toolKey"] != work.card_out(work.clean_card(card(tool="Gemini desktop app", **google)))["toolKey"]
+
+
+def test_price_text_reads_as_a_price():
+    assert work.price_text({"amount": 12, "currency": "USD", "period": "month"}) == "$12/mo"
+    assert work.price_text({"amount": 99.99, "currency": "USD", "period": "one-off"}) == "$99.99 once"
+    assert work.price_text({"amount": 1200, "currency": "EUR", "period": "year"}) == "€1,200/yr"
+    assert work.price_text({"amount": None, "free_limit": "500 images a month"}) == "Free: 500 images a month"
+    assert work.price_text({"amount": 5, "currency": "SEK", "period": "month"}) == "5 SEK/mo"
+    assert work.price_text({"amount": 1.2, "currency": "USD", "period": "usage"}) == "$1.20 per use", "money keeps its pennies"
+    assert work.price_text({"amount": 0, "currency": "USD", "period": "month"}) == "Free", "$0 is not an answer"
+    assert work.price_text(None) == "" and work.price_text({"amount": None, "free_limit": ""}) == ""
 
 
 def test_steps_the_article_does_not_describe_are_dropped_whole():

@@ -31,6 +31,8 @@ try {
     models: read("trackers.json", {}).models || [],
     threads: read("threads.json", []),
     archived,
+    // /work/prices is indexable only once enough tools have actually moved (WORK_PRICES_MIN_ENTRIES).
+    priceChanges: read("work-prices.json", {}).changes || [],
   });
 } catch {}
 

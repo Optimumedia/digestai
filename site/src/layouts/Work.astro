@@ -5,12 +5,12 @@
    tokens live for both themes; .work-theme maps them onto the site's tokens, so shared components
    inside (the listen player, lists, the tools table) follow without a second copy of their styles. */
 import Base from "./Base.astro";
-import { SECTION_TAGLINE, workEpisodes, workWeeks } from "../lib/work";
+import { SECTION_TAGLINE, workEpisodes, workPrices, workWeeks } from "../lib/work";
 
 interface Props {
   title: string;
   description?: string;
-  current?: "home" | "tools" | "week" | "job";
+  current?: "home" | "tools" | "prices" | "week" | "job";
   jsonLd?: Record<string, unknown> | Record<string, unknown>[];
   thin?: boolean;
   canonical?: string;
@@ -20,6 +20,8 @@ const latestWeek = workWeeks[0];
 const links: { href: string; label: string; key: string }[] = [
   { href: "/work", label: "This week", key: "home" },
   { href: "/work/tools", label: "Tool directory", key: "tools" },
+  // The prices tab appears once there is a price history to show; the page exists either way.
+  ...(workPrices.changes.length > 0 || current === "prices" ? [{ href: "/work/prices", label: "Prices", key: "prices" }] : []),
   ...(latestWeek ? [{ href: `/work/week/${latestWeek}`, label: "Playbooks", key: "week" }] : []),
 ];
 ---

@@ -20,7 +20,7 @@
    screen). data-work-tool on the card names the tool for all of them. */
 import type { Story } from "../lib/data";
 import { shortDate, sourceNames } from "../lib/data";
-import { actionLabel, cardLabels, cardTitle, stepsSourceLabel, youGetLine, type WorkCard } from "../lib/work";
+import { actionLabel, cardLabels, cardTitle, priceCheckedAt, priceHistoryFor, priceWas, stepsSourceLabel, youGetLine, type WorkCard } from "../lib/work";
 import WorkChips from "./WorkChips.astro";
 
 interface Props {
@@ -44,6 +44,9 @@ const { title } = cardTitle(card);
 // What you get, right under the heading and never folded; left out when it only repeats the heading.
 const get = youGetLine(card, title);
 const labels = cardLabels(card);
+// When the tool's price was last confirmed, and what it was before it (pipeline/digest/prices.py).
+const checkedAt = priceCheckedAt(card);
+const was = priceWas(priceHistoryFor(card));
 // The first step is shown as "Start here"; the others wait behind "How to set it up".
 const rest = steps.slice(1);
 const hasMore = rest.length > 0 || Boolean(card.prompt) || Boolean(example) || card.useFor.length > 0 || limits.length > 0;
@@ -69,7 +72,8 @@ const More = feature ? "div" : "details";
     <Heading class="wk-card-title"><a href={`/story/${story.slug}`}>{title}</a></Heading>
     {get && <p class="wk-get"><b>What you get</b> <span>{get}</span></p>}
 
-    <WorkChips labels={labels} effort={card.effort} costKind={card.costKind} />
+    <WorkChips labels={labels} effort={card.effort} costKind={card.costKind} checkedAt={checkedAt} />
+    {was && <p class="wk-was-line"><span class="wk-was">{was}</span> <a class="wk-thread" href="/work/prices">Price history →</a></p>}
 
     <p class="wk-watch"><b>The catch</b> <span>{card.watchOut}</span></p>
 

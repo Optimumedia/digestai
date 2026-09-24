@@ -14,6 +14,10 @@ import { JOB_SLUGS, jobCounts, jobIndexable } from "./indexing.mjs";
 export interface WorkCard {
   tool: string;
   maker: string | null;
+  /** Same tool, same key (pipeline/digest/work.py, tool_key): "Ink Canvas" covered twice in a week
+      is one thing to try. The export writes it so the site groups exactly as the pipeline does;
+      older exports have no such field (toolKeyOf falls back to the name). */
+  toolKey?: string;
   whatItDoes: string;
   whoFor: string[];
   useFor: string[];
@@ -62,6 +66,25 @@ export interface WorkCard {
   /** False when the card has no headline that keeps the rules or nothing to use it for: it stays off
       the hub's lists (its story page still shows it). */
   hub?: boolean;
+  /** The price the article stated, as data, with every figure checked against the article
+      (work.py, price_grounded). The free-text `cost` above is unchanged; this is what the price
+      history is built from (pipeline/digest/prices.py). Absent when the article stated none. */
+  price?: WorkCardPrice;
+}
+
+export interface WorkCardPrice {
+  /** The plan the figure is for ("Pro"), or "". */
+  plan: string;
+  /** The figure itself, or null when only a free tier is known. 0 means free. */
+  amount: number | null;
+  /** "USD", "EUR", "GBP"...; "" when there is no figure. */
+  currency: string;
+  /** "month", "year", "one-off", "usage" or "". */
+  period: string;
+  /** What the free plan gives ("500 images a month"), or "". */
+  freeLimit: string;
+  /** The article's own sentence stating the price, or "" when it could not be found in the text. */
+  quoted: string;
 }
 
 export interface WorkLabel {
@@ -98,6 +121,9 @@ export interface WorkWeek {
   /** The week's own counts; `try` and `skip` are cut to what a page shows (8 and 6). */
   tryCount?: number;
   skipCount?: number;
+  /** One card per tool per week (work.py, fold_by_tool): the kept story's id, to the ids of the
+      other stories about the same tool that it now stands for. */
+  folded?: Record<string, number[]>;
 }
 
 export interface WorkData {
@@ -129,6 +155,56 @@ function readJson<T>(name: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+/* ---------- what the tools cost, over time (pipeline/digest/prices.py) ---------- */
+
+/** One observation of one tool's price: what it was, when, and where that was stated. */
+export interface PriceObservation {
+  /** When the price was stated (the story's date, or the run that read the maker's page). */
+  at: string;
+  /** When it was last confirmed still to be that: the card's "Price checked 22 Sept". */
+  checkedAt?: string;
+  plan: string;
+  amount: number | null;
+  currency: string;
+  period: string;
+  freeLimit: string;
+  /** The sentence that stated it, in the article's or the pricing page's own words. */
+  quoted: string;
+  sourceUrl: string | null;
+  storySlug: string | null;
+  /** "article" (what the coverage said) or "maker" (the maker's own pricing page). */
+  source: "article" | "maker";
+}
+
+export interface PriceTool {
+  key: string;
+  tool: string;
+  maker: string | null;
+  observations: PriceObservation[];
+  current: PriceObservation;
+  checkedAt: string | null;
+  /** "was $12 in August", or "" with only one observation. */
+  was: string;
+}
+
+export interface PriceChange {
+  key: string;
+  tool: string;
+  maker: string | null;
+  /** "rose", "fell", "free" (the free tier changed) or "opened" (a free tier where there was none). */
+  kind: "rose" | "fell" | "free" | "opened";
+  at: string;
+  now: PriceObservation;
+  before: PriceObservation;
+  was: string;
+}
+
+export interface WorkPrices {
+  generatedAt: string;
+  tools: PriceTool[];
+  changes: PriceChange[];
 }
 
 export const SECTION_NAME = "AI at Work";
@@ -232,6 +308,12 @@ export const work: WorkData = readJson<WorkData>("work.json", {
   jobs: {},
 });
 
+export const workPrices: WorkPrices = readJson<WorkPrices>("work-prices.json", {
+  generatedAt: work.generatedAt,
+  tools: [],
+  changes: [],
+});
+
 export const workBriefing: WorkBriefing = readJson<WorkBriefing>("work-briefing.json", {
   date: new Date().toISOString().slice(0, 10),
   generatedAt: work.generatedAt,
@@ -289,6 +371,40 @@ export function weekStories(week: string): {
 /** "1 item", "3 items". */
 export const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/* ---------- one card per tool ---------- */
+
+/** A card's tool key: the export's (pipeline/digest/work.py, tool_key), so the site never has a
+    second copy of the rule. An export from before the field falls back to the name and the maker,
+    with invisible characters stripped ("React​iv AI Scheduler" is "Reactiv AI Scheduler"). */
+export function toolKeyOf(card: WorkCard): string {
+  if (card.toolKey) return card.toolKey;
+  return `${cleanName(card.tool)}|${cleanName(card.maker || "")}`.toLowerCase();
+}
+
+/** A tool or maker name as it is compared and as it is shown: no zero-width or bidirectional
+    characters, ordinary hyphens, single spaces (work.py, clean_name). */
+export function cleanName(text: string | null | undefined): string {
+  return String(text || "")
+    .normalize("NFKC")
+    .replace(/[­​-‏‪-‮⁠-⁤﻿]/g, "")
+    .replace(/[‐-―−]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** One story per tool, in the given order: the first card of each tool stays and the rest are left
+    out, so the hub never shows the same tool twice in one list (work.py, fold_by_tool). Pass a list
+    already in the order the page wants. */
+export function oneCardPerTool<T extends WorkStory>(list: T[]): T[] {
+  const seen = new Set<string>();
+  return list.filter((s) => {
+    const key = toolKeyOf(s.workCard);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export const workWeeks: string[] = Object.keys(work.weeks).sort((a, b) => (a < b ? 1 : -1));
 
 /** "Canva Magic Studio" -> "canva-magic-studio", for the per-tool anchors on /work/tools. */
@@ -302,6 +418,54 @@ export function toolSlug(tool: WorkTool): string {
     .toLowerCase()
     .slice(0, 60);
 }
+
+/* ---------- what it costs, and what it used to cost ---------- */
+
+const CURRENCY_SIGNS: Record<string, string> = { USD: "$", EUR: "€", GBP: "£", JPY: "¥", INR: "₹" };
+const PERIOD_SUFFIX: Record<string, string> = { month: "/mo", year: "/yr", "one-off": " once", usage: " per use" };
+
+/** A price in words, the way the pipeline writes it (work.py, price_text): "$19/mo", "€99 once",
+    "Free: 500 images a month". "" when there is nothing to say. */
+export function priceText(p: { amount?: number | null; currency?: string; period?: string; freeLimit?: string } | null | undefined): string {
+  if (!p) return "";
+  if (p.amount == null) return p.freeLimit ? `Free: ${p.freeLimit}` : "";
+  if (p.amount === 0) return "Free"; // "$0" is a figure; "Free" is the answer the reader wanted
+  const sign = CURRENCY_SIGNS[p.currency || ""] || "";
+  // Money keeps its pennies: "$1.20", never "$1.2"; a round figure keeps none: "$12", "€1,200".
+  const figure = Number.isInteger(p.amount)
+    ? p.amount.toLocaleString("en-GB")
+    : p.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const money = sign ? `${sign}${figure}` : `${figure} ${p.currency || ""}`.trim();
+  return money + (PERIOD_SUFFIX[p.period || ""] || "");
+}
+
+/** The price history of the tool a card is about, or undefined. */
+const PRICES_BY_KEY = new Map(workPrices.tools.map((t) => [t.key, t]));
+export const priceHistoryFor = (card: WorkCard): PriceTool | undefined => PRICES_BY_KEY.get(toolKeyOf(card));
+export const priceHistoryForKey = (key: string | null | undefined): PriceTool | undefined =>
+  (key ? PRICES_BY_KEY.get(key) : undefined);
+
+/** When the tool's price was last confirmed, for "Price checked 22 Sept" beside the cost chip.
+    Null when nothing has ever been recorded for it. */
+export function priceCheckedAt(card: WorkCard): string | null {
+  const history = priceHistoryFor(card);
+  return history?.checkedAt || history?.current?.at || null;
+}
+
+/** "was $12 in August" for a tool with more than one observation, else null. */
+export function priceWas(history: PriceTool | undefined): string | null {
+  return history?.was ? history.was : null;
+}
+
+/** What a change on /work/prices is called, in the reader's words. */
+export const PRICE_CHANGE_LABELS: Record<PriceChange["kind"], string> = {
+  rose: "Price went up",
+  fell: "Price came down",
+  free: "Free tier changed",
+  opened: "Opened up",
+};
+/** The order the page groups them in: the good news first, then the bad, then the rest. */
+export const PRICE_CHANGE_ORDER: PriceChange["kind"][] = ["fell", "opened", "rose", "free"];
 
 /* ---------- the card's headline ---------- */
 
@@ -411,11 +575,12 @@ export function whoLine(whoFor: string[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
-/** The tools a story's card belongs to, so a story page can link into the directory. */
+/** The tool a story's card belongs to, so a story page can link into the directory. The directory's
+    rows carry the pipeline's own key, so the two agree on what one tool is. */
 export function toolFor(card: WorkCard): WorkTool | undefined {
-  const key = `${card.tool}|${card.maker || ""}`.toLowerCase();
-  return work.tools.find((t) => `${t.tool}|${t.maker || ""}`.toLowerCase() === key)
-    || work.tools.find((t) => t.tool.toLowerCase() === card.tool.toLowerCase());
+  const key = toolKeyOf(card);
+  return work.tools.find((t) => t.key === key)
+    || work.tools.find((t) => cleanName(t.tool).toLowerCase() === cleanName(card.tool).toLowerCase());
 }
 
 /* ---------- the home page's AI at Work ---------- */
@@ -441,9 +606,15 @@ export function homeWork(generatedAt: string): HomeWork | null {
   const id = workBriefing.featuredId;
   const featured = (id != null ? pool.find((s) => s.id === id && featurableCard(s.workCard) && namedMaker(s)) : undefined)
     || pool.find((s) => featurableCard(s.workCard) && namedMaker(s));
-  const also = pool.filter((s) => s !== featured && !s.workCard.skip).slice(0, featured ? 2 : 3);
+  // One line per tool, and never the tool the pick is already about: the band showed "Ink Canvas"
+  // twice when two stories carried it (oneCardPerTool).
+  const featuredKey = featured ? toolKeyOf(featured.workCard) : null;
+  const also = oneCardPerTool(pool.filter((s) => s !== featured && !s.workCard.skip && toolKeyOf(s.workCard) !== featuredKey))
+    .slice(0, featured ? 2 : 3);
   if (!featured && also.length < 3) return null;
-  // Counted the way the hub's job tiles count them (pages/work/index.astro).
+  // The section's whole count for each job, which is what the job page itself shows. The band has no
+  // second number to disagree with; the shortcut says "items in total" so it cannot be misread as
+  // this week's (the hub's tiles show both, pages/work/index.astro).
   const jobs = JOBS.map((job) => ({ job, count: sectionStories.filter((s) => s.workCard.jobs.includes(job.key)).length }))
     .filter((j) => j.count > 0);
   return { featured, also, jobs };

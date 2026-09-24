@@ -10,7 +10,7 @@ import yaml
 from sqlalchemy import select, update
 
 from . import archive, cache, checks, config, db, funding as funding_rules, hold, primary, trackers as tracker_rules, work as work_rules
-from . import work_learn
+from . import prices as price_rules, work_learn
 from .enrich import headline_hedged
 from .textutil import word_count
 
@@ -481,6 +481,18 @@ def run() -> dict:
         # A story that still has a card from another of its articles is not counted.
         "dropped": _work_dropped(work_dropped, {s["id"] for s in section}),
     }
+    # What the tools cost, as a history rather than one week's figure (prices.py). Every price here
+    # was already read as part of a card, so this adds no database read; the store is a file in the
+    # runner cache and the site gets its own copy beside work.json.
+    price_stats = {}
+    try:
+        price_store = price_rules.load()
+        price_stats = price_rules.record_from_stories(price_store, stories_out)
+        price_rules.save(price_store, now)
+        price_stats["tools"] = price_rules.write_export(price_store, now, out_dir / "work-prices.json")
+    except Exception as exc:  # noqa: BLE001 - the price history must never cost the export
+        log.warning("AI at Work prices not recorded: %s", str(exc)[:200])
+        price_stats = {"error": str(exc)[:120]}
     exported = {st["id"]: st["slug"] for st in stories_out}
     redirects = story_redirects(story_index, merged_titles, exported)
     duplicates = [p for p in suspects if p.get("a") in exported and p.get("b") in exported]
@@ -569,7 +581,7 @@ def run() -> dict:
     return {"stories": len(stories_out), "entities": len(entities_out), "briefing": len(briefing["storyIds"]),
             "work": len(section), "workTools": len(work_out["tools"]), "workBriefing": len(work_briefing["storyIds"]),
             "workDropped": {why: d["count"] for why, d in work_out["dropped"].items()},
-            "workLearn": learn_stats,
+            "workLearn": learn_stats, "workPrices": price_stats,
             "threads": len(threads_out), "models": len(trackers["models"]), "funding": len(trackers["funding"]),
             "fundingDropped": funding_dropped, "hedged": sum(1 for s in stories_out if s["hedged"]),
             "redirects": len(redirects), "moderation": moderation, "archive": archived, "dir": str(out_dir)}

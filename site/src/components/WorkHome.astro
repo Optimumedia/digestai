@@ -69,7 +69,7 @@ const steps = card?.steps?.filter(Boolean) || [];
       <span class="wk-hjobs-k">Find it by job</span>
       <ul role="list">
         {jobs.map(({ job, count }) => (
-          <li><a href={`/work/${job.slug}`} data-work-next="home-band-job">{job.label} <span class="mono">{count}<span class="sr-only"> {count === 1 ? "item" : "items"}</span></span></a></li>
+          <li><a href={`/work/${job.slug}`} data-work-next="home-band-job">{job.label} <span class="mono">{count}<span class="sr-only"> {count === 1 ? "item" : "items"} in total</span></span></a></li>
         ))}
       </ul>
     </nav>

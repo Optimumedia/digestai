@@ -54,6 +54,9 @@ jobs:
           python tests/test_storage.py
           python tests/test_work.py
           python tests/test_work_learn.py
+          # AI at Work prices (pipeline/digest/prices.py): the history is a file in the runner cache,
+          # not a table, so this needs no database - it runs beside the other offline tests.
+          python tests/test_prices.py
           python tests/test_summaries.py
           python tests/test_mistral.py
           python tests/test_cloudflare.py

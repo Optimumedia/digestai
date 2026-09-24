@@ -18,6 +18,7 @@ This module holds three things, all pure functions so they can be tested without
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 
 from . import checks, plain
@@ -114,8 +115,9 @@ def clean_card(value) -> dict | None:
 
     Dropped when the model says it does not fit, when it names no tool, when it cannot say in one
     sentence what the thing does, or when it has no honest caveat; and, by rules rather than the
-    model's word, when it is a developer or infrastructure tool or a course (screen_card). Everything
-    else is clamped, so a talkative or a sloppy answer cannot reach a page.
+    model's word, when it is a developer or infrastructure tool, a course, or a category rather than
+    a product (screen_card). Everything else is clamped, so a talkative or a sloppy answer cannot
+    reach a page.
     """
     return screen_card(value)[0]
 
@@ -157,6 +159,98 @@ COURSE_WORDS = re.compile(
 def _dashes(text: str) -> str:
     """The model writes non-breaking and other Unicode hyphens ("first‑token"); the rules match "-"."""
     return re.sub(r"[‐-―−]", "-", text or "")
+
+
+# Characters that are in a name without being visible in it: zero-width spaces and joiners, the
+# bidirectional marks, word joiners and the byte-order mark. A publisher's copy or a model's answer
+# picks them up from a web page, and they survive into the card: "React​iv AI Scheduler" reads
+# as "Reactiv AI Scheduler" and is the same tool, but sorts, groups and compares as a different one.
+INVISIBLE = re.compile(r"[­​-‏‪-‮⁠-⁤﻿]")
+
+
+def clean_name(text: str | None) -> str:
+    """A tool or maker name as it is compared and as it is shown: no invisible characters, ordinary
+    hyphens, single spaces. Used on the way in (_clamp_card), so the key and the page agree."""
+    name = unicodedata.normalize("NFKC", str(text or ""))
+    return re.sub(r"\s+", " ", _dashes(INVISIBLE.sub("", name))).strip()
+
+
+# ---------------------------------------------------------------------------- categories, not products
+#
+# "AI SEO tools", "AI agents (Codex, Claude)", "Specialized AI Agents", "AI Search": a reader cannot
+# open any of them. They are the shape of an answer the model gives when an article is about a kind
+# of software rather than one product, and they take a card's place on the hub. The rules below read
+# the tool's name and its maker only - never what it does, which rightly describes a category
+# ("writes social posts") for a real product.
+#
+# The line is drawn at the words: a name made only of category words is a category, and a name with
+# a maker's own word in it ("Google AI Studio", "Copilot Studio", "AI Max for Search") is a product.
+
+# Plurals that name a kind of software. One of these with no maker behind it is a listicle's heading.
+GENERIC_PLURALS = {
+    "tools", "agents", "assistants", "platforms", "apps", "applications", "models", "services",
+    "bots", "chatbots", "solutions", "systems", "suites", "products", "generators", "builders",
+}
+# Words that say what kind of thing it is, never which one. A name made only of these is a category.
+GENERIC_TOOL_WORDS = GENERIC_PLURALS | {
+    "ai", "a.i", "artificial", "intelligence", "generative", "genai", "gen", "llm", "llms",
+    "tool", "agent", "assistant", "platform", "app", "application", "model", "service", "software",
+    "solution", "system", "suite", "product", "bot", "chatbot", "chat", "generator", "builder",
+    "new", "smart", "specialized", "specialised", "advanced", "automated", "automatic", "powered",
+    "best", "top", "free", "online", "modern", "popular", "various", "several", "multiple", "other",
+    "general", "purpose", "based", "driven", "native", "enabled", "leading", "different",
+    "search", "seo", "marketing", "content", "automation", "analytics", "productivity", "writing",
+}
+# Words that carry no meaning either way inside a name.
+NAME_FILLER = {"the", "a", "an", "for", "in", "of", "on", "with", "and", "or", "by", "to", "your", "my", "its"}
+# A job or a category written out as if it were a product's name.
+CATEGORY_NAMES = {_n for _n in (
+    "get more customers", "make content faster", "sell more", "answer customers faster",
+    "run the business", "customer support", "customer service", "email marketing", "content marketing",
+    "social media", "social media management", "project management", "video editing", "image generation",
+    "lead generation", "search engine optimisation", "search engine optimization", "digital marketing",
+    "small business", "customer experience", "data entry", "bookkeeping",
+)}
+# "(Codex, Claude)", "(Gemini and Claude)": the name lists other tools instead of naming one.
+TOOL_LIST_IN_NAME = re.compile(r"\(([^)]{2,80})\)")
+
+
+def _name_tokens(name: str) -> list[str]:
+    """The meaningful words of a name, lowercased: "AI Max for Search" -> ["ai", "max", "search"]."""
+    words = re.findall(r"[a-z0-9][a-z0-9.'’+-]*", clean_name(name).lower())
+    return [w.strip(".'’-") for w in words if w.strip(".'’-") and w.strip(".'’-") not in NAME_FILLER]
+
+
+def _lists_other_tools(name: str) -> bool:
+    """The name carries a parenthesised list of other tools: "AI agents (Codex, Claude)"."""
+    for inside in TOOL_LIST_IN_NAME.findall(clean_name(name)):
+        if "," in inside or re.search(r"\w\s+(?:and|or)\s+\w", inside, re.I):
+            return True
+    return False
+
+
+def not_a_product(card: dict) -> bool:
+    """The card names a category rather than something a reader can open.
+
+    True when the name lists other tools ("AI agents (Codex, Claude)"), when every word in it is a
+    category word ("AI Search", "Specialized AI Agents"), when it is a job or a category written out
+    ("Customer support"), or when it is a plural kind of software with no maker standing behind it
+    ("AI SEO tools"). A maker's own word inside the name ("Google AI Studio", "Copilot Studio") is
+    not a category word, so real products whose names contain generic words stay.
+    """
+    name = clean_name(card.get("tool"))
+    if not name:
+        return True
+    if _lists_other_tools(name):
+        return True
+    tokens = _name_tokens(name)
+    if not tokens:
+        return True
+    if " ".join(tokens) in CATEGORY_NAMES:
+        return True
+    if all(t in GENERIC_TOOL_WORDS for t in tokens):
+        return True
+    return bool(set(tokens) & GENERIC_PLURALS) and not clean_name(card.get("maker"))
 
 
 def developer_only(card: dict) -> str | None:
@@ -239,8 +333,9 @@ def generic_card(card: dict) -> bool:
 
 def screen_card(value, source: str | None = None) -> tuple[dict | None, str | None]:
     """(card, None) for a card that belongs on the section; (None, why) for one the rules drop, with
-    why in "developer", "course"; (None, None) for one that never was a card. The reason is what the
-    export and the enrich step count, so the admin page can say how much the rules keep out.
+    why in "developer", "course", "not a product", "nothing new"; (None, None) for one that never was
+    a card. The reason is what the export and the enrich step count, so the admin page can say how
+    much the rules keep out.
 
     With the article's text (`source`), the teaching fields are also grounded in it (ground_card).
     enrich.verify does that before a card is stored; the export re-screens stored cards without it."""
@@ -252,6 +347,8 @@ def screen_card(value, source: str | None = None) -> tuple[dict | None, str | No
     reason = developer_only(card)
     if reason:
         return None, reason
+    if not_a_product(card):
+        return None, "not a product"
     if generic_card(card):
         return None, "nothing new"
     card["maker"], _fixed = check_maker(card)
@@ -314,7 +411,9 @@ def _clamp_card(value) -> dict | None:
         return None
     if not value.get("fits"):
         return None
-    tool = _text(value.get("tool"), 120)
+    # Names are cleaned before anything reads them: an invisible character inside a tool's name
+    # would otherwise make it a second tool everywhere it is grouped (tool_key, build_tools, weeks).
+    tool = clean_name(_text(value.get("tool"), 120))
     what = _text(value.get("what_it_does"), 220)
     watch = _text(value.get("watch_out"), 260)
     if not tool or len(what) < 15 or len(watch) < 10:
@@ -338,7 +437,7 @@ def _clamp_card(value) -> dict | None:
     link = _text(value.get("link"), 500)
     if not link.startswith(("http://", "https://")):
         link = ""
-    maker = _text(value.get("maker"), 120) or None
+    maker = clean_name(_text(value.get("maker"), 120)) or None
     return {
         "fits": True,
         "tool": tool,
@@ -348,6 +447,9 @@ def _clamp_card(value) -> dict | None:
         "who_for": who[:4],
         "use_for": uses,
         "cost": _text(value.get("cost"), 60) or "unknown",
+        # The same price as data, when the article stated one (_price); None otherwise. The free-text
+        # "cost" above stays exactly as it was: it is what the card's chip says.
+        "price": _price(value.get("price"), _text(value.get("cost"), 60)),
         "included_in": _included_in(value.get("included_in")),
         "effort": _effort(value.get("effort")),
         "watch_out": watch,
@@ -458,6 +560,155 @@ def _example(value) -> dict | None:
     if len(before) > EXAMPLE_MAX or len(after) > EXAMPLE_MAX or before.lower() == after.lower():
         return None
     return {"before": before, "after": after}
+
+
+# ---------------------------------------------------------------------------- the price, as data
+#
+# "Price not stated" on half the cards, and last month's price thrown away, is the section's biggest
+# gap: what a tool costs, and whether that changed, is the one fact a small business asks for first.
+# The model returns the price as fields rather than a sentence, so the section can keep a history per
+# tool (prices.py) and say "was $12 in August". The free-text "cost" stays exactly as it was: the
+# chip on a card still says what the model wrote.
+#
+# Nothing here trusts the model's arithmetic. Every figure is checked against the article text by
+# price_grounded (ground_card), the same way a step or a "what you get" line is, and a price with a
+# figure the article does not have is dropped whole.
+
+CURRENCY_SIGNS = {"$": "USD", "US$": "USD", "€": "EUR", "£": "GBP", "¥": "JPY", "₹": "INR"}
+CURRENCY_CODES = {"USD", "EUR", "GBP", "JPY", "INR", "CAD", "AUD", "CHF", "SEK", "BRL", "MXN"}
+PRICE_PERIODS = ("month", "year", "one-off", "usage")
+PRICE_AMOUNT_MAX = 10_000_000.0
+FREE_LIMIT_MAX = 90
+QUOTED_MAX = 240
+PLAN_NAME_MAX = 60
+
+
+def _period(value, quoted: str = "", amount: str = "") -> str:
+    """One of PRICE_PERIODS, read from the model's word, from the sentence it quoted, or from the way
+    it wrote the amount ("$99 one-time"); "" when none of them says. A price with no period is still
+    a price."""
+    text = f"{str(value or '').lower()} {quoted.lower()} {str(amount or '').lower()}"
+    if re.search(r"\bone[- ]?(?:off|time)\b|\blifetime\b|\bone payment\b|\bperpetual\b", text):
+        return "one-off"
+    if re.search(r"per (?:1|1,000|thousand|million)\b|per (?:credit|token|image|minute|call|request|seat-hour)|"
+                 r"\bper 1k\b|\bpay[- ]as[- ]you[- ]go\b|/\s?(?:1k|1m)\b", text):
+        return "usage"
+    if re.search(r"\bmonth(?:ly|s)?\b|/\s?mo\b|\bp/?m\b|\ba month\b", text):
+        return "month"
+    if re.search(r"\byear(?:ly|s)?\b|\bannual(?:ly)?\b|/\s?yr\b|\ba year\b", text):
+        return "year"
+    return str(value or "").strip().lower() if str(value or "").strip().lower() in PRICE_PERIODS else ""
+
+
+def _currency(value, quoted: str = "", cost: str = "") -> str:
+    """A three-letter code. The model's when it is one we know, else read from the sign in the
+    sentence it quoted or in the free-text cost; "USD" when a bare "$" is all there is."""
+    code = re.sub(r"[^A-Za-z]", "", str(value or "")).upper()
+    if code in CURRENCY_CODES:
+        return code
+    text = f"{quoted} {cost}"
+    for sign, found in CURRENCY_SIGNS.items():
+        if sign in text:
+            return found
+    found = re.search(r"\b(" + "|".join(CURRENCY_CODES) + r")\b", text.upper())
+    return found.group(1) if found else ""
+
+
+def _amount(value) -> float | None:
+    """A non-negative figure under PRICE_AMOUNT_MAX, from a number or from "$19.99/mo"; None when
+    the model gave no figure. Free is 0, which is a price and not a missing one."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        number = float(value)
+    else:
+        found = re.search(r"\d[\d,\s]*(?:\.\d+)?", str(value))
+        if not found:
+            return None
+        try:
+            number = float(found.group(0).replace(",", "").replace(" ", ""))
+        except ValueError:
+            return None
+    if number < 0 or number > PRICE_AMOUNT_MAX or number != number:
+        return None
+    return round(number, 2)
+
+
+def _price(value, cost: str = "") -> dict | None:
+    """The price as {plan, amount, currency, period, free_limit, quoted}, or None.
+
+    None when the model said nothing, and when what it said carries neither a figure nor a free
+    limit: a "price" with no number in it is the free-text cost again, not data.
+    """
+    if not isinstance(value, dict):
+        return None
+    quoted = _text(value.get("quoted"), 600).strip().strip("\"“”'").strip()
+    if _empty(quoted):
+        quoted = ""
+    quoted = _cut_words(quoted, QUOTED_MAX)
+    plan = _text(value.get("plan"), 200).strip().strip("\"“”'").rstrip(".").strip()
+    if _empty(plan) or len(plan) > PLAN_NAME_MAX:
+        plan = ""
+    free_limit = _text(value.get("free_limit"), 200).strip().strip("\"“”'").strip()
+    if _empty(free_limit) or len(free_limit) > FREE_LIMIT_MAX:
+        free_limit = ""
+    raw_amount = "" if isinstance(value.get("amount"), (int, float)) else str(value.get("amount") or "")
+    amount = _amount(value.get("amount"))
+    if amount is None and not free_limit:
+        return None
+    return {
+        "plan": plan,
+        "amount": amount,
+        "currency": _currency(value.get("currency"), f"{quoted} {raw_amount}", cost) if amount is not None else "",
+        "period": _period(value.get("period"), quoted, raw_amount),
+        "free_limit": free_limit,
+        "quoted": quoted,
+    }
+
+
+def price_grounded(price: dict | None, source: str | None) -> dict | None:
+    """The price with only what the text supports, or None.
+
+    Every figure in it - the amount, the free limit and the sentence it quotes - has to be a figure
+    the text has (checks.unsupported_figures); one that is not drops the whole price, because half a
+    price is a wrong price. A quoted sentence the text does not actually carry is dropped on its own:
+    the figure can still be right, but the page must not attribute words to an article.
+    Without enough text to check against, there is no price.
+    """
+    if not price:
+        return None
+    source = source or ""
+    if len(source) < checks.MIN_SOURCE_CHARS:
+        return None
+    amount = price.get("amount")
+    figures = " ".join(x for x in (("%g" % amount) if amount is not None else "",
+                                   price.get("free_limit") or "", price.get("quoted") or "") if x)
+    if checks.unsupported_figures(figures, source):
+        return None
+    price = dict(price)
+    quoted = price.get("quoted") or ""
+    if quoted:
+        flat_quote = re.sub(r"[^a-z0-9]+", "", quoted.lower())
+        if flat_quote and flat_quote not in re.sub(r"[^a-z0-9]+", "", source.lower()):
+            price["quoted"] = ""
+    return price
+
+
+def price_text(price: dict | None) -> str:
+    """The price in words, as a chip or a table cell shows it: "$19/mo", "€99 once", "Free up to 500
+    images a month". "" when there is nothing to say."""
+    if not price:
+        return ""
+    amount, currency = price.get("amount"), price.get("currency") or ""
+    if amount is None:
+        return f"Free: {price['free_limit']}" if price.get("free_limit") else ""
+    if amount == 0:
+        return "Free"  # "$0" is a figure; "Free" is the answer the reader wanted
+    sign = next((s for s, code in CURRENCY_SIGNS.items() if code == currency and len(s) == 1), "")
+    # Money keeps its pennies: "$1.20", never "$1.2"; a round figure keeps none: "$12", "€1,200".
+    figure = f"{amount:,.2f}" if amount != int(amount) else f"{int(amount):,}"
+    money = f"{sign}{figure}" if sign else (f"{figure} {currency}".strip())
+    return money + {"month": "/mo", "year": "/yr", "one-off": " once", "usage": " per use"}.get(price.get("period") or "", "")
 
 
 def _included_in(value) -> str:
@@ -608,6 +859,11 @@ def ground_card(card: dict | None, source: str | None) -> dict | None:
         words = {w for w in re.findall(r"[a-z0-9]+", plan.lower()) if w not in STOPWORDS and w not in PLAN_FILLER}
         if not enough or not words or not words <= source_tokens:
             card["included_in"] = ""
+
+    # The price as data: every figure in it has to be the article's own, or there is no price. The
+    # free-text "cost" is untouched, so a card whose price goes still says what the model wrote.
+    if card.get("price"):
+        card["price"] = price_grounded(card["price"], source) if enough else None
 
     headline = card.get("headline") or ""
     if headline and enough and checks.unsupported_figures(headline, source):
@@ -836,10 +1092,30 @@ def cost_label(card: dict) -> str:
     return "Price not stated"
 
 
+def effective_cost(card: dict) -> tuple[str, str]:
+    """(kind, label) for the cost chip: the model's own words when they say anything, and the price
+    it returned as data when they do not.
+
+    "Price not stated" was on more than half the cards while the same answer carried a figure in its
+    "price" field. The words still win where there are any: they are what the article said.
+    """
+    kind, label = cost_kind(card.get("cost") or ""), cost_label(card)
+    if kind != "unknown":
+        return kind, label
+    price = card.get("price") or {}
+    amount = price.get("amount")
+    if amount:
+        return "paid", f"Paid: from {price_text(price)}"
+    if amount == 0 or price.get("free_limit"):
+        return ("free tier", "Free to try") if price.get("free_limit") else ("free", "Free")
+    return kind, label
+
+
 def card_labels(card: dict) -> list[dict]:
     """At most three labels, in order: cost, time (when stated), and one skill or risk-reducer only
     when the article said so ("No tech skills", "No card needed")."""
-    out = [{"kind": "cost", "costKind": cost_kind(card.get("cost") or ""), "text": cost_label(card)}]
+    kind, label = effective_cost(card)
+    out = [{"kind": "cost", "costKind": kind, "text": label}]
     if card.get("effort") in TIME_LABELS:
         out.append({"kind": "time", "text": TIME_LABELS[card["effort"]]})
     if card.get("ease") in plain.EASE_LABELS:
@@ -890,17 +1166,29 @@ def card_out(card: dict, story: dict | None = None) -> dict:
     """The card as the site reads it, with the facts the pages derive from it."""
     headline = card.get("headline") or fallback_headline(card)
     jobs = jobs_for(card)
+    # The cost in words: the model's own, or the stored price when its words said nothing. The
+    # table and the chip both read this, so they never say "not stated" next to a figure.
+    _cost_kind, _ = effective_cost(card)
+    _cost = card.get("cost") or "unknown"
+    if _cost_kind != cost_kind(_cost):
+        _cost = price_text(card.get("price")) or _cost
     out = {
         "tool": card["tool"],
         "maker": card.get("maker"),
+        # Same tool, same key (tool_key). Written out so the site groups tools exactly as the
+        # pipeline does - one card per tool in a week's lists and on the hub - without a second copy
+        # of the rule in TypeScript.
+        "toolKey": tool_key(card["tool"], card.get("maker")),
         # What the reader gets, verb first (plain.py); "" when neither the model's headline nor one
         # built from the card's uses keeps the rules. Such a card is kept off the hub ("hub").
         "headline": headline,
         "whatItDoes": card.get("what_it_does") or "",
         "whoFor": card.get("who_for") or [],
         "useFor": card.get("use_for") or [],
-        "cost": card.get("cost") or "unknown",
-        "costKind": cost_kind(card.get("cost") or ""),
+        "cost": _cost,
+        # The kind behind the chip: the model's words, or the stored price when the words said
+        # nothing (effective_cost), so "Price not stated" is only shown when nothing is known.
+        "costKind": _cost_kind,
         "effort": card.get("effort"),
         "watchOut": card["watch_out"],
         "link": _link_url,
@@ -937,6 +1225,13 @@ def card_out(card: dict, story: dict | None = None) -> dict:
         out["prompt"] = card["prompt"]
     if card.get("example"):
         out["example"] = {"before": card["example"]["before"], "after": card["example"]["after"]}
+    # The price as data, when the article stated one and its figures are the article's (price_grounded).
+    # prices.py keeps one row per tool per observation from these, so a page can say "was $12 in August".
+    if card.get("price"):
+        p = card["price"]
+        out["price"] = {"plan": p.get("plan") or "", "amount": p.get("amount"), "currency": p.get("currency") or "",
+                        "period": p.get("period") or "", "freeLimit": p.get("free_limit") or "",
+                        "quoted": p.get("quoted") or ""}
     return out
 
 
@@ -981,6 +1276,43 @@ def tool_key(tool: str, maker: str | None) -> str:
 
 
 TOOL_FILLER = {"in", "for", "the", "a", "an", "of", "on", "with", "by", "and", "app", "feature", "features", "new"}
+
+
+def story_tool_key(story: dict) -> str:
+    """The tool key of a story's exported card. The export writes it (card_out, "toolKey"); older
+    exports and freshly built cards are keyed the same way here."""
+    card = story.get("workCard") or {}
+    return card.get("toolKey") or tool_key(card.get("tool") or "", card.get("maker"))
+
+
+def fold_by_tool(stories: list[dict], ranked: bool = False) -> tuple[list[dict], dict[int, list[int]]]:
+    """(one story per tool, what each one stands for).
+
+    Two stories about the same tool in the same week - a laptop launch and a tablet launch, both
+    carrying "Ink Canvas" - are two cards for one thing to try. The more useful card stays (the
+    newer one when they are equally useful) and the others are folded into it; the second value maps
+    the kept story's id to the ids it now stands for, so a page can show them as further sources
+    instead of losing them. Different products from the same maker keep their own keys (tool_key),
+    so "ChatGPT" and "ChatGPT Plus" are never folded together.
+
+    `ranked` is for a list already in the order its page wants (the section briefing, which may be
+    ordered by what readers do rather than by the rules): the first card of each tool stays.
+    """
+    best: dict[str, dict] = {}
+    for position, s in enumerate(stories):
+        key = story_tool_key(s)
+        rank = ((-position,) if ranked
+                else (s.get("workCard", {}).get("usefulness") or 0.0, s.get("firstPublishedAt") or ""))
+        current = best.get(key)
+        if current is None or rank > current["rank"]:
+            best[key] = {"story": s, "rank": rank, "others": ([current["story"]] + current["others"]) if current else []}
+        else:
+            current["others"].append(s)
+    kept = [b["story"] for b in best.values()]
+    order = {id(s): i for i, s in enumerate(stories)}
+    kept.sort(key=lambda s: order[id(s)])
+    folded = {b["story"]["id"]: [o["id"] for o in b["others"]] for b in best.values() if b["others"]}
+    return kept, folded
 
 
 def _singular(word: str) -> str:
@@ -1056,18 +1388,25 @@ def week_key(iso: str | None) -> str:
 def weeks(stories: list[dict]) -> dict[str, dict]:
     """Every week of the section, as the playbook page shows it: what changed, what to try, what to
     skip. "Skip" is never a judgement of the tool, only of this week: a waitlist, a beta, or work
-    that needs a developer."""
+    that needs a developer.
+
+    One card per tool per week (fold_by_tool): the same tool covered twice in a week is one thing to
+    try, not two. What the kept card now stands for is under "folded"."""
     out: dict[str, dict] = {}
     for s in stories:
         card = s.get("workCard")
         if not card:
             continue
         key = week_key(s.get("firstPublishedAt") or s.get("updatedAt"))
-        bucket = out.setdefault(key, {"week": key, "changed": [], "try": [], "skip": []})
-        bucket["changed"].append(s)
-        (bucket["skip"] if card.get("skip") else bucket["try"]).append(s)
+        bucket = out.setdefault(key, {"week": key, "all": []})
+        bucket["all"].append(s)
     for bucket in out.values():
-        bucket["changed"].sort(key=lambda s: s.get("firstPublishedAt") or "", reverse=True)
+        week_stories = sorted(bucket.pop("all"), key=lambda s: s.get("firstPublishedAt") or "", reverse=True)
+        kept, folded = fold_by_tool(week_stories)
+        bucket["folded"] = {str(i): ids for i, ids in folded.items()}
+        bucket["changed"] = kept
+        bucket["try"] = [s for s in kept if not s["workCard"].get("skip")]
+        bucket["skip"] = [s for s in kept if s["workCard"].get("skip")]
         bucket["try"].sort(key=lambda s: -(s["workCard"]["usefulness"]))
         # The week's first "try" leads the playbook page and titles the weekly episode (audio.py):
         # the same rule as the daily featured pick.
@@ -1075,7 +1414,8 @@ def weeks(stories: list[dict]) -> dict[str, dict]:
         if first is not None:
             bucket["try"] = [first] + [s for s in bucket["try"] if s is not first]
         bucket["skip"].sort(key=lambda s: -(s["workCard"]["usefulness"]))
-        bucket["tools"] = len({tool_key(s["workCard"]["tool"], s["workCard"].get("maker")) for s in bucket["changed"]})
+        # One card per tool, so the tool count and the item count are now the same number.
+        bucket["tools"] = len({story_tool_key(s) for s in bucket["changed"]})
         # The lists below are cut to what a page shows; the counts are the week's own.
         bucket["tryCount"], bucket["skipCount"] = len(bucket["try"]), len(bucket["skip"])
         bucket["changed"] = [s["id"] for s in bucket["changed"]]
@@ -1118,15 +1458,9 @@ def build_briefing(stories: list[dict], now, score=None) -> dict:
             fresh, window = wider, 48
     fresh.sort(key=lambda s: (-score(s), s.get("firstPublishedAt") or ""))
     # One card per tool: two stories about the same product the same day (a rollout and a feature
-    # of it) read as a duplicate side by side. The more useful one stays.
-    seen: set[str] = set()
-    unique = []
-    for s in fresh:
-        key = tool_key(s["workCard"]["tool"], s["workCard"].get("maker"))
-        if key not in seen:
-            seen.add(key)
-            unique.append(s)
-    fresh = unique
+    # of it) read as a duplicate side by side. The more useful one stays (fold_by_tool); the list is
+    # already in usefulness order, so it keeps the first of each tool.
+    fresh, _folded = fold_by_tool(fresh, ranked=True)
     # The first card is the featured pick ("one thing to try"). It has to be a real product: a known
     # maker, an official link and a publisher's coverage. A Reddit user's hobby project can stay in
     # the list, never in front of it; when nothing qualifies, a card whose maker is not a forum
@@ -1140,7 +1474,7 @@ def build_briefing(stories: list[dict], now, score=None) -> dict:
         fresh = [lead] + [s for s in fresh if s is not lead]
     top = fresh[:BRIEFING_SIZE]
     also = fresh[BRIEFING_SIZE : BRIEFING_SIZE + BRIEFING_ALSO]
-    tools = {tool_key(s["workCard"]["tool"], s["workCard"].get("maker")) for s in top + also}
+    tools = {story_tool_key(s) for s in top + also}
     free = sum(1 for s in top + also if s["workCard"]["costKind"] in ("free", "free tier", "included"))
     return {
         "date": now.date().isoformat(),

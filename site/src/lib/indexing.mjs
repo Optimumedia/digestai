@@ -9,6 +9,9 @@ export const DAILY_MIN_STORIES = 3;
 export const WEEK_MIN_STORIES = 5;
 /** An AI at Work playbook week, or the section itself, with fewer practical items than this is thin. */
 export const WORK_MIN_ITEMS = 3;
+/** /work/prices is a page about movement: below this many tools whose price actually changed it is
+    a stub, so it is built and linked but carries noindex and stays out of the sitemap. */
+export const WORK_PRICES_MIN_ENTRIES = 5;
 /** A story with one source, no primary document and importance at or below this is a thin page. */
 export const THIN_STORY_IMPORTANCE = 4;
 
@@ -120,8 +123,9 @@ export function modelIndexable(page) {
 }
 
 /** Every page path that carries noindex and is left out of the sitemaps, from the exported data.
-    `models` is trackers.json's model list; without it no model pages are counted. */
-export function noindexPaths(stories, entities, models = []) {
+    `models` is trackers.json's model list; without it no model pages are counted. `priceChanges` is
+    work-prices.json's change list; without it /work/prices counts as thin. */
+export function noindexPaths(stories, entities, models = [], priceChanges = []) {
   const out = new Set();
   for (const s of stories) if (!storyIndexable(s)) out.add(`/story/${s.slug}`);
   for (const [slug, ids] of topicStoryIds(stories, entities)) if (ids.size < TOPIC_MIN_STORIES) out.add(`/topic/${slug}`);
@@ -151,6 +155,7 @@ export function noindexPaths(stories, entities, models = []) {
   }
   const jobs = jobCounts(work);
   for (const [key, slug] of Object.entries(JOB_SLUGS)) if (!jobIndexable(jobs[key])) out.add(`/work/${slug}`);
+  if ((priceChanges?.length || 0) < WORK_PRICES_MIN_ENTRIES) out.add("/work/prices");
   // Models: a thin model page is noindex; a topic hub under a tracked model's slug is a redirect page.
   for (const page of modelPages(stories, entities, models).values()) {
     if (!modelIndexable(page)) out.add(`/models/${page.slug}`);
@@ -173,7 +178,7 @@ export const SITEMAP_MIN_IMPORTANCE = 6;
 export const THREAD_SITEMAP_MIN = 3;
 /** Fixed hub pages that are listed (when not noindex). Categories, topics, models, threads and the
     AI at Work subpages are matched by the rules in sitemapIndex. */
-export const SITEMAP_HUBS = ["", "/today", "/work", "/work/tools", "/models", "/funding", "/api", "/about", "/listen", "/threads", "/about/how-it-works", "/about/martin"];
+export const SITEMAP_HUBS = ["", "/today", "/work", "/work/tools", "/work/prices", "/models", "/funding", "/api", "/about", "/listen", "/threads", "/about/how-it-works", "/about/martin"];
 
 /** Publisher identity from a host name: news.example.co.uk and example.co.uk are one source.
     The same rule as pipeline/digest/hold.py registrable(). */
@@ -231,8 +236,8 @@ export function archivedInSitemap(a) {
 /** The sitemap plan from the exported data: `include(path)` says whether a built page is listed and
     `lastmod` holds each listed page's last change (a story's as its page states it, a hub's as its
     newest story's). Paths have no trailing slash; the home page is "". */
-export function sitemapIndex({ stories = [], entities = [], models = [], threads = [], archived = [] } = {}) {
-  const noindex = noindexPaths(stories, entities, models);
+export function sitemapIndex({ stories = [], entities = [], models = [], threads = [], archived = [], priceChanges = [] } = {}) {
+  const noindex = noindexPaths(stories, entities, models, priceChanges);
   const listed = new Set(SITEMAP_HUBS);
   const lastmod = new Map();
   const modById = new Map(stories.map((s) => [s.id, storyModified(s)]));
@@ -270,6 +275,8 @@ export function sitemapIndex({ stories = [], entities = [], models = [], threads
   const work = stories.filter((s) => s.workCard);
   const workMod = newestOf(work.map((s) => s.id));
   if (workMod) { lastmod.set("/work", workMod); lastmod.set("/work/tools", workMod); }
+  const priceMod = [...priceChanges].map((c) => c.at).filter(Boolean).sort().pop();
+  if (priceMod) lastmod.set("/work/prices", priceMod);
   for (const [key, slug] of Object.entries(JOB_SLUGS)) {
     const mod = newestOf(work.filter((s) => s.workCard.jobs?.includes(key)).map((s) => s.id));
     if (mod) lastmod.set(`/work/${slug}`, mod);
