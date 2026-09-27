@@ -337,6 +337,22 @@ console.log(JSON.stringify(out));
     assert out["listed"] is True and out["unlisted"] is False
 
 
+def test_a_price_is_kept_only_when_the_quote_names_that_tool():
+    from digest import work
+
+    article = ("Google announced several changes today. Google One costs $1.99 a month for 15 GB of storage. "
+               "Gmail stays free for everyone who wants it. " * 6)
+    price = {"amount": 1.99, "currency": "USD", "period": "month", "plan": "", "free_limit": "",
+             "quoted": "Google One costs $1.99 a month for 15 GB of storage."}
+    # The article quotes one product's price; the others must not inherit it (live: Gmail showed $4.90/mo).
+    assert work.price_for_card(price, {"tool": "Gmail", "maker": "Google"}, article) is None
+    assert work.price_for_card(price, {"tool": "Gemini desktop app", "maker": "Google"}, article) is None
+    kept = work.price_for_card(price, {"tool": "Google One", "maker": "Google"}, article)
+    assert kept and kept["amount"] == 1.99
+    # No quoted sentence: nothing is attributed to the article, so the figure stands on the usual checks.
+    assert work.price_for_card({**price, "quoted": ""}, {"tool": "Gmail", "maker": "Google"}, article)
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

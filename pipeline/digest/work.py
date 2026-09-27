@@ -666,6 +666,21 @@ def _price(value, cost: str = "") -> dict | None:
     }
 
 
+def price_names_the_tool(price: dict, card: dict) -> bool:
+    """Does the quoted sentence say whose price it is? An article about Gemini quotes several prices;
+    without this, "Google One is $1.99 a month" became the price of Gmail. The sentence has to carry
+    the tool's own distinctive word, or the maker's, or say it plainly ("costs", "per month") right
+    beside one of them."""
+    quoted = " ".join((price.get("quoted") or "").lower().split())
+    if not quoted:
+        return True  # nothing is attributed to an article, so there is nothing to get wrong
+    # The tool's own name only. The maker's is not enough: an article about Google quotes the price
+    # of Google One and of Workspace, and either would then be read as Gmail's.
+    generic = {"the", "app", "ai", "pro", "plus", "cloud", "studio", "assistant", "desktop", "for", "and", "with", "new"}
+    words = {w for w in re.findall(r"[a-z0-9.+]{3,}", str(card.get("tool") or "").lower()) if w not in generic}
+    return any(w in quoted for w in words) if words else True
+
+
 def price_grounded(price: dict | None, source: str | None) -> dict | None:
     """The price with only what the text supports, or None.
 
@@ -692,6 +707,14 @@ def price_grounded(price: dict | None, source: str | None) -> dict | None:
         if flat_quote and flat_quote not in re.sub(r"[^a-z0-9]+", "", source.lower()):
             price["quoted"] = ""
     return price
+
+
+def price_for_card(price: dict | None, card: dict, source: str | None) -> dict | None:
+    """The grounded price, but only when the quoted sentence is about this tool (see above)."""
+    grounded = price_grounded(price, source)
+    if grounded and not price_names_the_tool(grounded, card):
+        return None
+    return grounded
 
 
 def price_text(price: dict | None) -> str:
@@ -863,7 +886,7 @@ def ground_card(card: dict | None, source: str | None) -> dict | None:
     # The price as data: every figure in it has to be the article's own, or there is no price. The
     # free-text "cost" is untouched, so a card whose price goes still says what the model wrote.
     if card.get("price"):
-        card["price"] = price_grounded(card["price"], source) if enough else None
+        card["price"] = price_for_card(card["price"], card, source) if enough else None
 
     headline = card.get("headline") or ""
     if headline and enough and checks.unsupported_figures(headline, source):

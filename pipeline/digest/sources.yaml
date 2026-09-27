@@ -202,7 +202,12 @@ sources:
     weight: 1.0
   - key: ai-news
     name: AI News
+    # Its /feed/ has answered with the site's HTML since mid-September (162 runs in a row), so the
+    # fallback carries it: a Bing News search limited to its own domain.
     url: https://www.artificialintelligence-news.com/feed/
+    agent: browser
+    fallback: https://www.bing.com/news/search?q=%22artificialintelligence-news.com%22+OR+%22AI+News%22+artificial+intelligence&format=rss
+    keep_domain: artificialintelligence-news.com
     category: enterprise
     weight: 0.8
   - key: marktechpost
