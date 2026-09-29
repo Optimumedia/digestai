@@ -25,6 +25,7 @@ log = logging.getLogger("digest.merge")
 
 MERGED = "merged"           # stories.status of a story folded into another (redirect_to points there)
 STRONG_MARGIN = 0.05        # this far above the bar, two stories are one event even without a shared name
+MERGE_MIN_WORDS = 0.40      # with one shared name, the headlines must also repeat this much of each other
 SUSPECT_MARGIN = 0.06       # this far below it, with a shared name, a pair is listed for review
 MAX_SUSPECTS = 20
 LEAD_IMPORTANCE_MARGIN = 2  # a new lead must beat the current one by this much to change the headline
@@ -161,8 +162,14 @@ def same_event(a: dict, b: dict, sim: float | None, thr: float) -> str | None:
             return f"nearly the same headline, both about {shared[0].title()}"
         return None
     if sim is not None:
+        # A shared name alone is not evidence: "Anthropic" is in most AI stories, and trusting it at
+        # 0.88 merged a dozen separate events in September. At this bar a pair also has to share two
+        # names, or repeat some of the same words, or be alike enough to stand on its own.
         if sim >= thr and shared:
-            return f"{sim:.2f} alike, both about {shared[0].title()}"
+            if len(shared) >= 2:
+                return f"{sim:.2f} alike, both about {shared[0].title()} and {shared[1].title()}"
+            if _tokens_similarity(a["tokens"], b["tokens"]) >= MERGE_MIN_WORDS:
+                return f"{sim:.2f} alike, both about {shared[0].title()}"
         if sim >= thr + STRONG_MARGIN:
             return f"{sim:.2f} alike"
         return None

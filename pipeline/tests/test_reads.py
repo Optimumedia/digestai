@@ -349,6 +349,25 @@ def test_duplicate_stories_merge_into_the_older_and_export_redirects():
         config.MERGE_DUPLICATES = was
 
 
+def test_one_shared_name_is_not_enough_to_merge_two_events():
+    """The September failure: 'Anthropic' is in most AI stories, so a shared name alone merged a
+    Samsung investment with a Fujitsu launch. Now a pair also needs a second name or shared words."""
+    from digest import merge
+
+    at = NOW
+    same = [{"headline": "OpenAI delays GPT-6.1 Astra launch after safety concerns raised by researchers",
+             "entities": {"companies": ["OpenAI"], "models": ["GPT-6.1 Astra"]}, "at": at},
+            {"headline": "OpenAI scraps GPT-6.1 Astra release over safety concerns",
+             "entities": {"companies": ["OpenAI"], "models": ["GPT-6.1 Astra"]}, "at": at}]
+    assert merge.same_event(same[0], same[1], 0.99, 0.97), "the same event, two headlines"
+    apart = [{"headline": "Samsung invests $2bn in an AI chip plant", "entities": {"companies": ["Anthropic"]}, "at": at},
+             {"headline": "Fujitsu launches a processor for data centres", "entities": {"companies": ["Anthropic"]}, "at": at}]
+    assert merge.same_event(apart[0], apart[1], 0.88, 0.97) is None, "below the bar"
+    assert merge.same_event(apart[0], apart[1], 0.97, 0.97) is None, "one shared name, no shared words"
+    # Still merged when the pair is far above the bar on its own, as before.
+    assert merge.same_event(apart[0], apart[1], 0.97 + merge.STRONG_MARGIN, 0.97)
+
+
 def test_wording_merge_still_catches_the_same_piece_twice():
     from digest import config, merge
 
