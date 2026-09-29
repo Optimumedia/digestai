@@ -130,6 +130,28 @@ def automated_rows(conn, since):
     ).all()
 
 
+def automated_per_day(conn, since, zones: list[str]) -> dict[str, int]:
+    """{"2026-09-28": 84}: visitors on that UTC day whose only event was one direct view, from a time
+    zone the seven-day figures marked bot-heavy. One grouped query, a row per day and zone."""
+    if not zones:
+        return {}
+    e = db.events.c
+    who = func.coalesce(e.visitor, e.session)
+    day = func.date(e.created_at)
+    per_visitor = (
+        select(day.label("day"), who.label("who"), func.count().label("n"),
+               func.sum(case((e.type == "view", 1), else_=0)).label("views"),
+               func.max(func.coalesce(e.source, "direct")).label("src"))
+        .where(e.created_at >= since, e.tz.in_(zones))
+        .group_by(day, who)
+    ).subquery()
+    bare = and_(per_visitor.c.n == 1, per_visitor.c.views == 1, per_visitor.c.src == "direct")
+    rows = conn.execute(
+        select(per_visitor.c.day, func.sum(case((bare, 1), else_=0))).group_by(per_visitor.c.day)
+    ).all()
+    return {str(d)[:10]: int(n or 0) for d, n in rows if d and n}
+
+
 def source_name(raw: str | None) -> str:
     """'direct', a utm_source tag or a referring host, as a readable name."""
     s = (raw or "").strip().lower()
@@ -429,6 +451,10 @@ def run() -> dict:
         try:
             with conn.begin_nested():  # a failure rolls back to here, not the whole read
                 out["engagement"]["automated7"] = automated_summary(automated_rows(conn, since7))
+            # The same rule per day, so the morning note can say how many of a day's visitors were readers.
+            per_day_bots = automated_per_day(conn, since7, [z["zone"] for z in out["engagement"]["automated7"]["zones"]])
+            for row in out["engagement"]["perDay"]:
+                row["automated"] = per_day_bots.get(row["day"], 0)
         except Exception as exc:  # noqa: BLE001 - a label must never cost the dashboard
             log.warning("automated visitor count failed: %s", str(exc)[:160])
 

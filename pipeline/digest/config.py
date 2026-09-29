@@ -216,7 +216,7 @@ CLOUDFLARE_AI_TOKEN = os.environ.get("CLOUDFLARE_AI_TOKEN", "")
 CLOUDFLARE_AI_MODEL = os.environ.get("CLOUDFLARE_AI_MODEL") or "@cf/nvidia/nemotron-3-120b-a12b"
 CLOUDFLARE_AI_FALLBACK_MODELS = [m.strip() for m in (os.environ.get("CLOUDFLARE_AI_FALLBACK_MODELS") or "@cf/qwen/qwen3.8-27b,@cf/meta/llama-3.3-70b-instruct-fp8-fast").split(",") if m.strip()]
 # Neurons the pipeline spends a day (usage.neurons of each answer, kept in llm_usage), under the 10,000.
-CLOUDFLARE_DAILY_NEURONS = float(os.environ.get("CLOUDFLARE_DAILY_NEURONS") or "9000")
+CLOUDFLARE_DAILY_NEURONS = float(os.environ.get("CLOUDFLARE_DAILY_NEURONS") or "9600")
 # The share of the day's neurons the fallback uses (enrich, howto, simplify) may spend; the rest is
 # kept for upgrade.py, which runs later in each run and is what Cloudflare is here for.
 CLOUDFLARE_FALLBACK_SHARE = float(os.environ.get("CLOUDFLARE_FALLBACK_SHARE") or "0.4")
@@ -232,7 +232,7 @@ CLOUDFLARE_MODEL_PAUSE_HOURS = float(os.environ.get("CLOUDFLARE_MODEL_PAUSE_HOUR
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_URL = (os.environ.get("OPENROUTER_URL") or "https://openrouter.ai/api/v1").rstrip("/")
 OPENROUTER_MODELS = [m.strip() for m in (os.environ.get("OPENROUTER_MODELS") or "nvidia/nemotron-3-ultra-550b-a55b:free,nvidia/nemotron-3-super-120b-a12b:free,z-ai/glm-5.2:free").split(",") if m.strip()]
-OPENROUTER_DAILY_REQUESTS = int(os.environ.get("OPENROUTER_DAILY_REQUESTS") or "45")
+OPENROUTER_DAILY_REQUESTS = int(os.environ.get("OPENROUTER_DAILY_REQUESTS") or "48")
 # Requests a day the fallback uses (enrich, howto, simplify) may send; the rest are kept for the
 # top rewrites, which may need up to three tries each (one per model).
 OPENROUTER_FALLBACK_REQUESTS = int(os.environ.get("OPENROUTER_FALLBACK_REQUESTS") or "30")

@@ -269,6 +269,13 @@ def budget_facts(admin: dict, now: datetime) -> dict:
             "exhausted": out_of, "mistral": mistral}
 
 
+def _readers(day: dict | None) -> int | None:
+    """A day's visitors with the likely automated ones taken out."""
+    if not day or day.get("visitors") is None:
+        return None
+    return max(0, int(day["visitors"]) - int(day.get("automated") or 0))
+
+
 def growth_facts(admin: dict, pairs: list[tuple], now: datetime) -> dict:
     from .admin import country_name, country_of, source_name
 
@@ -277,7 +284,12 @@ def growth_facts(admin: dict, pairs: list[tuple], now: datetime) -> dict:
     b = (now.date() - timedelta(days=2)).isoformat()
     groups: dict[str, set] = {}
     countries: dict[str, set] = {}
+    # The same visits the Readers tab marks as likely automated are left out of the breakdown too,
+    # or the sentence counts 27 readers and then lists 52 of them in China.
+    bot_zones = {z["zone"] for z in ((admin.get("engagement") or {}).get("automated7") or {}).get("zones") or []}
     for raw, tz, who in pairs:
+        if tz in bot_zones and source_name(raw) == "Direct":
+            continue
         name = source_name(raw)
         name = "search" if name in SEARCH_ENGINES else "direct" if name == "Direct" else name
         groups.setdefault(name, set()).add(who)
@@ -286,7 +298,10 @@ def growth_facts(admin: dict, pairs: list[tuple], now: datetime) -> dict:
             countries.setdefault(re.sub(r"\s*\(.*?\)", "", country_name(code)), set()).add(who)
     return {
         "day": y, "before": b,
-        "visitors": (per_day.get(y) or {}).get("visitors"), "visitorsBefore": (per_day.get(b) or {}).get("visitors"),
+        # Visitors without the ones the Readers tab marks as likely automated (admin.automated_per_day):
+        # a day when 84 of 111 "visitors" opened one page and left is not a day 111 people read us.
+        "visitors": _readers(per_day.get(y)), "visitorsBefore": _readers(per_day.get(b)),
+        "automated": int((per_day.get(y) or {}).get("automated") or 0),
         "sources": [{"name": k, "visitors": len(v)} for k, v in sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))][:3],
         "countries": [{"name": k, "visitors": len(v)} for k, v in sorted(countries.items(), key=lambda kv: (-len(kv[1]), kv[0]))][:2],
     }
@@ -488,6 +503,8 @@ def s_growth(g: dict) -> str:
     if g["countries"]:
         where = " and ".join(f"{_the(x['name'])} ({n(x['visitors'])})" for x in g["countries"])
         tail += f"; most were in {where}"
+    if g.get("automated"):
+        tail += f", and {n(g['automated'])} more opened one page and left, which is how crawlers behave"
     return head + tail + "."
 
 

@@ -232,6 +232,23 @@ def test_the_provider_question_waits_until_every_model_is_out():
     assert "provider" in [i["kind"] for i in morning.decide_facts(admin, [], {}, {"quotaMB": 5120}, NOW)["issues"]]
 
 
+def test_growth_counts_readers_not_crawlers():
+    from digest import morning
+
+    admin = {"engagement": {"automated7": {"zones": [{"zone": "Asia/Shanghai", "visitors": 84, "of": 90}]},
+                            "perDay": [{"day": "2026-09-28", "visitors": 111, "automated": 84},
+                                       {"day": "2026-09-27", "visitors": 15, "automated": 0}]}}
+    pairs = ([("direct", "Asia/Shanghai", f"bot{i}") for i in range(84)]
+             + [("direct", "Europe/Skopje", f"p{i}") for i in range(24)]
+             + [("chatgpt.com", "America/New_York", f"c{i}") for i in range(3)])
+    g = morning.growth_facts(admin, pairs, NOW.replace(day=29))
+    assert g["visitors"] == 27 and g["automated"] == 84, g
+    assert [s["name"] for s in g["sources"]] == ["direct", "chatgpt.com"], g["sources"]
+    assert g["countries"] and g["countries"][0]["name"] != "China", g["countries"]
+    text = morning.s_growth(g)
+    assert "27" in text and "opened one page and left" in text, text
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):
