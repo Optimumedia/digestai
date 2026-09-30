@@ -1270,13 +1270,43 @@ def title_hedges(title: str | None) -> bool:
     return bool(title) and bool(title_is_question(title) or SOURCE_HEDGE.search(title))
 
 
+# The flag below reads only the title's main claim: the words before a dash or a colon ("Robinhood
+# rolled out trading agents - and investing may never be the same" hedges the consequence, not the
+# rollout), without relative clauses ("an EU order that could help its rivals"), and a label such as
+# "Opinion:" only at the start.
+_CLAIM_SPLIT = re.compile(r"\s[\u2014\u2013-]\s|[\u2014\u2013]|:\s")
+_RELATIVE_HEDGE = re.compile(r"\b(?:that|which|who|what)\s+(?:\S+\s+){0,3}(?:may|might|could)\b", re.I)
+# "Study finds" and "Report shows" attribute the claim; "Anthropic's AI finds" states it.
+_HEADLINE_KEEPS = re.compile(r"\b(?:study|studies|research|researchers|report|survey|paper|analysis|data)\s+(?:finds?|found|shows?|suggests?)\b|\b(?:eyes|weighs|mulls|explores|seeks)\b", re.I)
+
+
+def _asks(title: str) -> bool:
+    """A real question: not "X did Y. Now what?", where a statement comes first."""
+    if not title_is_question(title):
+        return False
+    before = title[: title.rfind("?")]
+    return not re.search(r"[.!]\s+\S", before)
+
+
+def claim_hedged(title: str) -> bool:
+    """The source title hedges its main claim (not a side clause), asks a real question, or
+    attributes the claim to someone at the start ("Anthropic says it discovered ...")."""
+    claim = _CLAIM_SPLIT.split(title, maxsplit=1)[0]
+    claim = _RELATIVE_HEDGE.sub(" ", claim)
+    hedge = SOURCE_HEDGE.search(re.sub(r"\bopinion\b(?!:)", " ", claim, flags=re.I))
+    # A company saying what it did itself ("Anthropic says Claude thwarted ...") is attribution, not a
+    # hedge: that was decided on 14 Sep (test_units) and stays.
+    return bool(_asks(title) or hedge)
+
+
 def headline_hedged(title: str | None, headline: str | None) -> bool:
     """True when the source title hedges (a question, may/could/reportedly/allegedly/according to)
     and our headline keeps neither a hedge nor an attribution, stating the claim as fact. Rewriting is
     not something a cheap check can do, so the flag is reported (export.py, quality.py), not fixed."""
     if not title or not headline or title.strip() == headline.strip():
         return False
-    return title_hedges(title) and not (QUESTION.search(headline) or HEADLINE_HEDGE.search(headline))
+    kept = QUESTION.search(headline) or HEADLINE_HEDGE.search(headline) or _HEADLINE_KEEPS.search(headline)
+    return claim_hedged(title) and not kept
 
 
 # A list marker the model put in front of a paragraph or a key point ("- Meta shares rose 10%"):

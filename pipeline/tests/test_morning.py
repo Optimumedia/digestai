@@ -249,6 +249,15 @@ def test_growth_counts_readers_not_crawlers():
     assert "27" in text and "opened one page and left" in text, text
 
 
+def test_polish_may_not_turn_a_statement_into_a_question():
+    from digest import morning
+
+    rules = ["A.", "B.", "C.", "D.", "E.", "Nothing is far enough off to need a decision today."]
+    polished = rules[:5] + ["Nothing is far enough off to need a decision today?"]
+    assert "question" in (morning.polish_problem(rules, polished) or "")
+    assert morning.polish_problem(rules, list(rules)) is None
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

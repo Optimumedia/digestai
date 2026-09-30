@@ -583,6 +583,30 @@ def test_source_notes_keep_only_real_named_differences():
     assert upgrade.source_notes("nonsense", rows, text) is None
 
 
+def test_hedge_flag_reads_the_main_claim_only():
+    """Live flags from 30 Sep: seven of ten hedged a side clause, not the claim."""
+    from digest import enrich
+
+    fine = [
+        ("What only Opus 5.5 could do 5 days ago, Sonnet 5.5 has now done — Checking answers", "Sonnet 5.5 matches Opus 5.5 on three tasks"),
+        ("Is Human-Readable Text Necessary for Effective LLM Fine-Tuning?", "Study finds synthetic embeddings match text for LLM fine-tuning"),
+        ("Robinhood just rolled out trading agents to millions—and investing may never be the same", "Robinhood rolls out trading agents to 29 million customers"),
+        ("Google Is Fighting an EU Order That Could Help Its AI Rivals", "Google challenges EU orders to open Android data to rivals"),
+        ("Yes, You Can Change AI's Opinion. Here's How.", "AnswerShare shows marketers can improve AI brand recommendations"),
+        ("OpenAI reportedly in talks to raise $30B round", "OpenAI eyes $30B funding round"),
+        # A company's own account, with a closing "Now what?": attribution, not a hedge (see test_units).
+        ("Anthropic Says It Discovered a Crispr-Like System. Now What?", "Anthropic's AI finds a CRISPR-like system in phages"),
+    ]
+    for title, headline in fine:
+        assert not enrich.headline_hedged(title, headline), title
+    flagged = [
+        ("OpenAI may release GPT-7 next month", "OpenAI releases GPT-7 next month"),
+        ("Will Apple buy Perplexity?", "Apple buys Perplexity"),
+    ]
+    for title, headline in flagged:
+        assert enrich.headline_hedged(title, headline), title
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

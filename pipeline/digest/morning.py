@@ -589,6 +589,9 @@ def polish_problem(rules: list[str], polished) -> str | None:
             return f"sentence {i}: emoji or exclamation"
         if len(p) > 1.6 * len(r) + 40:
             return f"sentence {i}: much longer than the facts"
+        # "Nothing is far enough off to need a decision today." came back as a question once.
+        if r.rstrip().endswith("?") != p.rstrip().endswith("?"):
+            return f"sentence {i}: a statement became a question, or a question a statement"
     if not polished[-1].rstrip().endswith(("?", ".")):
         return "last sentence cut off"
     return None

@@ -284,6 +284,10 @@ def score_stories(conn) -> int:
     return n
 
 
+SOURCE_PRIOR_ARTICLES = 5   # a source's weight starts from average, as if it had five average articles
+SOURCE_DAILY_ALPHA = 0.3     # how far a day of new evidence moves a weight, whatever the run count
+
+
 def update_source_weights(conn) -> None:
     """Sources whose articles perform (readers or the web) drift up; the rest drift down."""
     since = db.utcnow() - timedelta(days=14)
@@ -294,13 +298,18 @@ def update_source_weights(conn) -> None:
     per_source: dict[int, list[float]] = {}
     for a in rows:
         per_source.setdefault(a.source_id, []).append(float(a.engagement or 0.0) + popularity(a.discussion_points, a.trend_score))
-    means = {sid: sum(v) / len(v) for sid, v in per_source.items()}
-    overall = sum(means.values()) / len(means)
+    everything = [x for v in per_source.values() for x in v]
+    overall = sum(everything) / len(everything)
     if overall <= 0:
         return
+    # A source with two articles is mostly luck: pull it toward the average as if it also had
+    # SOURCE_PRIOR_ARTICLES average ones.
+    means = {sid: (sum(v) + SOURCE_PRIOR_ARTICLES * overall) / (len(v) + SOURCE_PRIOR_ARTICLES)
+             for sid, v in per_source.items()}
+    alpha = 1 - (1 - SOURCE_DAILY_ALPHA) ** (1 / max(1, config.RUNS_PER_DAY))
     # One batched statement for every source, not a round trip each.
     conn.execute(update(db.sources).where(db.sources.c.id == bindparam("sid"))
-                 .values(engagement_ema=db.sources.c.engagement_ema * 0.7 + bindparam("rel") * 0.3),
+                 .values(engagement_ema=db.sources.c.engagement_ema * (1 - alpha) + bindparam("rel") * alpha),
                  [{"sid": sid, "rel": min(2.0, avg / overall)} for sid, avg in means.items()])
 
 
