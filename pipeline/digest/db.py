@@ -669,7 +669,7 @@ declare
   agent text;
   land text := 'ZZ';
   verdict text := 'ok';
-  strict boolean := __STRICT__;
+  firm boolean := __STRICT__;
 begin
   begin
     hdr := nullif(current_setting('request.headers', true), '')::json;
@@ -702,7 +702,7 @@ begin
       null;
     end;
   end if;
-  if verdict in ('origin', 'client') or (strict and verdict <> 'ok') then
+  if verdict in ('origin', 'client') or (firm and verdict <> 'ok') then
     return null;
   end if;
   -- Page views, listens and alert sign-ups happen on pages that are not stories: story_id may be

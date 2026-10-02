@@ -47,8 +47,8 @@ def test_the_rules_as_text():
     assert sql.count("exception when others then") == 2  # reading the headers, and writing the count
     # Until a day of real counts shows the API passes Origin and User-Agent on, a request without
     # them is counted apart and stored.
-    assert db.GATE_STRICT is False and "strict boolean := false;" in sql
-    assert "strict boolean := true;" in db.events_guard_sql(True)
+    assert db.GATE_STRICT is False and "firm boolean := false;" in sql
+    assert "firm boolean := true;" in db.events_guard_sql(True)
     assert db.events_guard_sql(True).replace(":= true;", ":= false;") == sql
     assert set(re.findall(r"verdict := '([a-z]+)'", sql)) == set(db.GATE_REASONS)
     # The count never holds an address: the only request headers read are these three.
