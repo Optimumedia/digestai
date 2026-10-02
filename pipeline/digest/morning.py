@@ -15,7 +15,9 @@ Everything is computed by rules from what the run already has: admin.json, brief
 stories.json, which the admin and export steps wrote minutes earlier. The database is asked only
 two narrow, grouped questions (reader events per story in the last 24 hours, and yesterday's
 visitors by referrer and time zone), once a day; the run records their reads as this step's
-readKB like any other step. On every other run the step reads nothing from the database.
+readKB like any other step. On every other run the step reads nothing from the database. Both
+questions are about readers: the likely automated visits are left out by the rule in readers.py,
+the same one the Readers tab and the ranking use.
 
 A model may reword the sentences, never the facts: the reworded note is kept only if every
 sentence carries exactly the figures of its rules-written sentence and names nothing the rules
@@ -40,7 +42,7 @@ from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, select
 
-from . import checks, config, db, primary
+from . import checks, config, db, primary, readers
 from .quality import numbers_in
 
 log = logging.getLogger("digest.morning")
@@ -51,6 +53,7 @@ LABELS = [("briefing", "Briefing"), ("readers", "Readers"), ("sources", "Sources
           ("budget", "Budget"), ("growth", "Growth"), ("decide", "To decide")]
 SEARCH_ENGINES = {"Google", "Bing", "DuckDuckGo"}
 FAILING_DAYS = 3
+WAVE_DAYS = 3  # a wave of automated visits is worth a question once it has lasted this long
 LOW_DEPTH_VIEWS, LOW_DEPTH_PERCENT = 10, 30
 NOTE_MARK = "morning-note"
 
@@ -148,15 +151,18 @@ def briefing_facts(briefing: dict | None, stories: list[dict]) -> dict | None:
     }
 
 
-def reader_events(conn, since) -> dict[int, dict]:
+def reader_events(conn, since, zones=()) -> dict[int, dict]:
     """Per story, the last 24 hours: views, time on page, clicks to the source, and the average of
-    each reading session's deepest point. Grouped in the database: one row per story and type."""
+    each reading session's deepest point. Grouped in the database: one row per story and type.
+    Readers' views only: with the bot-heavy `zones` (readers.bot_zones), the likely automated ones
+    are left out, as on the Readers tab."""
     ev = db.events.c
+    t = readers.tagged(since, zones).c
     out: dict[int, dict] = {}
     for sid, etype, count, total in conn.execute(
-        select(ev.story_id, ev.type, func.count(), func.sum(ev.value))
-        .where(ev.created_at >= since, ev.story_id.isnot(None), ev.type.in_(("view", "dwell", "click_source")))
-        .group_by(ev.story_id, ev.type)
+        select(t.story_id, t.type, func.count(), func.sum(t.value))
+        .where(t.story_id.isnot(None), t.type.in_(("view", "dwell", "click_source")), t.auto == 0)
+        .group_by(t.story_id, t.type)
     ).all():
         row = out.setdefault(int(sid), {"views": 0, "dwell": 0.0, "dwellN": 0, "clicks": 0, "depth": None, "depthN": 0})
         if etype == "view":
@@ -178,14 +184,14 @@ def reader_events(conn, since) -> dict[int, dict]:
     return out
 
 
-def visitor_pairs(conn, start, end) -> list[tuple]:
-    """Yesterday's visitors as distinct (referrer, time zone, visitor) rows: about one row per
-    visitor, so each is counted once per source and once per country."""
-    ev = db.events.c
-    who = func.coalesce(ev.visitor, ev.session)
+def visitor_pairs(conn, start, end, zones=()) -> list[tuple]:
+    """Yesterday's readers as distinct (referrer, time zone, visitor) rows: about one row per
+    reader, so each is counted once per source and once per country. With the bot-heavy `zones`
+    (readers.bot_zones) the likely automated visitors are left out by the database, so a wave of
+    them costs no rows here and the breakdown adds up to the count of readers."""
+    t = readers.tagged(start, zones, end).c
     return [tuple(r) for r in conn.execute(
-        select(ev.source, ev.tz, who).distinct()
-        .where(ev.created_at >= start, ev.created_at < end, ev.type == "view")
+        select(t.source, t.tz, t.who).distinct().where(t.type == "view", t.auto == 0)
     ).all()]
 
 
@@ -270,10 +276,11 @@ def budget_facts(admin: dict, now: datetime) -> dict:
 
 
 def _readers(day: dict | None) -> int | None:
-    """A day's visitors with the likely automated ones taken out."""
+    """A day's readers. admin.json's per-day "visitors" already leaves the likely automated ones
+    out (admin.reader_engagement) and carries them beside it as "automated"."""
     if not day or day.get("visitors") is None:
         return None
-    return max(0, int(day["visitors"]) - int(day.get("automated") or 0))
+    return max(0, int(day["visitors"]))
 
 
 def growth_facts(admin: dict, pairs: list[tuple], now: datetime) -> dict:
@@ -284,12 +291,9 @@ def growth_facts(admin: dict, pairs: list[tuple], now: datetime) -> dict:
     b = (now.date() - timedelta(days=2)).isoformat()
     groups: dict[str, set] = {}
     countries: dict[str, set] = {}
-    # The same visits the Readers tab marks as likely automated are left out of the breakdown too,
-    # or the sentence counts 27 readers and then lists 52 of them in China.
-    bot_zones = {z["zone"] for z in ((admin.get("engagement") or {}).get("automated7") or {}).get("zones") or []}
+    # `pairs` are readers only (visitor_pairs leaves the likely automated visitors out by the same
+    # rule as the Readers tab), or the sentence would count 27 readers and then list 52 in China.
     for raw, tz, who in pairs:
-        if tz in bot_zones and source_name(raw) == "Direct":
-            continue
         name = source_name(raw)
         name = "search" if name in SEARCH_ENGINES else "direct" if name == "Direct" else name
         groups.setdefault(name, set()).add(who)
@@ -298,8 +302,8 @@ def growth_facts(admin: dict, pairs: list[tuple], now: datetime) -> dict:
             countries.setdefault(re.sub(r"\s*\(.*?\)", "", country_name(code)), set()).add(who)
     return {
         "day": y, "before": b,
-        # Visitors without the ones the Readers tab marks as likely automated (admin.automated_per_day):
-        # a day when 84 of 111 "visitors" opened one page and left is not a day 111 people read us.
+        # Readers, without the visits the Readers tab marks as likely automated (readers.py): a day
+        # when 84 of 111 "visitors" opened one page and left is not a day 111 people read us.
         "visitors": _readers(per_day.get(y)), "visitorsBefore": _readers(per_day.get(b)),
         "automated": int((per_day.get(y) or {}).get("automated") or 0),
         "sources": [{"name": k, "visitors": len(v)} for k, v in sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))][:3],
@@ -349,6 +353,13 @@ def decide_facts(admin: dict, stories: list[dict], readers: dict, budget: dict, 
     missing = [m for m in ((admin.get("engagement") or {}).get("searches7") or {}).get("missing") or [] if m.get("visitors", 0) >= 2]
     if missing:
         out.append({"kind": "search", "query": missing[0]["query"], "visitors": missing[0]["visitors"]})
+    # Last, so it is asked only when nothing above is off: a wave of automated visits (admin.py,
+    # automated_wave) that has lasted WAVE_DAYS days. They are already left out of every number, so
+    # the only decision is whether to stop them before they arrive.
+    wave = (admin.get("engagement") or {}).get("automatedWave") or {}
+    if (wave.get("days") or 0) >= WAVE_DAYS and wave.get("since") and wave.get("day"):
+        out.append({"kind": "wave", "automated": int(wave.get("automated") or 0), "readers": int(wave.get("readers") or 0),
+                    "day": wave["day"], "since": wave["since"]})
     return {"issues": out}
 
 
@@ -473,8 +484,9 @@ def _s_budget(b: dict) -> str:
 
 
 def _the(country: str) -> str:
-    plural_or_union = country.startswith(("United ", "Czech Republic", "Dominican Republic", "Central African")) or country.endswith(("lands", "pines", "Islands", "Bahamas", "Gambia", "Emirates"))
-    return f"the {country}" if plural_or_union else country
+    from .admin import the_country  # one rule for "the United States", shared with the admin cards
+
+    return the_country(country)
 
 
 def s_growth(g: dict) -> str:
@@ -532,6 +544,10 @@ def s_decide(d: dict) -> str:
     if k == "search":
         return (f"Should the site cover {_q(i['query'])}? {plural(i['visitors'], 'visitor')} searched for it in the "
                 "last 7 days and found nothing.")
+    if k == "wave":
+        return (f"Should Cloudflare go in front of the site? Automated visits have outnumbered readers since "
+                f"{short_day(i['since'])}, with {n(i['automated'])} on {short_day(i['day'])} against "
+                f"{plural(i['readers'], 'reader')}; they are left out of the numbers and the ranking, but they keep coming.")
     return "Nothing is far enough off to need a decision today."
 
 
@@ -742,8 +758,10 @@ def run(now: datetime | None = None) -> dict:
             stories = _read(config.SITE_DATA_DIR / "stories.json", [])
             y0 = datetime.combine(now.date() - timedelta(days=1), datetime.min.time(), tzinfo=now.tzinfo)
             with db.engine().connect() as conn:
-                events = reader_events(conn, now - timedelta(hours=24))
-                pairs = visitor_pairs(conn, y0, y0 + timedelta(days=1))
+                # The bot-heavy zones as the admin step left them minutes ago (the runner's copy: no read).
+                zones = readers.bot_zones(conn, now)
+                events = reader_events(conn, now - timedelta(hours=24), zones)
+                pairs = visitor_pairs(conn, y0, y0 + timedelta(days=1), zones)
             work_briefing = _read(config.SITE_DATA_DIR / "work-briefing.json", None)
             note = build(admin, briefing, stories, events, pairs, notes[0] if notes else None, now,
                          work_briefing=work_briefing)

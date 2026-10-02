@@ -76,12 +76,27 @@ const pct = (now: number, before: number) => (before > 0 ? Math.round(((now - be
 const delta = (now: number, before: number) => { const p = pct(now, before); return p == null ? "" : `${p >= 0 ? "+" : ""}${p}% vs prev. 7d`; };
 
 const eng = admin?.engagement || { available: false, perDay: [], topStories: [] };
+// Every reader number in admin.json is readers only: the pipeline leaves the likely automated visits
+// out of each count by one rule (pipeline/digest/readers.py: one direct view and nothing else, from
+// a time zone where most visitors do only that) and reports them beside it, per day ("automated")
+// and for the week (automated7, with the zones and countries they came from). Nothing is deleted.
 const views7 = week(eng.perDay, "views"), viewsPrev = prevWeek(eng.perDay, "views");
 const visitors7 = week(eng.perDay, "visitors");
-// Likely automated visitors (admin.py automated_summary): one direct view and nothing else, from a
-// time zone where most visitors do only that. Shown apart and left out of the visitor tile.
-const auto7 = eng.automated7 || { visitors: 0, views: 0, zones: [] };
-const readers7 = Math.max(0, visitors7 - (auto7.visitors || 0));
+const auto7 = { visitors: 0, views: 0, zones: [], countries: [], ...(eng.automated7 || {}) };
+const readers7 = visitors7;
+const listed = (names: string[]) => (names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
+const autoVisits = (n: number) => `${n.toLocaleString("en-US")} automated visit${n === 1 ? "" : "s"}`;
+// "898 automated visits from China, Singapore, Hong Kong and the United States": the four largest, then "and N more".
+// As a sentence names a country: "the United States", "Britain" for "Britain (UK)" (admin.py, the_country).
+const theCountry = (raw: string) => {
+  const name = String(raw || "").replace(/\s*\(.*?\)/g, "").trim();
+  return /^(United |Czech Republic|Dominican Republic|Central African)/.test(name) || /(lands|pines|Islands|Bahamas|Gambia|Emirates)$/.test(name) ? `the ${name}` : name;
+};
+const autoCountries: string[] = (auto7.countries.length ? auto7.countries : auto7.zones.map((z: any) => ({ name: z.country }))).map((c: any) => theCountry(c.name))
+  .filter((name: string, i: number, all: string[]) => name !== "Unknown" && all.indexOf(name) === i);
+const autoFrom = autoCountries.length > 4 ? `${autoCountries.slice(0, 4).join(", ")} and ${autoCountries.length - 4} more ${autoCountries.length - 4 === 1 ? "country" : "countries"}` : listed(autoCountries);
+const readerDays = sinceFirst(eng.perDay, ["views", "visitors", "clicks", "automated"]).slice(-30);
+const autoInChart = readerDays.reduce((n: number, r: any) => n + (Number(r.automated) || 0), 0);
 const clicks7 = week(eng.perDay, "clicks"), saves7 = week(eng.perDay, "saves"), follows7 = week(eng.perDay, "follows"), shares7 = week(eng.perDay, "shares");
 const dwell7 = week(eng.perDay, "dwellSeconds");
 const reads7 = week(eng.perDay, "dwellReads");
@@ -131,7 +146,14 @@ const statusText = critical.length ? `${critical.length} critical alert${critica
 const statusKind = critical.length || (lastRun && !lastRun.ok) ? "bad" : alerts.length ? "warn" : "good";
 // ---- Compare: the full daily history goes to the page; periods are computed in the browser.
 // Days before visitor numbers existed have no "visitors"; their sessions are the closest measure.
-const history: any[] = (admin?.history || []).map((r: any) => (r.visitors == null && r.sessions != null ? { ...r, visitors: r.sessions } : r));
+// The history stores visitors and views as recorded, with the likely automated visits beside them
+// (automatedVisits, one view each): Compare and the goal count readers, like the Readers tab.
+const history: any[] = (admin?.history || []).map((r: any) => {
+  const bots = Number(r.automatedVisits) || 0;
+  const visitors = r.visitors == null ? r.sessions : r.visitors;
+  const less = (v: any) => (v == null ? v : Math.max(0, Number(v) - bots));
+  return { ...r, visitors: less(visitors), views: less(r.views) };
+});
 const compareData = JSON.stringify({ generatedAt: admin?.generatedAt || null, history }).replace(/</g, "\\u003c");
 const periods = [["day", "Day"], ["week", "Week"], ["month", "Month"], ["year", "Year"], ["custom", "Custom"]];
 
@@ -508,8 +530,8 @@ const homeData = JSON.stringify({
         <section class="tab" data-tab="readers" hidden>
           {!eng.available && <div class="alerts"><div class="alert warning"><span class="st warn">●</span> No reader events yet. They appear as soon as people open any page.</div></div>}
           <div class="tiles">
-            <div class="tile"><span class="label">Views, 7 days</span><span class="value">{views7}</span><span class="sub">{delta(views7, viewsPrev) || "first week"}</span></div>
-            <div class="tile"><span class="label">Visitors, 7 days</span><span class="value">{readers7}</span><span class="sub">{auto7.visitors ? `${auto7.visitors} likely automated, not counted · ` : ""}{readers7 ? `${((views7 - (auto7.views || 0)) / readers7).toFixed(1)} pages per visitor · one per browser per day` : "one per browser per day"}</span></div>
+            <div class="tile"><span class="label">Views, 7 days</span><span class="value">{views7}</span><span class="sub">{delta(views7, viewsPrev) || "first week"}{auto7.views ? ` · readers only, ${auto7.views.toLocaleString("en-US")} automated left out` : ""}</span></div>
+            <div class="tile"><span class="label">Visitors, 7 days</span><span class="value">{readers7}</span><span class="sub">{auto7.visitors ? `${auto7.visitors.toLocaleString("en-US")} likely automated, not counted · ` : ""}{readers7 ? `${(views7 / readers7).toFixed(1)} pages per visitor · one per browser per day` : "one per browser per day"}</span></div>
             <div class="tile"><span class="label">Time on story</span><span class="value">{avgDwell != null ? `${avgDwell}s` : "—"}</span><span class="sub">average per reading session</span></div>
             <div class="tile"><span class="label">Actions, 7 days</span><span class="value">{engagedActions7}</span><span class="sub">{clicks7} to source · {saves7} saved · {follows7} follows · {shares7} shares</span></div>
           </div>
@@ -517,7 +539,8 @@ const homeData = JSON.stringify({
             <article class="card wide">
               <h2>Views, visitors and clicks to source <span class="muted">per day, last 30 days · hover a day for exact numbers</span></h2>
               <div class="legend"><span><i style={`background:${C.s1}`}></i>Views</span><span><i style={`background:${C.s2}`}></i>Visitors</span><span><i style={`background:${C.s3}`}></i>Clicks to source</span></div>
-              <Fragment set:html={columns(sinceFirst(eng.perDay, ["views", "visitors", "clicks"]).slice(-30), "day", [{ key: "views", label: "Views", color: C.s1 }, { key: "visitors", label: "Visitors", color: C.s2 }, { key: "clicks", label: "Clicks to source", color: C.s3 }], { grouped: true, w: 1100, h: 240, xFormat: dayLabel() })} />
+              <Fragment set:html={columns(readerDays, "day", [{ key: "views", label: "Views", color: C.s1 }, { key: "visitors", label: "Visitors", color: C.s2 }, { key: "clicks", label: "Clicks to source", color: C.s3 }], { grouped: true, w: 1100, h: 240, xFormat: dayLabel(), tipNote: (r) => (Number(r.automated) > 0 ? `${autoVisits(Number(r.automated))} not shown` : "") })} />
+              {autoInChart > 0 && <p class="muted" data-auto-chart>Readers only. {autoVisits(autoInChart)} in these days {autoInChart === 1 ? "is" : "are"} left out of the bars; hover a day for its count.</p>}
             </article>
           </div>
           <div class="cards">
@@ -528,7 +551,7 @@ const homeData = JSON.stringify({
               ) : <p class="muted">Appears with the first counted visit.</p>}
               <p class="muted">From the link a visitor followed: a tag on our own posts (Bluesky, the newsletter), else the site they came from. Direct means typed in, bookmarked or an app that hides where it came from.</p>
               {auto7.visitors > 0 && (
-                <p class="muted">Likely automated, not counted in the visitor total (still in Direct above): {auto7.visitors} visitor{auto7.visitors === 1 ? "" : "s"} with one direct view and nothing else, from {auto7.zones.map((z: any) => `${z.country} (${z.visitors} of ${z.of})`).join(", ")}. Nothing is deleted.</p>
+                <p class="muted" data-auto-sources>Likely automated, not in Direct above nor in any number on this tab: {auto7.visitors.toLocaleString("en-US")} visitor{auto7.visitors === 1 ? "" : "s"} with one direct view and nothing else, from {auto7.zones.map((z: any) => `${z.country} (${z.visitors} of ${z.of})`).join(", ")}. Nothing is deleted.</p>
               )}
             </article>
             <article class="card">
@@ -536,6 +559,7 @@ const homeData = JSON.stringify({
               {(eng.countries7 || []).length ? (
                 <ol class="ranked">{eng.countries7.slice(0, 12).map((c: any) => <li><span>{c.name}</span><span class="mono muted">{c.visitors} visitor{c.visitors === 1 ? "" : "s"} · {c.views} view{c.views === 1 ? "" : "s"}</span></li>)}</ol>
               ) : <p class="muted">Appears with the first visit counted after 17 September.</p>}
+              {auto7.visitors > 0 && <p class="muted" data-auto-countries>{autoVisits(auto7.visitors)}{autoFrom ? ` from ${autoFrom}` : ""} {auto7.visitors === 1 ? "is" : "are"} not shown.</p>}
               <p class="muted">From the time zone each device is set to, so a traveller counts where their phone thinks they are. No IP addresses are used. Unknown means an older visit or a device set to UTC.</p>
             </article>
             <article class="card">
@@ -917,8 +941,8 @@ const homeData = JSON.stringify({
       // dir: 1 = up is good, -1 = lower is better, 0 = neither.
       const GROUPS = [
         ["Readers", [
-          { key: "visitors", label: "Visitors", note: "one per browser per day" },
-          { key: "views", label: "Page views" },
+          { key: "visitors", label: "Visitors", note: "one per browser per day, automated visits left out" },
+          { key: "views", label: "Page views", note: "readers only" },
           { key: "dwell", num: "dwellSeconds", den: "dwellReads", label: "Time on story", unit: "time", note: "average per reading session" },
           { key: "clicks", label: "Clicks to source" },
           { key: "saves", label: "Saves" },

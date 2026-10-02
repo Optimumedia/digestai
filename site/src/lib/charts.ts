@@ -47,8 +47,9 @@ function capPath(x: number, base: number, top: number, bw: number): string {
 
 /** Columns, one group per row. Stacked by default; `grouped` puts the series side by side on
     one shared axis (for related counts that are not parts of a whole). With ten rows or fewer,
-    grouped columns carry their value on top. */
-export function columns(rows: Record<string, any>[], xKey: string, series: Series[], opts: { w?: number; h?: number; labelEvery?: number; xFormat?: (v: any) => string; grouped?: boolean } = {}): string {
+    grouped columns carry their value on top. `tipNote` adds a line to a row's hover text: something
+    worth knowing about that day that is not drawn (the automated visits left out of the bars). */
+export function columns(rows: Record<string, any>[], xKey: string, series: Series[], opts: { w?: number; h?: number; labelEvery?: number; xFormat?: (v: any) => string; grouped?: boolean; tipNote?: (row: Record<string, any>) => string } = {}): string {
   const w = opts.w ?? 640, h = opts.h ?? 200;
   const padL = 34, padR = 8, padT = opts.grouped ? 18 : 10, padB = 24;
   const pw = w - padL - padR, ph = h - padT - padB;
@@ -71,7 +72,8 @@ export function columns(rows: Record<string, any>[], xKey: string, series: Serie
   }
   rows.forEach((r, i) => {
     const cx = padL + band * i + band / 2;
-    const tip = `${esc(xf(r[xKey]))}: ` + series.map((s) => `${s.label} ${r[s.key] ?? 0}`).join(", ");
+    const note = opts.tipNote ? opts.tipNote(r) : "";
+    const tip = `${esc(xf(r[xKey]))}: ` + series.map((s) => `${s.label} ${r[s.key] ?? 0}`).join(", ") + (note ? ` · ${esc(note)}` : "");
     if (opts.grouped) {
       const gap = 3, n = series.length;
       const bw = Math.min(28, Math.max(4, (band * 0.7 - gap * (n - 1)) / n));

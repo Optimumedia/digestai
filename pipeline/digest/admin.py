@@ -13,7 +13,7 @@ from urllib.parse import quote
 
 from sqlalchemy import and_, case, func, or_, select
 
-from . import cache, config, db, history, share
+from . import cache, config, db, history, readers, share
 from . import quality as content_quality
 
 log = logging.getLogger("digest.admin")
@@ -85,71 +85,192 @@ def countries_summary(rows) -> list[dict]:
     return sorted(by.values(), key=lambda r: (r["code"] is None, -r["visitors"], -r["views"]))
 
 
-# Likely automated visitors (the Readers tab shows them apart, nothing is deleted): one event in
-# seven days, a view with no referrer and no time on page, read depth, click or card seen, from a
-# time zone where most visitors look like that. A zone is "bot-heavy" by the data, not by a list:
-# at least BOT_ZONE_MIN such visitors and BOT_ZONE_SHARE of all its visitors. In September 36
-# visitors from China each opened one page and did nothing else; readers from a zone mostly stay.
-# Since app.js sends the view only after 1.5 s on screen or a first scroll, tap or key, most such
-# loads no longer send anything; this label covers what is already recorded and whatever still does.
-BOT_ZONE_MIN = 5
-BOT_ZONE_SHARE = 0.8
-
-
+# Likely automated visitors. The rule lives in readers.py (one direct view and nothing else, from a
+# time zone where most visitors do only that) and is applied by the database inside every grouped
+# count below, so the Readers tab shows readers and says how many visits it left out. Nothing is
+# deleted. Each such visitor is one view by definition, so "visits" is both.
 def automated_summary(rows) -> dict:
-    """rows: (time zone, visitors, single-view direct visitors, their views) per zone, 7 days.
-    {"visitors": n, "views": n, "zones": [{"zone", "visitors", "of"}]}: the likely automated ones."""
-    out = {"visitors": 0, "views": 0, "zones": []}
-    for zone, visitors, bare, bare_views in rows:
-        visitors, bare = int(visitors or 0), int(bare or 0)
-        if bare >= BOT_ZONE_MIN and visitors and bare >= BOT_ZONE_SHARE * visitors:
-            out["visitors"] += bare
-            out["views"] += int(bare_views or 0)
-            out["zones"].append({"zone": zone or "unknown", "country": country_name(country_of(zone)), "visitors": bare, "of": visitors})
-    out["zones"].sort(key=lambda z: -z["visitors"])
+    """rows: (time zone, all visitors, likely automated visitors) per zone, 7 days.
+    {"visitors": n, "views": n, "zones": [{"zone", "country", "visitors", "of"}], "countries": [{"name", "visitors"}]}."""
+    out = {"visitors": 0, "views": 0, "zones": [], "countries": []}
+    by_country: dict[str, int] = {}
+    for zone, visitors, automated in rows:
+        visitors, automated = int(visitors or 0), int(automated or 0)
+        if automated <= 0:
+            continue
+        name = country_name(country_of(zone))
+        out["visitors"] += automated
+        out["zones"].append({"zone": zone or "unknown", "country": name, "visitors": automated, "of": visitors})
+        by_country[name] = by_country.get(name, 0) + automated
+    out["views"] = out["visitors"]
+    out["zones"].sort(key=lambda z: (-z["visitors"], z["zone"]))
+    out["countries"] = [{"name": k, "visitors": v} for k, v in sorted(by_country.items(), key=lambda kv: (-kv[1], kv[0]))]
     return out
 
 
-def automated_rows(conn, since):
-    """Per time zone: its visitors, and those whose only event in the window is one view that came
-    direct. One grouped query; the database returns a row per zone, not a row per visitor."""
-    e = db.events.c
-    who = func.coalesce(e.visitor, e.session)
-    per_visitor = (
-        select(who.label("who"), func.max(e.tz).label("tz"), func.count().label("n"),
-               func.sum(case((e.type == "view", 1), else_=0)).label("views"),
-               func.max(func.coalesce(e.source, "direct")).label("src"))
-        .where(e.created_at >= since)
-        .group_by(who)
-    ).subquery()
-    bare = and_(per_visitor.c.n == 1, per_visitor.c.views == 1, per_visitor.c.src == "direct")
-    return conn.execute(
-        select(per_visitor.c.tz, func.count(), func.sum(case((bare, 1), else_=0)), func.sum(case((bare, per_visitor.c.views), else_=0)))
-        .where(per_visitor.c.views > 0)
-        .group_by(per_visitor.c.tz)
-    ).all()
+def reader_engagement(conn, now, days: list[str], zones: list[str]) -> dict:
+    """What readers did, per day over `days` and per source, page and country over the last 7 days,
+    with the likely automated visits (readers.py) counted apart in every figure. Every query is
+    grouped in the database: a row per day and event type, per day, per referrer, per time zone, and
+    the ten most viewed pages."""
+    since, since7 = now - timedelta(days=len(days)), now - timedelta(days=7)
+    t = readers.tagged(since, zones).c
+    day = func.date(t.created_at)
+    reader = t.auto == 0
+    per_day: dict[str, dict] = {d: {"day": d, "views": 0, "sessions": 0, "visitors": 0, "automated": 0, "clicks": 0, "saves": 0,
+                                    "follows": 0, "shares": 0, "dwellSeconds": 0, "dwellReads": 0} for d in days}
+    for d, etype, n, total, sessions, automated in conn.execute(
+        select(day, t.type, func.count(), func.sum(t.value), func.count(func.distinct(case((reader, t.session)))), func.sum(t.auto))
+        # Time on page and read depth are story reading here; /work pages send them without a
+        # story (their own line: work_engagement).
+        .where(or_(t.type.notin_(("dwell", "depth")), t.story_id.isnot(None)))
+        .group_by(day, t.type)
+    ).all():
+        row = per_day.get(str(d)[:10])
+        if row is None:
+            continue
+        if etype == "view":
+            row["automated"] += int(automated or 0)
+            row["views"] += int(n) - int(automated or 0)
+            row["sessions"] = max(row["sessions"], int(sessions or 0))
+        elif etype == "click_source":
+            row["clicks"] += int(n)
+        elif etype == "save":
+            row["saves"] += int(n)
+        elif etype == "follow":
+            row["follows"] += int(n)
+        elif etype == "share":
+            row["shares"] += int(n)
+        elif etype == "dwell":
+            row["dwellSeconds"] += int(total or 0)
+    # Visitors: distinct visitor numbers among readers' views (one per session for older events).
+    for d, n in conn.execute(
+        select(day, func.count(func.distinct(t.who))).where(t.type == "view", reader).group_by(day)
+    ).all():
+        if str(d)[:10] in per_day:
+            per_day[str(d)[:10]]["visitors"] = int(n or 0)
+    # Reading sessions: distinct (session, story) pairs that reported any time on page.
+    for d, n in conn.execute(
+        select(day, func.count(func.distinct(t.session + "|" + func.cast(t.story_id, db.String))))
+        .where(t.type == "dwell").group_by(day)
+    ).all():
+        if str(d)[:10] in per_day:
+            per_day[str(d)[:10]]["dwellReads"] = int(n or 0)
+
+    # Where readers came from and which pages they opened, last 7 days.
+    seven = and_(t.created_at >= since7, t.type == "view")
+    # Grouped per visitor, so one person arriving as "bluesky" and "bsky.app" counts once.
+    # Counted in the database per referrer; only a name several referrers share ("bluesky" and
+    # "bsky.app") needs a second count across them, so no visitor list is read.
+    by_source: dict[str, dict] = {}
+    for raw, n_views, n_who in conn.execute(
+        select(t.source, func.count(), func.count(func.distinct(t.who))).where(seven, reader).group_by(t.source)
+    ).all():
+        row = by_source.setdefault(source_name(raw), {"name": source_name(raw), "raws": [], "visitors": 0, "views": 0})
+        row["raws"].append(raw); row["views"] += int(n_views or 0); row["visitors"] = int(n_who or 0)
+    for row in by_source.values():
+        if len(row["raws"]) > 1:
+            named = [r for r in row["raws"] if r is not None]
+            cond = t.source.in_(named) if named else t.source.is_(None)
+            if len(named) < len(row["raws"]):
+                cond = cond | t.source.is_(None)
+            row["visitors"] = int(conn.execute(select(func.count(func.distinct(t.who))).where(seven, reader, cond)).scalar() or 0)
+    sources7 = sorted(({"name": r["name"], "visitors": r["visitors"], "views": r["views"]} for r in by_source.values()),
+                      key=lambda r: (-r["visitors"], -r["views"]))
+    pages7 = [{"path": p or "/", "views": int(n), "visitors": int(v or 0)} for p, n, v in conn.execute(
+        select(t.path, func.count(), func.count(func.distinct(t.who))).where(seven, reader)
+        .group_by(t.path).order_by(func.count().desc()).limit(10)
+    ).all()]
+    # Where readers are: the country of each visit's time zone setting, 7 days; and, per zone, how
+    # many visits the rule left out.
+    by_zone = [(tz, int(views or 0) - int(automated or 0), int(visitors or 0), int(everyone or 0), int(automated or 0))
+               for tz, views, visitors, everyone, automated in conn.execute(
+        select(t.tz, func.count(), func.count(func.distinct(case((reader, t.who)))), func.count(func.distinct(t.who)), func.sum(t.auto))
+        .where(seven).group_by(t.tz)
+    ).all()]
+    countries7 = countries_summary([(tz, views, visitors) for tz, views, visitors, _all, _auto in by_zone if views > 0])
+    automated7 = automated_summary([(tz, everyone, automated) for tz, _views, _visitors, everyone, automated in by_zone])
+    rows = list(per_day.values())
+    return {"available": any(r["views"] or r["automated"] for r in rows), "perDay": rows, "sources7": sources7,
+            "pages7": pages7, "countries7": countries7, "automated7": automated7,
+            "automatedWave": automated_wave(rows, automated7["countries"], days[-1] if days else "")}
 
 
-def automated_per_day(conn, since, zones: list[str]) -> dict[str, int]:
-    """{"2026-09-28": 84}: visitors on that UTC day whose only event was one direct view, from a time
-    zone the seven-day figures marked bot-heavy. One grouped query, a row per day and zone."""
-    if not zones:
-        return {}
-    e = db.events.c
-    who = func.coalesce(e.visitor, e.session)
-    day = func.date(e.created_at)
-    per_visitor = (
-        select(day.label("day"), who.label("who"), func.count().label("n"),
-               func.sum(case((e.type == "view", 1), else_=0)).label("views"),
-               func.max(func.coalesce(e.source, "direct")).label("src"))
-        .where(e.created_at >= since, e.tz.in_(zones))
-        .group_by(day, who)
-    ).subquery()
-    bare = and_(per_visitor.c.n == 1, per_visitor.c.views == 1, per_visitor.c.src == "direct")
-    rows = conn.execute(
-        select(per_visitor.c.day, func.sum(case((bare, 1), else_=0))).group_by(per_visitor.c.day)
-    ).all()
-    return {str(d)[:10]: int(n or 0) for d, n in rows if d and n}
+# A wave of automated visits, worth a card on the Today tab: a day with at least WAVE_MIN_VISITS of
+# them and WAVE_TIMES_READERS times as many as readers. It "started" on the first such day counting
+# back from the latest, one quiet day in between allowed (30 Sep 2026 had 29 visitors between two
+# days of over 200), and it has "lasted" as many days as passed the threshold.
+WAVE_MIN_VISITS = 50
+WAVE_TIMES_READERS = 3
+WAVE_WARN_DAYS = 3
+WAVE_GAP_DAYS = 1
+WAVE_COUNTRIES = 3
+
+
+def _is_wave_day(row: dict | None) -> bool:
+    bots = int((row or {}).get("automated") or 0)
+    return bots >= WAVE_MIN_VISITS and bots >= WAVE_TIMES_READERS * int((row or {}).get("visitors") or 0)
+
+
+def automated_wave(per_day: list[dict], countries: list[dict], today: str) -> dict | None:
+    """The wave today, else yesterday, from the per-day counts the admin step already has (no read):
+    {"day", "today", "automated", "readers", "countries", "since", "days"}; None below the threshold.
+    The countries are the week's (the per-day counts are not kept per country)."""
+    by_day = {r["day"]: r for r in per_day}
+    if not today:
+        return None
+    back = lambda d, n: (datetime.fromisoformat(d) - timedelta(days=n)).date().isoformat()  # noqa: E731
+    current = next((d for d in (today, back(today, 1)) if _is_wave_day(by_day.get(d))), None)
+    if current is None:
+        return None
+    since, lasted, quiet, d = current, 1, 0, current
+    while quiet <= WAVE_GAP_DAYS:
+        d = back(d, 1)
+        if d not in by_day:
+            break
+        if _is_wave_day(by_day[d]):
+            since, lasted, quiet = d, lasted + 1, 0
+        else:
+            quiet += 1
+    return {"day": current, "today": current == today, "automated": int(by_day[current]["automated"]),
+            "readers": int(by_day[current].get("visitors") or 0),
+            # A zone that names no country (UTC) is not somewhere to say they came from.
+            "countries": [c["name"] for c in countries if c["name"] != "Unknown"][:WAVE_COUNTRIES], "since": since, "days": lasted}
+
+
+def the_country(name: str) -> str:
+    """A country as a sentence names it: "the United States", "Britain" for "Britain (UK)"."""
+    name = re.sub(r"\s*\(.*?\)", "", name or "").strip()
+    article = (name.startswith(("United ", "Czech Republic", "Dominican Republic", "Central African"))
+               or name.endswith(("lands", "pines", "Islands", "Bahamas", "Gambia", "Emirates")))
+    return f"the {name}" if article else name
+
+
+def _listed(names: list[str]) -> str:
+    names = [the_country(x) for x in names]
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _short_day(d: str) -> str:
+    dd = datetime.fromisoformat(d)
+    return f"{dd.day} {dd:%b}"
+
+
+def automated_cards(wave: dict | None) -> list[dict]:
+    """One card while a wave of automated visits is on: information for the first days, a warning once
+    it has lasted WAVE_WARN_DAYS. There is nothing to press: the visits are already left out."""
+    if not wave:
+        return []
+    when = "today" if wave["today"] else "yesterday"
+    where = f" from {_listed(wave['countries'])}" if wave.get("countries") else ""
+    started = f"It started {when}." if wave["since"] == wave["day"] else f"It started on {_short_day(wave['since'])}."
+    readers_n = wave["readers"]
+    return [_card("readers:automated", "warning" if wave["days"] >= WAVE_WARN_DAYS else "info",
+                  f"A wave of automated visits: {wave['automated']:,} {when}{where}, against {readers_n:,} reader{'' if readers_n == 1 else 's'}. {started}",
+                  "Automated browsers open one page each and leave. They are not readers, and a wave this size would "
+                  "swamp the reader numbers if it were counted.",
+                  "Nothing to do: they are left out of the reader numbers and the ranking. If it keeps growing, "
+                  "Cloudflare in front of the site stops them before they arrive.")]
 
 
 def source_name(raw: str | None) -> str:
@@ -352,90 +473,13 @@ def run() -> dict:
                               "importance": s.importance, "sources": s.article_count, "pinned": s.pinned,
                               "publishedAt": _iso(s.first_published_at)} for s in top]
 
-        # ---- engagement, when the events table has anything.
-        ev = conn.execute(
-            select(func.date(db.events.c.created_at).label("day"), db.events.c.type, func.count(), func.sum(db.events.c.value),
-                   func.count(func.distinct(db.events.c.session)))
-            # Time on page and read depth are story reading here; /work pages send them without a
-            # story (their own line: work_engagement).
-            .where(db.events.c.created_at >= since,
-                   or_(db.events.c.type.notin_(("dwell", "depth")), db.events.c.story_id.isnot(None)))
-            .group_by(func.date(db.events.c.created_at), db.events.c.type)
-        ).all()
-        per_day_ev: dict[str, dict] = {d: {"day": d, "views": 0, "sessions": 0, "visitors": 0, "clicks": 0, "saves": 0, "follows": 0, "shares": 0, "dwellSeconds": 0, "dwellReads": 0} for d in days}
-        for day, etype, n, total, sessions in ev:
-            d = str(day)[:10]
-            if d not in per_day_ev:
-                continue
-            row = per_day_ev[d]
-            if etype == "view":
-                row["views"] += int(n); row["sessions"] = max(row["sessions"], int(sessions or 0))
-            elif etype == "click_source":
-                row["clicks"] += int(n)
-            elif etype == "save":
-                row["saves"] += int(n)
-            elif etype == "follow":
-                row["follows"] += int(n)
-            elif etype == "share":
-                row["shares"] += int(n)
-            elif etype == "dwell":
-                row["dwellSeconds"] += int(total or 0)
-        # Visitors: distinct visitor numbers among views (one per session for older events).
-        for day, n in conn.execute(
-            select(func.date(db.events.c.created_at), func.count(func.distinct(func.coalesce(db.events.c.visitor, db.events.c.session))))
-            .where(db.events.c.created_at >= since, db.events.c.type == "view")
-            .group_by(func.date(db.events.c.created_at))
-        ).all():
-            d = str(day)[:10]
-            if d in per_day_ev:
-                per_day_ev[d]["visitors"] = int(n or 0)
-        # Where visitors came from and which pages they opened, last 7 days.
+        # ---- engagement, when the events table has anything. Readers only: the likely automated
+        # visits (readers.py) are counted apart in every figure.
         since7 = db.utcnow() - timedelta(days=7)
         who = func.coalesce(db.events.c.visitor, db.events.c.session)
-        # Grouped per visitor, so one person arriving as "bluesky" and "bsky.app" counts once.
-        # Counted in the database per referrer; only a name several referrers share ("bluesky" and
-        # "bsky.app") needs a second count across them, so no visitor list is read.
-        by_raw = conn.execute(
-            select(db.events.c.source, func.count(), func.count(func.distinct(who)))
-            .where(db.events.c.created_at >= since7, db.events.c.type == "view")
-            .group_by(db.events.c.source)
-        ).all()
-        by_source: dict[str, dict] = {}
-        for raw, n_views, n_who in by_raw:
-            row = by_source.setdefault(source_name(raw), {"name": source_name(raw), "raws": [], "visitors": 0, "views": 0})
-            row["raws"].append(raw); row["views"] += int(n_views or 0); row["visitors"] = int(n_who or 0)
-        for row in by_source.values():
-            if len(row["raws"]) > 1:
-                named = [r for r in row["raws"] if r is not None]
-                cond = db.events.c.source.in_(named) if named else db.events.c.source.is_(None)
-                if len(named) < len(row["raws"]):
-                    cond = cond | db.events.c.source.is_(None)
-                row["visitors"] = int(conn.execute(
-                    select(func.count(func.distinct(who)))
-                    .where(db.events.c.created_at >= since7, db.events.c.type == "view", cond)).scalar() or 0)
-        sources7 = sorted(({"name": r["name"], "visitors": r["visitors"], "views": r["views"]} for r in by_source.values()),
-                          key=lambda r: (-r["visitors"], -r["views"]))
-        pages7 = [{"path": p or "/", "views": int(n), "visitors": int(v or 0)} for p, n, v in conn.execute(
-            select(db.events.c.path, func.count(), func.count(func.distinct(who)))
-            .where(db.events.c.created_at >= since7, db.events.c.type == "view")
-            .group_by(db.events.c.path).order_by(func.count().desc()).limit(10)
-        ).all()]
-        # Where readers are: the country of each visit's time zone setting, 7 days.
-        countries7 = countries_summary(conn.execute(
-            select(db.events.c.tz, func.count(), func.count(func.distinct(who)))
-            .where(db.events.c.created_at >= since7, db.events.c.type == "view")
-            .group_by(db.events.c.tz)
-        ).all())
-        # Reading sessions: distinct (session, story) pairs that reported any time on page.
-        for day, n in conn.execute(
-            select(func.date(db.events.c.created_at), func.count(func.distinct(db.events.c.session + "|" + func.cast(db.events.c.story_id, db.String))))
-            .where(db.events.c.created_at >= since, db.events.c.type == "dwell")
-            .group_by(func.date(db.events.c.created_at))
-        ).all():
-            d = str(day)[:10]
-            if d in per_day_ev:
-                per_day_ev[d]["dwellReads"] = int(n or 0)
-        has_events = any(r["views"] for r in per_day_ev.values())
+        zones = readers.bot_zones(conn, now)
+        engagement = reader_engagement(conn, now, days, zones)
+        has_events = engagement["available"]
         top_engaged = []
         if has_events:
             rows = conn.execute(
@@ -445,18 +489,7 @@ def run() -> dict:
                 .group_by(db.stories.c.id).order_by(func.sum(db.articles.c.engagement).desc()).limit(15)
             ).all()
             top_engaged = [{"slug": r.slug, "headline": r.headline, "engagement": round(float(r.e or 0), 1)} for r in rows]
-        out["engagement"] = {"available": has_events, "perDay": list(per_day_ev.values()), "topStories": top_engaged,
-                             "sources7": sources7, "pages7": pages7, "countries7": countries7}
-        # Visitors that look automated, shown apart on the Readers tab ("12 likely automated, not counted").
-        try:
-            with conn.begin_nested():  # a failure rolls back to here, not the whole read
-                out["engagement"]["automated7"] = automated_summary(automated_rows(conn, since7))
-            # The same rule per day, so the morning note can say how many of a day's visitors were readers.
-            per_day_bots = automated_per_day(conn, since7, [z["zone"] for z in out["engagement"]["automated7"]["zones"]])
-            for row in out["engagement"]["perDay"]:
-                row["automated"] = per_day_bots.get(row["day"], 0)
-        except Exception as exc:  # noqa: BLE001 - a label must never cost the dashboard
-            log.warning("automated visitor count failed: %s", str(exc)[:160])
+        out["engagement"] = {**engagement, "topStories": top_engaged}
 
         # ---- site searches and how far stories are read.
         out["engagement"]["searches7"] = search_summary(conn.execute(
@@ -473,10 +506,11 @@ def run() -> dict:
         # ---- story performance: prediction vs what actually happened (readers, or the web).
         per_story_ev: dict[int, dict] = {}
         if has_events:
+            t = readers.tagged(since, zones).c
             for sid, etype, n, total in conn.execute(
-                select(db.events.c.story_id, db.events.c.type, func.count(), func.sum(db.events.c.value))
-                .where(db.events.c.created_at >= since, db.events.c.story_id.isnot(None))
-                .group_by(db.events.c.story_id, db.events.c.type)
+                select(t.story_id, t.type, func.count(), func.sum(t.value))
+                .where(t.story_id.isnot(None), t.auto == 0)
+                .group_by(t.story_id, t.type)
             ).all():
                 row = per_story_ev.setdefault(sid, {"views": 0, "dwell": 0.0, "dwellN": 0, "clicks": 0, "saves": 0, "shares": 0})
                 if etype == "view": row["views"] += int(n)
@@ -615,8 +649,9 @@ def run() -> dict:
                                    _read_json("work-episodes.json"), step_rows, now)
         if out["work"] is not None:
             out["work"]["engagement7"] = work_engagement(conn, now - timedelta(days=7),
-                                                         (_read_json("work-briefing.json") or {}).get("featuredTool"))
+                                                         (_read_json("work-briefing.json") or {}).get("featuredTool"), zones)
         actions += work_health_cards(out["work"], now)
+        actions += automated_cards(out["engagement"].get("automatedWave"))
 
         # ---- the database against the free plan: its size, and how much the pipeline reads.
         try:
@@ -762,18 +797,21 @@ def work_summary(work: dict | None, briefing: dict | None, episodes: list | None
     }
 
 
-def work_engagement(conn, since, featured_tool: str | None = None) -> dict:
+def work_engagement(conn, since, featured_tool: str | None = None, zones=()) -> dict:
     """How readers use AI at Work since `since`: views and average read depth of the /work pages,
     and the card actions (try, copy_prompt, expand, next_click, card_view) wherever a card is shown.
-    One grouped query returning at most seven rows, plus, when there is a featured pick, one more
-    returning at most two (its tries and its card views): no egress to speak of."""
+    Readers' views only: with the bot-heavy `zones` (readers.bot_zones) the likely automated ones are
+    left out, as on the Readers tab. One grouped query returning at most seven rows, plus, when there
+    is a featured pick, one more returning at most two (its tries and its card views): no egress to
+    speak of."""
     e = db.events.c
+    t = readers.tagged(since, zones).c
     rows = conn.execute(
-        select(e.type, func.count(), func.avg(e.value))
-        .where(e.created_at >= since,
-               or_(e.type.in_(db.WORK_EVENT_TYPES),
-                   and_(e.type.in_(("view", "depth")), or_(e.path == "/work", e.path.like("/work/%")))))
-        .group_by(e.type)
+        select(t.type, func.count(), func.avg(t.value))
+        .where(t.auto == 0,
+               or_(t.type.in_(db.WORK_EVENT_TYPES),
+                   and_(t.type.in_(("view", "depth")), or_(t.path == "/work", t.path.like("/work/%")))))
+        .group_by(t.type)
     ).all()
     featured = []
     if featured_tool:

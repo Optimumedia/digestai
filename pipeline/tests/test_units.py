@@ -665,6 +665,42 @@ def test_daily_history_google_position_weighting():
     assert sum_pos / sum_imp == 12.5  # (80x1 + 5x9) / 10, not the mean of daily averages (42.5)
 
 
+def test_app_js_counts_a_view_only_for_a_reader():
+    """site/public/app.js run in Node against a stand-in browser with its own clock (app_gate_probe.js):
+    what a page load sends, and when."""
+    import json
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        print("SKIP node not installed")
+        return
+    here = Path(__file__).resolve()
+    res = subprocess.run([node, str(here.with_name("app_gate_probe.js")), str(here.parents[2] / "site" / "public" / "app.js")],
+                         capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr[:800]
+    got = json.loads(res.stdout)
+    view = lambda at: {"at": at, "type": "view", "value": 1}  # noqa: E731
+    # Reading without touching anything: nothing for ten seconds, then the view; time on page follows it.
+    assert got["quietBefore"] == [] and got["quietAfter"] == [view(10)], got
+    assert got["quietLeft"] == [view(10), {"at": 15.1, "type": "dwell", "value": 15}], got["quietLeft"]
+    # The first sign of a person counts at once; one a script made up does not.
+    for sign in ("pointermove", "scroll", "touchstart", "keydown", "pointerdown"):
+        assert got[sign] == [view(2)], (sign, got[sign])
+    assert got["untrusted"] == []
+    # A load that is never counted leaves no row at all, and what was measured before the count comes after the view.
+    assert got["leftEarly"] == []
+    assert got["heldThenCounted"] == [view(5), {"at": 5, "type": "dwell", "value": 3}], got["heldThenCounted"]
+    assert got["hiddenDoesNotCount"] == [] and got["backgroundTab"] == [view(31)], got
+    # Each mark of an automated browser alone: nothing, even after a pointer move and fifteen seconds.
+    for mark in ("swiftshader", "llvmpipe", "noLanguages", "noOuterSize", "noScreen", "webdriver"):
+        assert got[mark] == [], (mark, got[mark])
+    # WebGL switched off says nothing about who is browsing, and a real graphics card is a reader's.
+    assert got["webglOff"] == [view(1)] and got["firefox"] == [view(1)], got
+    assert got["admin"] == [] and got["notFound"] == []
+
+
 def _compare_js():
     """The Compare script from admin.astro, runnable in Node (it exports itself without a DOM)."""
     import re

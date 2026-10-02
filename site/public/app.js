@@ -94,50 +94,122 @@
     visitor = { id: Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 8), day: visitDay };
     store.set("visitor", visitor);
   }
+  // Nothing is sent until this page load has been counted as a reader's (the gate below). `reader`
+  // says it has; until then events wait in `held`, and `held` is null once the browser has been
+  // taken for an automated one, which drops them for good.
+  let reader = false, held = [];
+  const HELD_MAX = 20; // with the view, under the database's 30 events a minute per session
+  const whenReader = [];
+  const post = (ev) => {
+    // keepalive lets the request finish after the page is gone (unlike sendBeacon, it can carry
+    // the JSON content type and the API headers Supabase requires).
+    fetch(`${cfg.supabaseUrl}/rest/v1/events`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey, Authorization: `Bearer ${cfg.supabaseKey}`, Prefer: "return=minimal" }, body: JSON.stringify(ev) }).catch(() => {});
+  };
   // extra: { detail } for searches (the query) and read depth (how far), { path } to file it under another page.
+  // An event carries the time it happened, so one that waited for the gate is still filed where it belongs.
   function send(type, value, extra) {
     if (!cfg.supabaseUrl || !cfg.supabaseKey || noTrack) return;
     const ev = { story_id: storyId, article_id: articleId, type, value: value ?? 1, session: sid, visitor: visitor.id, source: String(visitSource).slice(0, 60), tz: visitZone, path: (extra && extra.path) || location.pathname, created_at: new Date().toISOString() };
     if (extra && extra.detail) ev.detail = String(extra.detail).slice(0, 100);
-    const body = JSON.stringify(ev);
-    // keepalive lets the request finish after the page is gone (unlike sendBeacon, it can carry
-    // the JSON content type and the API headers Supabase requires).
-    fetch(`${cfg.supabaseUrl}/rest/v1/events`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json", apikey: cfg.supabaseKey, Authorization: `Bearer ${cfg.supabaseKey}`, Prefer: "return=minimal" }, body }).catch(() => {});
+    if (reader) post(ev);
+    else if (held && held.length < HELD_MAX) held.push(ev);
   }
-  // Every page counts as a view (the admin page does not); time on page and source clicks are story-only.
-  // Not the admin page, and not "page not found": old addresses from the previous site are mostly
-  // crawlers checking links that no longer exist.
-  // The view is sent once the page has been on screen for VIEW_AFTER_MS in all, or at the first scroll,
-  // tap, click or key press, whichever comes first. Automated browsers that load a page and leave
-  // (in September most "direct" visitors were one view with no referrer, no time on page and no
-  // scroll, from one time zone) never send it; a reader nearly always stays a second and a half.
-  // A page opened in a background tab counts from when it is first shown.
-  if (!location.pathname.startsWith("/admin") && !document.title.startsWith("Page not found") && !noTrack) {
-    const VIEW_AFTER_MS = 1500;
-    const INPUTS = ["scroll", "pointerdown", "keydown", "touchstart"];
-    let viewSent = false, timer = null;
-    const sendView = () => {
-      if (viewSent) return;
-      viewSent = true;
+  // Every page counts as a view (the admin page and "page not found" do not); time on page and source
+  // clicks are story-only.
+  //
+  // The gate. A page load is counted as a reader's at the first sign of a person (the pointer moves,
+  // the page scrolls, a touch, a key, a click) or, without any of those, once the page has been on
+  // screen for VIEW_AFTER_MS in all: someone who opens a story and reads it for ten seconds without
+  // touching anything still counts. Only then is the view sent, and with it whatever the page
+  // measured meanwhile (cards seen, time on page); a load that never passes sends nothing at all,
+  // so a visitor who is not counted as a view leaves no other rows either. A page opened in a
+  // background tab counts from when it is first shown.
+  // Why: a bare timer of a second and a half let through automated browsers that load a page, wait
+  // for it to settle and leave. In the week to 2 October 2026 some 900 of 1,100 views were one page
+  // each from four countries, with no referrer, no time on page, no read depth and no click.
+  //
+  // Before the view is sent the browser is looked at, once, for the marks of an automated one. These
+  // are well-known and cheap, each alone is enough, and none is sent, stored or combined into
+  // anything that could tell one visitor from another: they only decide whether to send the
+  // anonymous event.
+  //   - navigator.webdriver: the browser says it is being driven by a program (checked above);
+  //   - the WebGL renderer is software (SwiftShader, llvmpipe): how Chrome draws on a server with no
+  //     graphics card. A browser with WebGL switched off or unavailable is not judged by this;
+  //   - no languages at all, a window with no outer size, or a screen of size zero: old headless
+  //     Chrome. A tab opened in the background also reports no outer size until it is shown, so
+  //     that mark only counts on a page that was on screen when it loaded, and both sizes are read
+  //     only while the page is on screen.
+  // The price: a reader on a machine that draws in software (some virtual desktops, hardware
+  // acceleration switched off) is not counted. They read the site exactly as before.
+  const VIEW_AFTER_MS = 10000;
+  const INPUTS = ["pointermove", "scroll", "touchstart", "keydown", "pointerdown"];
+  const startedVisible = document.visibilityState === "visible";
+  const softwareRenderer = () => {
+    const canvas = document.createElement("canvas");
+    const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+    if (!gl) return false; // WebGL off or not supported: says nothing about who is browsing
+    // Firefox names the renderer here; Chrome and Safari answer "WebKit WebGL" and keep the name behind an extension.
+    let name = String(gl.getParameter(gl.RENDERER) || "");
+    if (!name || /^webkit webgl$/i.test(name)) {
+      const info = gl.getExtension("WEBGL_debug_renderer_info");
+      if (info) name = String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL) || "");
+    }
+    const lose = gl.getExtension("WEBGL_lose_context");
+    if (lose) lose.loseContext();
+    return /SwiftShader|llvmpipe|Software/i.test(name);
+  };
+  // A browser that will not answer one of these is not thereby a robot: an error counts as "no".
+  const marks = () => {
+    try {
+      return navigator.webdriver === true || (navigator.languages != null && navigator.languages.length === 0) || softwareRenderer();
+    } catch { return false; }
+  };
+  // The sizes are read at the moment of counting, when the page is on screen: a hidden page has none to report.
+  const sizeless = () => {
+    try {
+      return document.visibilityState === "visible"
+        && ((startedVisible && (window.outerWidth === 0 || window.outerHeight === 0)) || (!!window.screen && (screen.width === 0 || screen.height === 0)));
+    } catch { return false; }
+  };
+  let verdict = null; // looked at once per page load, kept only in this variable
+  const marked = () => (verdict == null ? (verdict = marks()) : verdict);
+  const automated = () => marked() || sizeless();
+  // Every page counts as a view except the admin page and "page not found" (old addresses from the
+  // previous site are mostly crawlers checking links that no longer exist); the gate is the same there.
+  const countsViews = !location.pathname.startsWith("/admin") && !document.title.startsWith("Page not found");
+  if (!noTrack) {
+    let timer = null, shown = 0, since = null;
+    const admit = () => {
+      if (reader || !held) return;
       clearTimeout(timer);
-      INPUTS.forEach((t) => removeEventListener(t, sendView, true));
+      INPUTS.forEach((t) => removeEventListener(t, onInput, true));
       document.removeEventListener("visibilitychange", onVisibility);
-      send("view", 1);
+      if (automated()) { held = null; return; }
+      reader = true;
+      const waiting = held;
+      held = [];
+      if (countsViews) send("view", 1);
+      waiting.forEach(post);
+      whenReader.splice(0).forEach((fn) => fn());
     };
-    let shown = 0, since = null;
+    // isTrusted: the browser reported it, a script on the page did not make it up.
+    const onInput = (e) => { if (e.isTrusted) admit(); };
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
         since = Date.now();
-        timer = setTimeout(sendView, Math.max(0, VIEW_AFTER_MS - shown));
+        timer = setTimeout(admit, Math.max(0, VIEW_AFTER_MS - shown));
       } else if (since != null) {
         shown += Date.now() - since;
         since = null;
         clearTimeout(timer);
       }
     };
-    INPUTS.forEach((t) => addEventListener(t, sendView, { capture: true, passive: true }));
+    INPUTS.forEach((t) => addEventListener(t, onInput, { capture: true, passive: true }));
     document.addEventListener("visibilitychange", onVisibility);
-    if (document.visibilityState === "visible") onVisibility();
+    if (startedVisible) onVisibility();
+    // The look at the browser takes a few milliseconds (it opens a WebGL context), so it is done
+    // when the page is idle rather than in the middle of the reader's first scroll.
+    (window.requestIdleCallback || ((fn) => setTimeout(fn, 1500)))(() => { marked(); }, { timeout: 4000 });
   }
   // AI at Work pages (/work, /work/<job>, /work/tools, /work/week/<week>) are not stories: their time
   // on page and read depth are sent with no story_id, under the page key (the path without ".html"
@@ -500,7 +572,9 @@
 
   /* ---------- live presence: who is on the site right now (read by the admin page) ---------- */
   // Anonymous and not stored: the page, its title, the traffic source and whether it is a phone.
-  // Connected only while the tab is visible, so the free plan's concurrent-connection cap is respected.
+  // Connected only while the tab is visible, so the free plan's concurrent-connection cap is respected,
+  // and only once the page load has been counted as a reader's (the gate above): an automated browser
+  // is not "on the site right now" and should not hold one of those connections.
   (() => {
     if (!cfg.supabaseUrl || !cfg.supabaseKey || noTrack || !("WebSocket" in window) || location.pathname.startsWith("/admin")) return;
     const src = visitSource;
@@ -509,7 +583,7 @@
     let ws = null, hb = null, ref = 0, hideTimer = null, retries = 0;
     const send = (t, event, payload) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ topic: t, event, payload, ref: String(++ref) })); };
     const connect = () => {
-      if (ws || document.visibilityState !== "visible") return;
+      if (ws || !reader || document.visibilityState !== "visible") return;
       const sock = new WebSocket(`${cfg.supabaseUrl.replace(/^http/, "ws")}/realtime/v1/websocket?apikey=${encodeURIComponent(cfg.supabaseKey)}&vsn=1.0.0`);
       ws = sock;
       sock.onopen = () => {
@@ -535,7 +609,7 @@
       else hideTimer = setTimeout(disconnect, 60000);
     });
     addEventListener("pagehide", disconnect);
-    connect();
+    whenReader.push(connect);
   })();
 
   /* ---------- audio briefing player ([data-listen]) ---------- */

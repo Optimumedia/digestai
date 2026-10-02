@@ -531,6 +531,9 @@ KNOWN_URLS = Blob("known_urls")
 SUSPECTS = Blob("suspect_duplicates")  # story pairs that may be one event (merge.py), for the dashboard
 # AI at Work: reader actions per tool over 30 days, one grouped read every few hours (work_learn.py).
 WORK_EVENTS = Blob("work_events")
+# The time zones most of whose visitors are one direct view and nothing else, one grouped read an
+# hour (readers.py); every count of readers leaves those views out.
+BOT_ZONES = Blob("bot_zones")
 
 
 def url_hash(url: str) -> str:

@@ -3,7 +3,9 @@
 External popularity: what the web is already reacting to (Hacker News points, Reddit score,
 Mastodon shares, how many outlets cover the story, whether the primary source is in it).
 Internal engagement: what our readers do (views, time on page, clicks to the source, saves,
-follows, shares), recorded in the events table when Supabase is configured.
+follows, shares), recorded in the events table when Supabase is configured. Views by likely
+automated visitors (readers.py) are left out, so neither the model nor the source weights learn
+from a crawler.
 
 1. Engagement per article from events (30 days), decayed into a rate.
 2. A ridge regression from [embedding, popularity, breadth, primary, importance] to that
@@ -27,7 +29,7 @@ from urllib.parse import quote_plus
 import numpy as np
 from sqlalchemy import and_, bindparam, case, func, insert, or_, select, update
 
-from . import cache, config, db
+from . import cache, config, db, readers
 
 log = logging.getLogger("digest.rank")
 
@@ -53,8 +55,9 @@ _DASHES = re.compile(r"[‐-―−]")
 
 
 def _engagement(conn) -> dict[int, float]:
-    """Engagement per article, counting each session at most once per event type per day,
-    so a single visitor (or a script) cannot inflate a story by reloading it."""
+    """Engagement per article from readers' events, counting each session at most once per event
+    type per day, so a single visitor (or a script) cannot inflate a story by reloading it, and
+    leaving out the views of likely automated visitors (readers.py)."""
     since = db.utcnow() - timedelta(days=30)
     # Prune old events first: nothing past 90 days is used anywhere.
     conn.execute(db.events.delete().where(db.events.c.created_at < db.utcnow() - timedelta(days=90)))
@@ -64,7 +67,15 @@ def _engagement(conn) -> dict[int, float]:
     # stopped counting (15 Sep); they are crawlers re-checking old links, not readers.
     conn.execute(db.events.delete().where(db.events.c.path.like("/article/%")))
     e = db.events.c
-    day = func.date(e.created_at)
+    # Readers only. A view that is likely automated (readers.py: the visitor's only event, direct,
+    # from a time zone where most visitors do only that) counts for nothing: in the week to 2 Oct
+    # 2026 some 900 such views, nearly each of a different page, outnumbered readers' views four to
+    # one, and the model was learning which stories a crawler happened to open. The rule is the Readers
+    # tab's, evaluated by the database inside this same grouped query (t.auto), so a reader who
+    # stayed, came from a link or lives where readers live still counts exactly as before.
+    zones = readers.bot_zones(conn)
+    t = readers.tagged(since, zones).c
+    day = func.date(t.created_at)
 
     def count(*where) -> dict[int, float]:
         # One row per article, type, session and day. Dwell adds up across the visits of a session
@@ -72,9 +83,9 @@ def _engagement(conn) -> dict[int, float]:
         # adds these up per article and type, so this reads one row per article with readers, not one
         # per visit.
         visits = (
-            select(e.article_id, e.type, func.sum(e.value).label("total"), func.max(e.value).label("mx"))
-            .where(e.created_at >= since, e.article_id.isnot(None), *where)
-            .group_by(e.article_id, e.type, e.session, day)
+            select(t.article_id, t.type, func.sum(t.value).label("total"), func.max(t.value).label("mx"))
+            .where(t.article_id.isnot(None), t.auto == 0, *where)
+            .group_by(t.article_id, t.type, t.session, day)
         ).subquery()
         # Ten minutes of reading is the most one visit may count for; other events count once.
         capped = case((visits.c.type == "dwell", case((visits.c.total > 600.0, 600.0), else_=visits.c.total)),
@@ -89,11 +100,12 @@ def _engagement(conn) -> dict[int, float]:
 
     # Recounted in full once a day; in between, only articles whose count can have changed: those
     # with events recorded since the last count (a reader's event time may be up to a day earlier,
-    # see the events guard) and those whose events have left the 30-day window since.
+    # see the events guard) and those whose events have left the 30-day window since. A change in
+    # the bot-heavy zones changes which views count on any article, so it is a full recount too.
     now = db.utcnow()
     state = cache.ENGAGEMENT.get(conn)
     last, full_at = state.get("at"), float(state.get("full_at") or 0)
-    if last is None or now.timestamp() - full_at >= ENGAGEMENT_FULL_HOURS * 3600:
+    if last is None or now.timestamp() - full_at >= ENGAGEMENT_FULL_HOURS * 3600 or (state.get("zones") or []) != zones:
         raw = count()
         full_at = now.timestamp()
     else:
@@ -106,8 +118,9 @@ def _engagement(conn) -> dict[int, float]:
         for aid in changed:
             raw.pop(aid, None)
         for i in range(0, len(changed), 500):
-            raw.update(count(e.article_id.in_(changed[i : i + 500])))
-    cache.ENGAGEMENT.put(conn, {"at": now.timestamp(), "full_at": full_at, "raw": {str(k): v for k, v in raw.items()}})
+            raw.update(count(t.article_id.in_(changed[i : i + 500])))
+    cache.ENGAGEMENT.put(conn, {"at": now.timestamp(), "full_at": full_at, "zones": zones,
+                                "raw": {str(k): v for k, v in raw.items()}})
     return raw
 
 

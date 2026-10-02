@@ -273,6 +273,10 @@ daily_stats = Table(
     Column("sessions", Integer),
     Column("visitors", Integer),
     Column("views", Integer),
+    # Of those visitors and views, the likely automated ones (readers.py): one view each, so one
+    # number for both. Visitors and views stay as recorded; readers are the difference. NULL on a
+    # day stored before this was counted.
+    Column("automated_visits", Integer),
     Column("dwell_seconds", Float),
     Column("dwell_reads", Integer),
     Column("clicks", Integer),

@@ -517,27 +517,102 @@ def test_oversized_story_repair_detaches_the_furthest_members_in_bounded_batches
         assert sum(1 for r in rows.values() if r.status == "published") == 40
 
 
-def test_likely_automated_visitors_are_counted_apart():
-    from digest import admin
+def _visit(who, tz, at, source="direct", path="/", etype="view", value=1, **more):
+    return {"type": etype, "value": value, "session": who, "visitor": who, "source": source, "tz": tz, "path": path,
+            "article_id": None, "story_id": None, "detail": None, "created_at": at, **more}
+
+
+def _reader_events(t):
+    """A week's shape in small: a wave from one zone, and readers everywhere (that zone included)."""
+    # The wave: one direct view each and nothing else, of story 2's page or (one of them) an AI at Work page.
+    rows = [_visit(f"cn{i}", "Asia/Shanghai", t, path="/work" if i == 0 else f"/story/b{i}", story_id=None if i == 0 else 2) for i in range(8)]
+    rows += [_visit("cnr", "Asia/Shanghai", t, path="/story/read"),  # a reader there: stayed on the page
+             _visit("cnr", "Asia/Shanghai", t, path="/story/read", etype="dwell", value=40, story_id=1)]
+    rows += [_visit(f"us{i}", "America/New_York", t) for i in range(3)]  # one-view visits from a zone where most people read
+    rows += [_visit("usr", "America/New_York", t, path="/a"), _visit("usr", "America/New_York", t, path="/b"),
+             _visit("bsky", "Europe/Warsaw", t, source="bsky.app"),
+             _visit("cng", "Asia/Shanghai", t, source="google.com", path="/story/found"),  # one view, but it followed a link
+             _visit("old", None, t)]  # no time zone (an older visit): never marked
+    return rows
+
+
+def test_likely_automated_visitors_are_left_out_of_every_reader_number():
+    from digest import admin, history, morning, readers
 
     with fresh_db() as (eng, _tmp):
         t = NOW - timedelta(hours=3)
-        rows = []
-        for i in range(6):  # one direct view each, nothing else, all from one zone
-            rows.append({"type": "view", "value": 1, "session": f"cn{i}", "visitor": f"cn{i}", "source": "direct", "tz": "Asia/Shanghai", "path": "/", "created_at": t})
-        rows += [{"type": "view", "value": 1, "session": "cnr", "visitor": "cnr", "source": "direct", "tz": "Asia/Shanghai", "path": "/", "created_at": t},
-                 {"type": "dwell", "value": 40, "session": "cnr", "visitor": "cnr", "source": "direct", "tz": "Asia/Shanghai", "path": "/", "created_at": t}]
-        for i in range(3):  # a few one-view visits from a zone where most people read: counted
-            rows.append({"type": "view", "value": 1, "session": f"us{i}", "visitor": f"us{i}", "source": "direct", "tz": "America/New_York", "path": "/", "created_at": t})
-        rows += [{"type": "view", "value": 1, "session": "usr", "visitor": "usr", "source": "direct", "tz": "America/New_York", "path": "/a", "created_at": t},
-                 {"type": "view", "value": 1, "session": "usr", "visitor": "usr", "source": "direct", "tz": "America/New_York", "path": "/b", "created_at": t},
-                 {"type": "view", "value": 1, "session": "bsky", "visitor": "bsky", "source": "bsky.app", "tz": "Europe/Warsaw", "path": "/", "created_at": t}]
+        day = t.date().isoformat()
         with eng.begin() as conn:
-            conn.execute(insert(db.events), rows)
+            conn.execute(insert(db.events), _reader_events(t))
+        days = [(NOW - timedelta(days=i)).date().isoformat() for i in range(13, -1, -1)]
         with eng.connect() as conn:
-            got = admin.automated_summary(admin.automated_rows(conn, NOW - timedelta(days=7)))
-        assert got["visitors"] == 6 and got["views"] == 6, got
-        assert got["zones"] == [{"zone": "Asia/Shanghai", "country": "China", "visitors": 6, "of": 7}], got
+            # The zone test, by the data: Shanghai has 10 visitors, 8 of them one direct view and nothing else.
+            rows = {r[0]: tuple(int(x) for x in r[1:]) for r in readers.zone_rows(conn, NOW)}
+            assert rows["Asia/Shanghai"] == (10, 8, 10, 8) and rows["America/New_York"] == (4, 3, 4, 3), rows
+            zones = readers.bot_zones(conn, NOW)
+            assert zones == ["Asia/Shanghai"], zones
+            assert readers.bot_zones(conn, NOW) == zones  # the runner's copy: no second read
+            got = admin.reader_engagement(conn, NOW, days, zones)
+            raw = admin.reader_engagement(conn, NOW, days, [])  # no bot-heavy zone: everything counts
+            work = admin.work_engagement(conn, NOW - timedelta(days=7), None, zones)
+            work_raw = admin.work_engagement(conn, NOW - timedelta(days=7))
+            pairs = morning.visitor_pairs(conn, NOW - timedelta(days=1), NOW + timedelta(hours=1), zones)
+            stories = morning.reader_events(conn, NOW - timedelta(days=1), zones)
+            stories_raw = morning.reader_events(conn, NOW - timedelta(days=1))
+        per_day = {r["day"]: r for r in got["perDay"]}[day]
+        # 17 views by 16 visitors were recorded; 8 of each were automated.
+        assert (per_day["views"], per_day["visitors"], per_day["automated"]) == (9, 8, 8), per_day
+        raw_day = {r["day"]: r for r in raw["perDay"]}[day]
+        assert (raw_day["views"], raw_day["visitors"], raw_day["automated"]) == (17, 16, 0), raw_day
+        assert per_day["dwellSeconds"] == 40 and per_day["dwellReads"] == 1
+        auto = got["automated7"]
+        assert (auto["visitors"], auto["views"]) == (8, 8), auto
+        assert auto["zones"] == [{"zone": "Asia/Shanghai", "country": "China", "visitors": 8, "of": 10}], auto
+        assert auto["countries"] == [{"name": "China", "visitors": 8}], auto
+        assert raw["automated7"]["visitors"] == 0 and raw["automated7"]["zones"] == []
+        # Direct loses the eight, the countries list keeps China's two readers, and no bot page is "most viewed".
+        sources = {r["name"]: (r["visitors"], r["views"]) for r in got["sources7"]}
+        assert sources == {"Direct": (6, 7), "Bluesky": (1, 1), "Google": (1, 1)}, sources
+        countries = {c["name"]: (c["visitors"], c["views"]) for c in got["countries7"]}
+        assert countries == {"United States": (4, 5), "China": (2, 2), "Poland": (1, 1), "Unknown": (1, 1)}, countries
+        assert not any(p["path"].startswith("/story/b") for p in got["pages7"]), got["pages7"]
+        assert any(p["path"].startswith("/story/b") for p in raw["pages7"])
+        assert sum(p["views"] for p in got["pages7"]) == 9
+        assert not any(p["path"] == "/work" for p in got["pages7"])
+        # The AI at Work line counts readers' views of /work pages: the wave's one is not among them.
+        assert work["views"] == 0 and work_raw["views"] == 1
+        # The morning note's story views and its breakdown: readers only, and no row per automated visitor.
+        assert 2 not in stories and stories_raw[2]["views"] == 7 and stories[1]["dwell"] == 40, (stories, stories_raw)
+        assert len(pairs) == 8 and not any(who.startswith("cn") and who[2:].isdigit() for _src, _tz, who in pairs), pairs
+
+        # The daily history keeps what was recorded and counts the automated visits beside it.
+        hist = {r["day"]: r for r in history.update(eng, NOW, google={})}
+        assert (hist[day]["views"], hist[day]["visitors"], hist[day]["automatedVisits"]) == (17, 16, 8), hist[day]
+        # A day stored before they were counted is filled once, while its events are still there.
+        with eng.begin() as conn:
+            old = NOW - timedelta(days=6)
+            conn.execute(insert(db.events), [_visit(f"cno{i}", "Asia/Shanghai", old) for i in range(9)])
+            conn.execute(insert(db.daily_stats), [{"day": old.date().isoformat(), "views": 9, "visitors": 9, "updated_at": NOW}])
+        cache.BOT_ZONES.put(eng.connect(), {})
+        hist = {r["day"]: r for r in history.update(eng, NOW, google={})}
+        assert hist[old.date().isoformat()]["automatedVisits"] == 9 and hist[day]["automatedVisits"] == 8, hist
+
+
+def test_a_zone_stays_marked_while_its_wave_is_inside_the_ranking_window():
+    from digest import readers
+
+    with fresh_db() as (eng, _tmp):
+        then = NOW - timedelta(days=20)
+        with eng.begin() as conn:
+            conn.execute(insert(db.events), [_visit(f"sg{i}", "Asia/Singapore", then) for i in range(12)]
+                         + [_visit("sgr", "Asia/Singapore", NOW - timedelta(hours=2), source="google.com")]
+                         # Four one-view visits are too few to call a zone bot-heavy, whatever their share.
+                         + [_visit(f"hk{i}", "Asia/Hong_Kong", NOW - timedelta(hours=2)) for i in range(4)])
+        with eng.connect() as conn:
+            rows = {r[0]: tuple(int(x) for x in r[1:]) for r in readers.zone_rows(conn, NOW)}
+            assert rows == {"Asia/Singapore": (13, 12, 1, 0), "Asia/Hong_Kong": (4, 4, 4, 4)}, rows
+            assert readers.bot_zones(conn, NOW) == ["Asia/Singapore"]
+        assert not readers.bot_heavy(4, 4) and readers.bot_heavy(5, 5) and readers.bot_heavy(10, 8) and not readers.bot_heavy(10, 7)
 
 
 # ---------------------------------------------------------------------------- tidy
@@ -603,6 +678,65 @@ def test_rank_reuses_its_model_and_counts_engagement_incrementally():
         assert incremental == full and full[2] > full[3] and 40 in full
 
 
+def _rank_events(bots: bool):
+    t = NOW - timedelta(hours=5)
+    rows = [  # readers: one who stayed, one who only looked, one who followed a link, one in the bots' own zone
+        _visit("r1", "Europe/Warsaw", t, article_id=6), _visit("r1", "Europe/Warsaw", t, etype="dwell", value=60, article_id=6),
+        _visit("r2", "Europe/Warsaw", t, article_id=7),
+        _visit("r3", "Asia/Singapore", t, source="google.com", article_id=8),
+        _visit("r4", "Asia/Singapore", t, article_id=9), _visit("r4", "Asia/Singapore", t, etype="dwell", value=60, article_id=9),
+    ]
+    if bots:  # a wave: one direct view each of a different article, and nothing else
+        rows += [_visit(f"bot{i}", "Asia/Singapore", t, article_id=1 + i % 30) for i in range(60)]
+    return rows
+
+
+def test_bot_shaped_views_do_not_move_engagement_and_real_ones_do():
+    from digest import rank, readers
+
+    def ranked(bots: bool):
+        with fresh_db() as (eng, _tmp):
+            seed(eng, stories=20, per_story=3)
+            with eng.begin() as conn:
+                conn.execute(insert(db.events), _rank_events(bots))
+            with eng.begin() as conn:
+                zones = readers.bot_zones(conn, NOW)
+                raw = rank._engagement(conn)
+                rank.train_and_predict(conn)
+                rank.update_source_weights(conn)
+            with eng.connect() as conn:
+                stored = dict(conn.execute(select(db.articles.c.id, db.articles.c.engagement)).all())
+                weights = dict(conn.execute(select(db.sources.c.id, db.sources.c.engagement_ema)).all())
+            # More of the wave after the count: the next run counts only what changed, and still nothing moves.
+            if bots:
+                with eng.begin() as conn:
+                    conn.execute(insert(db.events), [_visit(f"late{i}", "Asia/Singapore", NOW, article_id=40 + i) for i in range(5)]
+                                 + [_visit("r5", "Europe/Warsaw", NOW, article_id=41),
+                                    _visit("r5", "Europe/Warsaw", NOW, etype="click_source", article_id=41)])
+                new_process()
+                with eng.begin() as conn:
+                    later = rank._engagement(conn)
+                assert later == {**raw, 41: 4.0}, later
+            return zones, raw, stored, weights
+
+    zones, raw, stored, weights = ranked(bots=True)
+    assert zones == ["Asia/Singapore"]
+    # A view is 1, a minute on the page 2: only readers' events are in the count.
+    assert raw == {6: 3.0, 7: 1.0, 8: 1.0, 9: 3.0}, raw
+    assert stored[1] == 0.0 and stored[5] == 0.0 and stored[6] == 3.0 and stored[9] == 3.0, stored
+    # Without the wave: the same engagement and the same source weights, to the last digit.
+    no_zones, raw_clean, stored_clean, weights_clean = ranked(bots=False)
+    assert no_zones == [] and raw_clean == raw and stored_clean == stored and weights_clean == weights
+    # Counted the old way, the wave would have been most of the "engagement": 60 views against 9.
+    with fresh_db() as (eng, _tmp):
+        seed(eng, stories=20, per_story=3)
+        with eng.begin() as conn:
+            conn.execute(insert(db.events), _rank_events(True))
+            cache.BOT_ZONES.put(conn, {"at": __import__("time").time(), "zones": []})
+            old = rank._engagement(conn)
+        assert sum(old.values()) == 60 + sum(raw.values()) and len(old) == 30, old
+
+
 # ---------------------------------------------------------------------------- admin
 
 def test_database_summary_cycle_and_cards():
@@ -627,6 +761,50 @@ def test_database_summary_cycle_and_cards():
     d["sizeMB"], d["reads"]["monthlyMB"] = 460, 4500
     cards = {c["id"]: c for c in admin.database_cards(d)}
     assert cards["database:size"]["level"] == "critical" and cards["database:reads"]["level"] == "warning"
+
+
+def test_a_wave_of_automated_visits_gets_a_card_only_past_the_threshold():
+    from digest import admin
+
+    def days(*rows):
+        return [{"day": d, "visitors": readers_n, "automated": bots} for d, readers_n, bots in rows]
+
+    countries = [{"name": "Singapore", "visitors": 299}, {"name": "China", "visitors": 280}, {"name": "Hong Kong", "visitors": 147},
+                 {"name": "United States", "visitors": 26}]
+    week = days(("2026-09-26", 6, 0), ("2026-09-27", 15, 0), ("2026-09-28", 27, 84), ("2026-09-29", 30, 186),
+                ("2026-09-30", 25, 4), ("2026-10-01", 26, 197), ("2026-10-02", 21, 463))
+    wave = admin.automated_wave(week, countries, "2026-10-02")
+    assert wave == {"day": "2026-10-02", "today": True, "automated": 463, "readers": 21,
+                    "countries": ["Singapore", "China", "Hong Kong"], "since": "2026-09-28", "days": 4}, wave
+    (card,) = admin.automated_cards(wave)
+    assert card["id"] == "readers:automated" and card["level"] == "warning" and "action" not in card
+    assert card["what"] == ("A wave of automated visits: 463 today from Singapore, China and Hong Kong, against 21 readers. "
+                            "It started on 28 Sep."), card["what"]
+    assert card["todo"] == ("Nothing to do: they are left out of the reader numbers and the ranking. If it keeps growing, "
+                            "Cloudflare in front of the site stops them before they arrive.")
+    # Below either half of the threshold: no card. 49 visits are too few; 60 against 21 readers are under three times.
+    assert admin.automated_wave(days(("2026-10-02", 3, 49)), countries, "2026-10-02") is None
+    assert admin.automated_wave(days(("2026-10-02", 21, 60)), countries, "2026-10-02") is None
+    assert admin.automated_cards(None) == []
+    assert admin.automated_wave(days(("2026-10-02", 16, 50)), countries, "2026-10-02")["days"] == 1  # 50 and 3 x 16 = 48: just over
+    # The first day of one: information, not a warning, and it says so.
+    first = admin.automated_wave(week[:3], countries, "2026-09-28")
+    (card,) = admin.automated_cards(first)
+    assert first["days"] == 1 and card["level"] == "info" and card["what"].endswith("against 27 readers. It started today."), card
+    # A quiet today falls back to yesterday; two quiet days end the wave, so an older one is not "since".
+    y = admin.automated_wave(week + days(("2026-10-03", 4, 2)), countries, "2026-10-03")
+    assert (y["day"], y["today"], y["since"], y["days"]) == ("2026-10-02", False, "2026-09-28", 4), y
+    assert "463 yesterday from" in admin.automated_cards(y)[0]["what"]
+    gap = days(("2026-09-28", 27, 84), ("2026-09-29", 30, 2), ("2026-09-30", 25, 4), ("2026-10-01", 26, 197), ("2026-10-02", 21, 463))
+    g = admin.automated_wave(gap, countries, "2026-10-02")
+    assert (g["since"], g["days"]) == ("2026-10-01", 2) and admin.automated_cards(g)[0]["level"] == "info", g
+    assert admin.automated_wave(week, countries, "2026-10-05") is None  # neither today nor yesterday
+    one = admin.automated_cards({**wave, "readers": 1, "countries": []})[0]["what"]
+    assert one.startswith("A wave of automated visits: 463 today, against 1 reader. "), one
+    # Countries as a sentence names them, and a zone that names none (UTC) is left out.
+    named = admin.automated_wave(week, [{"name": "Unknown", "visitors": 500}, {"name": "China", "visitors": 300}, {"name": "United States", "visitors": 90}], "2026-10-02")
+    assert named["countries"] == ["China", "United States"]
+    assert "463 today from China and the United States, against" in admin.automated_cards(named)[0]["what"]
 
 
 if __name__ == "__main__":

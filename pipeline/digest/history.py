@@ -4,7 +4,12 @@ Reader events are pruned after 90 days (rank.py), so longer comparisons need the
 one row per UTC day in `daily_stats`. Every run recomputes the last few days (late events still
 arrive) and fills any day that has no row yet from whatever the database still holds. A metric
 is NULL on days it could not be measured (before tracking existed, or events already pruned when
-the day was first filled), so the page can tell "zero" from "no data"."""
+the day was first filled), so the page can tell "zero" from "no data".
+
+Visitors and views are stored as recorded, with the likely automated visits (readers.py) beside
+them in `automated_visits`; the page shows the difference, readers, as the Readers tab does. A
+stored day keeps the count it was given: the rule's bot-heavy zones can change later, the history
+does not."""
 from __future__ import annotations
 
 import json
@@ -15,7 +20,7 @@ from pathlib import Path
 from sqlalchemy import case, func, literal_column, or_, select
 from sqlalchemy.engine import Engine
 
-from . import cache, config, db
+from . import cache, config, db, readers
 
 log = logging.getLogger("digest.history")
 
@@ -25,7 +30,7 @@ EVENT_RETENTION_DAYS = 89
 
 EVENT_TYPES = {"view": "views", "click_source": "clicks", "save": "saves", "follow": "follows",
                "share": "shares", "listen": "listens", "push_on": "alert_signups", "search": "searches"}
-EVENT_COLS = ["sessions", "visitors", "views", "dwell_seconds", "dwell_reads", "clicks", "saves", "follows", "shares", "listens", "alert_signups", "searches"]
+EVENT_COLS = ["sessions", "visitors", "views", "automated_visits", "dwell_seconds", "dwell_reads", "clicks", "saves", "follows", "shares", "listens", "alert_signups", "searches"]
 CONTENT_COLS = ["stories_published", "articles_published", "articles_fetched"]
 GOOGLE_COLS = ["google_clicks", "google_impressions", "google_position", "google_position_sum", "google_queries"]
 GROUPS = {"events": EVENT_COLS, "content": CONTENT_COLS, "social": ["social_posts"], "runs": ["crashed_steps"]}
@@ -65,6 +70,17 @@ def _first_day(conn, col) -> str | None:
     if isinstance(v, str):
         return v[:10]
     return db.as_utc(v).date().isoformat()
+
+
+def automated_per_day(conn, eng: Engine, start: datetime, end: datetime, zones) -> dict[str, int]:
+    """{"2026-09-28": 84}: the likely automated visits per UTC day (readers.py: one direct view and
+    nothing else, from a bot-heavy time zone). One grouped query, a row per day that had any."""
+    if not zones:
+        return {}
+    t = readers.tagged(start, zones, end).c
+    day = _day_of(eng, t.created_at)
+    rows = conn.execute(select(day, func.sum(t.auto)).where(t.type == "view", t.auto == 1).group_by(day)).all()
+    return {str(d)[:10]: int(n or 0) for d, n in rows if d and n}
 
 
 def google_days(path: Path | None = None) -> dict[str, tuple]:
@@ -134,6 +150,16 @@ def update(eng: Engine, now: datetime | None = None, google: dict[str, tuple] | 
         recent = {(now - timedelta(days=i)).date().isoformat() for i in range(RECOMPUTE_DAYS)}
         compute = sorted(d for d in day_range(begin, today) if d not in existing or d in recent)
         agg: dict[str, dict] = {}
+        zones = readers.bot_zones(conn, now)
+        # Days stored before automated visits were counted, while their events are still there: filled
+        # once, by one grouped query (a row per day), and never asked for again. Only while there is a
+        # bot-heavy zone to count by; without one the days stay unfilled, at no cost.
+        automated_fixes: dict[str, int] = {}
+        unfilled = sorted(d for d, r in existing.items() if d not in compute and starts["events"] and d >= starts["events"]
+                          and d <= today and r.get("automated_visits") is None and r.get("views") is not None)
+        if unfilled and zones:
+            got = automated_per_day(conn, eng, _midnight(unfilled[0]), _midnight(unfilled[-1]) + timedelta(days=1), zones)
+            automated_fixes = {d: got.get(d, 0) for d in unfilled}
 
         def put(day, col: str, value) -> None:
             agg.setdefault(str(day)[:10], {})[col] = value
@@ -176,6 +202,9 @@ def update(eng: Engine, now: datetime | None = None, google: dict[str, tuple] | 
                     .group_by(d_ev)
                 ).all():
                     put(day, "dwell_reads", int(n or 0))
+                # Likely automated visits (readers.py), beside the visitors and views they are part of.
+                for day, n in automated_per_day(conn, eng, lo("events"), hi, zones).items():
+                    put(day, "automated_visits", n)
 
             if starts["content"] and compute[-1] >= starts["content"]:
                 a = db.articles.c
@@ -257,6 +286,8 @@ def update(eng: Engine, now: datetime | None = None, google: dict[str, tuple] | 
             conn.execute(t.insert(), rows)
         for d, new in fixes:
             conn.execute(t.update().where(t.c.day == d).values(**new, updated_at=now))
+        for d, n in automated_fixes.items():
+            conn.execute(t.update().where(t.c.day == d).values(automated_visits=n))
     log.info("daily history: %d days written, %d Search Console days corrected", len(rows), len(fixes))
 
     with eng.connect() as conn:

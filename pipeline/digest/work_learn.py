@@ -25,6 +25,11 @@ The model, per tool (events carry the card's tool name in `detail`):
 The hard rules are untouched: the blended score only replaces the sort key. featurable() still
 decides the featured pick, skip reasons, the hub gate and the plain-language rules still apply.
 
+Automated visitors: the ones the Readers tab and the ranking leave out (readers.py) are, by that
+rule, a single page view and nothing else, so they send none of the four events counted here and
+need no filter. The site also sends no card_view before a page load has been counted as a reader's
+(the gate in site/public/app.js), so a browser that never counts as a view cannot add impressions.
+
 Egress: one grouped query, one row per tool with eight numbers (at most MAX_ROWS rows), read at
 most once every REFRESH_HOURS hours; the result is kept in the runner cache (cache.WORK_EVENTS).
 """

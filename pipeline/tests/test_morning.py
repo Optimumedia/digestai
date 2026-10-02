@@ -235,18 +235,73 @@ def test_the_provider_question_waits_until_every_model_is_out():
 def test_growth_counts_readers_not_crawlers():
     from digest import morning
 
+    # admin.json's per-day visitors are readers already (admin.reader_engagement), the automated
+    # visits beside them; visitor_pairs leaves them out by the same rule, in the database.
     admin = {"engagement": {"automated7": {"zones": [{"zone": "Asia/Shanghai", "visitors": 84, "of": 90}]},
-                            "perDay": [{"day": "2026-09-28", "visitors": 111, "automated": 84},
+                            "perDay": [{"day": "2026-09-28", "visitors": 27, "automated": 84},
                                        {"day": "2026-09-27", "visitors": 15, "automated": 0}]}}
-    pairs = ([("direct", "Asia/Shanghai", f"bot{i}") for i in range(84)]
-             + [("direct", "Europe/Skopje", f"p{i}") for i in range(24)]
+    pairs = ([("direct", "Europe/Skopje", f"p{i}") for i in range(24)]
              + [("chatgpt.com", "America/New_York", f"c{i}") for i in range(3)])
     g = morning.growth_facts(admin, pairs, NOW.replace(day=29))
-    assert g["visitors"] == 27 and g["automated"] == 84, g
-    assert [s["name"] for s in g["sources"]] == ["direct", "chatgpt.com"], g["sources"]
+    assert g["visitors"] == 27 and g["visitorsBefore"] == 15 and g["automated"] == 84, g
+    assert [(s["name"], s["visitors"]) for s in g["sources"]] == [("direct", 24), ("chatgpt.com", 3)], g["sources"]
     assert g["countries"] and g["countries"][0]["name"] != "China", g["countries"]
     text = morning.s_growth(g)
-    assert "27" in text and "opened one page and left" in text, text
+    assert text.startswith("Visitors rose to 27 on 28 Sep from 15 the day before; 24 came direct") and \
+        text.endswith(", and 84 more opened one page and left, which is how crawlers behave."), text
+
+
+def test_the_note_reads_readers_not_crawlers_from_the_database():
+    from sqlalchemy import create_engine, insert
+
+    from digest import db
+
+    tmp = Path(tempfile.mkdtemp()) / "crawlers.db"
+    eng = create_engine(f"sqlite:///{tmp.as_posix()}", future=True)
+    db.metadata.create_all(eng)
+    at = NOW - timedelta(hours=3)
+
+    def ev(t, who, src, tz, sid=1, val=1):
+        return {"type": t, "session": who, "visitor": who, "story_id": sid, "value": val, "source": src, "tz": tz, "created_at": at}
+
+    rows = [ev("view", f"bot{i}", "direct", "Asia/Shanghai", sid=2) for i in range(10)]  # one direct view each, nothing else
+    rows += [ev("view", "cn", "direct", "Asia/Shanghai"), ev("dwell", "cn", "direct", "Asia/Shanghai", val=30),  # a reader there
+             ev("view", "pl", "direct", "Europe/Warsaw")]
+    with eng.begin() as conn:
+        conn.execute(insert(db.events), rows)
+    zones = ["Asia/Shanghai"]
+    with eng.connect() as conn:
+        events = morning.reader_events(conn, NOW - timedelta(hours=24), zones)
+        pairs = morning.visitor_pairs(conn, NOW - timedelta(hours=24), NOW, zones)
+        counted = morning.reader_events(conn, NOW - timedelta(hours=24))
+    assert events[1]["views"] == 2 and 2 not in events, events  # story 2 was opened by the wave only
+    assert counted[2]["views"] == 10
+    assert sorted(pairs) == [("direct", "Asia/Shanghai", "cn"), ("direct", "Europe/Warsaw", "pl")], pairs
+
+
+def test_a_long_wave_of_automated_visits_is_the_last_thing_to_decide():
+    wave = {"day": "2026-10-02", "today": True, "automated": 463, "readers": 21, "countries": ["Singapore", "China", "Hong Kong"],
+            "since": "2026-09-28", "days": 4}
+    quiet = {"sources": [], "llm": {}, "engagement": {"searches7": {"missing": []}, "automatedWave": wave}}
+    now = datetime(2026, 10, 3, 5, 7, tzinfo=timezone.utc)
+    d = morning.decide_facts(quiet, [], {}, {"quotaMB": 5120}, now)
+    assert [i["kind"] for i in d["issues"]] == ["wave"], d
+    text = morning.s_decide(d)
+    assert text == ("Should Cloudflare go in front of the site? Automated visits have outnumbered readers since 28 Sep, "
+                    "with 463 on 2 Oct against 21 readers; they are left out of the numbers and the ranking, but they keep coming."), text
+    assert text.count(".") == 1 and "?" in text  # one question, one clause of facts: still the sixth sentence, not a seventh
+    # Anything else that is off comes first: a failing feed, a search that finds nothing.
+    busy = json.loads(json.dumps(ADMIN))
+    busy["engagement"]["automatedWave"] = wave
+    busy["engagement"]["searches7"] = {"missing": [{"query": "robot dogs", "visitors": 3}]}
+    kinds = [i["kind"] for i in morning.decide_facts(busy, STORIES, morning.readers_facts(EVENTS, STORIES), {"quotaMB": 5120}, NOW)["issues"]]
+    assert kinds[0] == "feed" and kinds[-1] == "wave" and kinds.index("search") < kinds.index("wave"), kinds
+    note = morning.build(busy, BRIEFING, STORIES, EVENTS, PAIRS, PREV, NOW, call=lambda p: {})
+    assert len(note["sentences"]) == 6 and note["sentences"][5]["text"].startswith("Should VentureBeat be paused")
+    # Two days in, it is the card's business (admin.automated_cards), not yet a question.
+    young = {**quiet, "engagement": {"automatedWave": {**wave, "days": 2}}}
+    assert morning.decide_facts(young, [], {}, {"quotaMB": 5120}, now)["issues"] == []
+    assert morning.s_decide({"issues": []}) == "Nothing is far enough off to need a decision today."
 
 
 def test_polish_may_not_turn_a_statement_into_a_question():
