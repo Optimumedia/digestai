@@ -50,10 +50,57 @@ create policy "public can log events" on events
 -- 2b. Abuse limits on the public insert path. The publishable key is in every page, so anyone
 --     can call the insert endpoint; these checks keep a script from flooding the table or
 --     forging engagement for a story: at most 30 events per session per minute, only known
---     stories, only recent timestamps, bounded payload sizes.
+--     stories, only recent timestamps, bounded payload sizes. An event that does not come from
+--     one of our own pages, or comes from a program that names itself (a crawler, an automated
+--     browser, a script), is dropped without an error and counted in event_gate as a daily total
+--     per country. The pipeline replaces this function on every run (db.py, EVENTS_GUARD_SQL). An event that does not come from
+--     one of our own pages, or comes from a program that names itself (a crawler, an automated
+--     browser, a script), is dropped without an error and counted in event_gate as a daily total
+--     per country. The pipeline replaces this function on every run (db.py, EVENTS_GUARD_SQL).
 create or replace function public.events_guard() returns trigger
   language plpgsql security definer set search_path = public as $$
+declare
+  hdr json;
+  origin text;
+  agent text;
+  land text := 'ZZ';
+  verdict text := 'ok';
+  strict boolean := false;
 begin
+  begin
+    hdr := nullif(current_setting('request.headers', true), '')::json;
+    if hdr is not null then
+      origin := lower(coalesce(hdr->>'origin', ''));
+      agent := lower(coalesce(hdr->>'user-agent', ''));
+      if upper(coalesce(hdr->>'cf-ipcountry', '')) ~ '^[A-Z][A-Z]$' then
+        land := upper(hdr->>'cf-ipcountry');
+      end if;
+      if origin <> '' and origin not in ('https://digestai.news', 'https://www.digestai.news') and origin !~ '^https://[a-z0-9-]+[.]translate[.]goog$' then
+        verdict := 'origin';
+      elsif agent ~ '(headlesschrome|phantomjs|puppeteer|playwright|selenium|lighthouse|pagespeed|python|curl/|wget|go-http|node-fetch|axios|okhttp|java/|libwww|scrapy|httpclient|facebookexternalhit)' or agent ~ '(bot|spider|crawler)([/;)-]|$)' then
+        verdict := 'client';
+      elsif origin = '' then
+        verdict := 'noorigin';
+      elsif agent = '' then
+        verdict := 'noagent';
+      end if;
+    end if;
+  exception when others then
+    hdr := null;
+    verdict := 'ok';
+  end;
+  if hdr is not null and (verdict <> 'ok' or new.type = 'view') then
+    begin
+      insert into event_gate (day, country, reason, n)
+        values (to_char(now() at time zone 'utc', 'YYYY-MM-DD'), land, verdict, 1)
+        on conflict (day, country, reason) do update set n = event_gate.n + 1;
+    exception when others then
+      null;
+    end;
+  end if;
+  if verdict in ('origin', 'client') or (strict and verdict <> 'ok') then
+    return null;
+  end if;
   -- Page views, listens and alert sign-ups happen on pages that are not stories: story_id may be
   -- empty, but a story_id that is given must exist.
   if new.story_id is not null and not exists (select 1 from stories s where s.id = new.story_id) then

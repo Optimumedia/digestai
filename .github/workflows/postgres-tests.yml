@@ -35,6 +35,9 @@ jobs:
           TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@localhost:5432/digest
         run: |
           python tests/test_reads.py
+          # The events guard is Postgres-only (plpgsql): its gate runs here with the request headers
+          # the public API would set.
+          python tests/test_gate.py
           python tests/test_work_learn.py
           python tests/test_mistral.py
           python tests/test_cloudflare.py

@@ -58,6 +58,8 @@ def _engagement(conn) -> dict[int, float]:
     since = db.utcnow() - timedelta(days=30)
     # Prune old events first: nothing past 90 days is used anywhere.
     conn.execute(db.events.delete().where(db.events.c.created_at < db.utcnow() - timedelta(days=90)))
+    # The gate's daily totals (db.event_gate) go with the events they describe.
+    conn.execute(db.event_gate.delete().where(db.event_gate.c.day < (db.utcnow() - timedelta(days=90)).date().isoformat()))
     # Views of the previous site's /article/ addresses were recorded from our not-found page before it
     # stopped counting (15 Sep); they are crawlers re-checking old links, not readers.
     conn.execute(db.events.delete().where(db.events.c.path.like("/article/%")))

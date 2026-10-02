@@ -198,6 +198,18 @@ events = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
 
+# What the events guard decided about requests that reached the public API, as daily totals: views
+# it let through ("ok") and events it dropped without storing them, by the country the network
+# reports. A row is a day, a country and a count: no address, visitor or session is kept here.
+event_gate = Table(
+    "event_gate",
+    metadata,
+    Column("day", String(10), primary_key=True),  # UTC, YYYY-MM-DD
+    Column("country", String(2), primary_key=True),  # from the network (cf-ipcountry); ZZ when unknown
+    Column("reason", String(12), primary_key=True),  # ok | origin | client
+    Column("n", Integer, nullable=False, default=0),
+)
+
 topics = Table(
     "topics",
     metadata,
@@ -625,9 +637,74 @@ def _normalize_url(url: str) -> str:
     return url
 
 
-EVENTS_GUARD_SQL = """create or replace function public.events_guard() returns trigger
+# The gate inside the guard decides which reader events are stored. It is about our own counts only:
+# the pages are static files on GitHub Pages and every crawler still reads them as before.
+# It reads what the API passes on about the request (request.headers, set by PostgREST for the
+# transaction) and drops, without an error the sender could learn from, an event sent from a page
+# that is not ours ("origin") or by a program that names itself: a crawler rendering the page, an
+# automated browser, a script ("client"). A pipeline insert has no request headers and is never
+# gated. A dropped event is counted in event_gate (a day, a country, a reason), and so is each view
+# let through, so the Readers tab can compare the countries the network reports with the time zones
+# the browsers claim. Nothing from the address is stored. Every step is best effort: a header that
+# cannot be read lets the event through, and a count that cannot be written changes nothing.
+#
+# A request with no Origin or no User-Agent at all is counted apart ("noorigin", "noagent") and, until
+# GATE_STRICT is on, stored: a browser always sends both, but whether the API in front of the
+# database passes both on is only known from a day of real counts. Once event_gate shows readers
+# arriving as "ok", GATE_STRICT drops the two as well.
+GATE_STRICT = False
+GATE_ORIGINS = ("https://digestai.news", "https://www.digestai.news")
+GATE_REASONS = ("ok", "origin", "client", "noorigin", "noagent")
+# Programs by the name they give. "bot" counts only before / ; ) - or at the end of the name:
+# Googlebot/2.1 and PetalBot; are crawlers, a CUBOT phone is a reader.
+GATE_PROGRAMS = ("headlesschrome|phantomjs|puppeteer|playwright|selenium|lighthouse|pagespeed|python|curl/|wget|"
+                 "go-http|node-fetch|axios|okhttp|java/|libwww|scrapy|httpclient|facebookexternalhit")
+GATE_CRAWLERS = "(bot|spider|crawler)([/;)-]|$)"
+
+_EVENTS_GUARD_SQL = """create or replace function public.events_guard() returns trigger
   language plpgsql security definer set search_path = public as $$
+declare
+  hdr json;
+  origin text;
+  agent text;
+  land text := 'ZZ';
+  verdict text := 'ok';
+  strict boolean := __STRICT__;
 begin
+  begin
+    hdr := nullif(current_setting('request.headers', true), '')::json;
+    if hdr is not null then
+      origin := lower(coalesce(hdr->>'origin', ''));
+      agent := lower(coalesce(hdr->>'user-agent', ''));
+      if upper(coalesce(hdr->>'cf-ipcountry', '')) ~ '^[A-Z][A-Z]$' then
+        land := upper(hdr->>'cf-ipcountry');
+      end if;
+      if origin <> '' and origin not in (__ORIGINS__) and origin !~ '^https://[a-z0-9-]+[.]translate[.]goog$' then
+        verdict := 'origin';
+      elsif agent ~ '(__PROGRAMS__)' or agent ~ '__CRAWLERS__' then
+        verdict := 'client';
+      elsif origin = '' then
+        verdict := 'noorigin';
+      elsif agent = '' then
+        verdict := 'noagent';
+      end if;
+    end if;
+  exception when others then
+    hdr := null;
+    verdict := 'ok';
+  end;
+  if hdr is not null and (verdict <> 'ok' or new.type = 'view') then
+    begin
+      insert into event_gate (day, country, reason, n)
+        values (to_char(now() at time zone 'utc', 'YYYY-MM-DD'), land, verdict, 1)
+        on conflict (day, country, reason) do update set n = event_gate.n + 1;
+    exception when others then
+      null;
+    end;
+  end if;
+  if verdict in ('origin', 'client') or (strict and verdict <> 'ok') then
+    return null;
+  end if;
   -- Page views, listens and alert sign-ups happen on pages that are not stories: story_id may be
   -- empty, but a story_id that is given must exist.
   if new.story_id is not null and not exists (select 1 from stories s where s.id = new.story_id) then
@@ -650,6 +727,15 @@ begin
   end if;
   return new;
 end $$;"""
+
+
+def events_guard_sql(strict: bool = GATE_STRICT) -> str:
+    return (_EVENTS_GUARD_SQL.replace("__ORIGINS__", ", ".join(f"'{o}'" for o in GATE_ORIGINS))
+            .replace("__PROGRAMS__", GATE_PROGRAMS).replace("__CRAWLERS__", GATE_CRAWLERS)
+            .replace("__STRICT__", "true" if strict else "false"))
+
+
+EVENTS_GUARD_SQL = events_guard_sql()
 
 
 # What the public key may insert into events (also in supabase/schema.sql). A type that is not in
