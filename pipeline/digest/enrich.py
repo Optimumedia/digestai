@@ -1273,19 +1273,30 @@ def title_hedges(title: str | None) -> bool:
 # The flag below reads only the title's main claim: the words before a dash or a colon ("Robinhood
 # rolled out trading agents - and investing may never be the same" hedges the consequence, not the
 # rollout), without relative clauses ("an EU order that could help its rivals"), and a label such as
-# "Opinion:" only at the start.
-_CLAIM_SPLIT = re.compile(r"\s[\u2014\u2013-]\s|[\u2014\u2013]|:\s")
+# "Opinion:" only at the start. A second sentence is not the claim either ("OpenAI's Medicare attack
+# has exposed Australia's 'tech debt'. Fixing it could bring a big bill"): the split wants a word of
+# four letters before the full stop, so "U.S. Could Ban" and "Nvidia Corp. May Buy" stay whole.
+_CLAIM_SPLIT = re.compile(r"\s[\u2014\u2013-]\s|[\u2014\u2013]|:\s|(?<=[a-z]{4})[.!]\s+(?=[A-Z])|(?<=[a-z]{3}['\u2019\u201d\"])[.!]\s+(?=[A-Z])")
 _RELATIVE_HEDGE = re.compile(r"\b(?:that|which|who|what)\s+(?:\S+\s+){0,3}(?:may|might|could)\b", re.I)
-# "Study finds" and "Report shows" attribute the claim; "Anthropic's AI finds" states it.
-_HEADLINE_KEEPS = re.compile(r"\b(?:study|studies|research|researchers|report|survey|paper|analysis|data)\s+(?:finds?|found|shows?|suggests?)\b|\b(?:eyes|weighs|mulls|explores|seeks)\b", re.I)
+# "Study finds" and "Report shows" attribute the claim; "Anthropic's AI finds" states it. A headline
+# that says someone tests, examines or asks leaves the source's question open.
+_HEADLINE_KEEPS = re.compile(
+    r"\b(?:study|studies|research|researchers|report|survey|paper|analysis|data)\s+(?:finds?|found|shows?|suggests?)\b"
+    r"|\b(?:eyes|weighs|mulls|explores|seeks|tests?|tested|testing|examines?|investigat(?:es|ed|ing)|probes?|asks?|questions?)\b", re.I)
+# A question that opens with one of these takes its subject as given and asks about it: "Why Is
+# Microsoft Joining An AI Data Center Coalition Now?" does not doubt that it is joining, and "If a
+# data center is camouflaged in the woods, will anyone hate it?" has no claim a headline could
+# overstate. "What if ...?" is a supposition and stays a hedge. Live flags from 2 Oct.
+_OPEN_QUESTION = re.compile(r"^\W*(?:why|how|when|where|who|which|if|what(?!\s+if\b))\b", re.I)
 
 
 def _asks(title: str) -> bool:
-    """A real question: not "X did Y. Now what?", where a statement comes first."""
+    """A real yes-or-no question: not "X did Y. Now what?", where a statement comes first, and not
+    "Why did X do Y?", which takes Y as given."""
     if not title_is_question(title):
         return False
     before = title[: title.rfind("?")]
-    return not re.search(r"[.!]\s+\S", before)
+    return not re.search(r"[.!]\s+\S", before) and not _OPEN_QUESTION.search(title)
 
 
 def claim_hedged(title: str) -> bool:
@@ -1301,12 +1312,29 @@ def claim_hedged(title: str) -> bool:
 
 def headline_hedged(title: str | None, headline: str | None) -> bool:
     """True when the source title hedges (a question, may/could/reportedly/allegedly/according to)
-    and our headline keeps neither a hedge nor an attribution, stating the claim as fact. Rewriting is
-    not something a cheap check can do, so the flag is reported (export.py, quality.py), not fixed."""
+    and our headline keeps neither a hedge nor an attribution, stating the claim as fact. A new
+    summary that is flagged gets the source's own title back (keep_the_hedge); a stored one is
+    reported (export.py, quality.py)."""
     if not title or not headline or title.strip() == headline.strip():
         return False
     kept = QUESTION.search(headline) or HEADLINE_HEDGE.search(headline) or _HEADLINE_KEEPS.search(headline)
     return claim_hedged(title) and not kept
+
+
+def keep_the_hedge(clean: dict, row) -> bool:
+    """A headline that states what its source only suggests goes back to the source's own title,
+    under the same headline rules as ours: the source's wording is the one that is certainly not
+    overstated. The same remedy checks.safer uses for a headline with an unsupported figure.
+    True when the headline was replaced."""
+    if not clean.get("hedged"):
+        return False
+    title = (getattr(row, "title", None) or "").strip()[:160]
+    title = checks.discipline_headline(title, title)[0]
+    if not title or title == clean.get("headline"):
+        return False
+    clean["headline"] = title
+    clean["hedged"] = headline_hedged(getattr(row, "title", None), title)
+    return True
 
 
 # A list marker the model put in front of a paragraph or a key point ("- Meta shares rose 10%"):
@@ -1637,6 +1665,8 @@ def run() -> dict:
             if clean["hedged"]:
                 stats["hedged"] = stats.get("hedged", 0) + 1
                 log.info("headline drops the source's hedge on #%s: %r -> %r", row.id, (row.title or "")[:80], clean["headline"][:80])
+                if keep_the_hedge(clean, row):
+                    stats["hedged_fixed"] = stats.get("hedged_fixed", 0) + 1
             conn.execute(update(db.articles).where(db.articles.c.id == row.id).values(
                 headline=clean["headline"],
                 summary_md=clean["summary_md"],

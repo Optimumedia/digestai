@@ -607,6 +607,52 @@ def test_hedge_flag_reads_the_main_claim_only():
         assert enrich.headline_hedged(title, headline), title
 
 
+def test_hedge_flag_leaves_open_questions_and_second_sentences_alone():
+    """Live flags from 2 Oct: five of eight were a question that takes its subject as given, a
+    headline that says someone is testing, or a hedge in the title's second sentence."""
+    from digest import enrich
+
+    fine = [
+        ("Why Is Microsoft (MSFT) Joining An AI Data Center Coalition Now?", "Microsoft joins AI data center coalition"),
+        ("How Serious Is Alphabet’s Threat to Nvidia?", "Google shifts AI workloads to TPUs, cutting Nvidia dependency"),
+        ("If a data center is camouflaged in the woods, will anyone hate it?", "Microsoft tests biomimicry to blend data centers into Texas landscapes"),
+        ("Can an Apartment Search Agent Call the Model Fewer Times and Still Find Good Matches?", "Researcher tests fewer model calls in apartment search agent"),
+        ("OpenAI’s Medicare attack has exposed Australia’s ‘tech debt’. Fixing it could bring a big bill for taxpayers",
+         "OpenAI breach highlights Australia’s $160M cyber debt risk"),
+    ]
+    for title, headline in fine:
+        assert not enrich.headline_hedged(title, headline), title
+    flagged = [
+        ("AI could expose how Georgia voters cast their ballot, researchers warn", "Princeton researcher identifies Georgia voters via AI and public ballot data"),
+        ("What if OpenAI is building a phone?", "OpenAI builds a phone"),
+        ("Can an Apartment Search Agent Call the Model Fewer Times?", "Apartment search agent calls the model fewer times"),
+        # An abbreviation's full stop does not end the claim.
+        ("U.S. Could Ban AI Chip Sales To China", "US bans AI chip sales to China"),
+        ("Nvidia Corp. May Buy Groq", "Nvidia buys Groq"),
+        ("Is the AI boom a bubble?", "The AI boom is a bubble"),
+    ]
+    for title, headline in flagged:
+        assert enrich.headline_hedged(title, headline), title
+
+
+def test_a_new_headline_that_drops_the_hedge_gets_the_source_title_back():
+    from types import SimpleNamespace
+
+    from digest import enrich
+
+    row = SimpleNamespace(title="AI could expose how Georgia voters cast their ballot, researchers warn")
+    clean = {"headline": "Princeton researcher identifies Georgia voters via AI and public ballot data"}
+    clean["hedged"] = enrich.headline_hedged(row.title, clean["headline"])
+    assert clean["hedged"] and enrich.keep_the_hedge(clean, row)
+    assert clean["headline"] == row.title and not clean["hedged"]
+    # A headline that kept the hedge is left as written.
+    kept = {"headline": "AI may expose Georgia voters' ballots, researchers warn", "hedged": False}
+    assert not enrich.keep_the_hedge(kept, row) and kept["headline"].startswith("AI may expose")
+    # No title to go back to: nothing changes, and the flag stays for the dashboard.
+    lone = {"headline": "Apple buys Perplexity", "hedged": True}
+    assert not enrich.keep_the_hedge(lone, SimpleNamespace(title=None)) and lone["hedged"]
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):
