@@ -6,11 +6,20 @@ on:
     # read only what changed (~1 MB a run, see the admin Pipeline tab): 72 a day is about 2.2 GB of
     # the free plan's 5 GB a month. Keep RUN_MINUTES and RUNS_PER_DAY below in step with this line.
     - cron: "7,27,47 * * * *"
+  # GitHub delivers scheduled events late or not at all under load: from 11 Oct 2026 this one fired
+  # a few times a day instead of 72. So each run also queues the next one (the "next" job below),
+  # which waits for the next 7/27/47 slot (the "pace" job) before it starts work. A scheduled event
+  # that does arrive finds a run already queued and is dropped by the concurrency rule, so the two
+  # never double up.
   workflow_dispatch:
     inputs:
       steps:
         description: "Pipeline steps (all, or e.g. 'fetch extract')"
         default: "all"
+      chained:
+        description: "Queued by the previous run: wait for the next 7/27/47 slot first"
+        type: boolean
+        default: false
 
 concurrency:
   group: pipeline
@@ -22,11 +31,31 @@ permissions:
   contents: write
   pages: write
   id-token: write
-  actions: read
+  actions: write  # the "next" job queues the following run (workflow_dispatch)
   issues: write
 
 jobs:
+  # A run queued by the one before waits here for its slot, so the cadence stays at RUN_MINUTES
+  # (and the free-model and database budgets, which assume RUNS_PER_DAY, stay right).
+  pace:
+    if: github.event_name == 'workflow_dispatch' && inputs.chained
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - name: Wait for the next 7, 27 or 47 past the hour
+        run: |
+          now_m=$((10#$(date -u +%M))); now_s=$((10#$(date -u +%S)))
+          wait=0
+          for slot in 7 27 47 67; do
+            if [ "$slot" -gt "$now_m" ]; then wait=$(( (slot - now_m) * 60 - now_s )); break; fi
+          done
+          echo "waiting ${wait}s for the next slot"
+          sleep "$wait"
+
   pipeline:
+    needs: pace
+    # Runs after the wait, or at once when there was nothing to wait for (a scheduled or manual run).
+    if: ${{ !cancelled() && (needs.pace.result == 'success' || needs.pace.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 28
     environment:
@@ -387,3 +416,27 @@ jobs:
         run: |
           if [ "${{ steps.pipeline.outcome }}" = "success" ]; then url="$HEALTHCHECK_URL"; else url="$HEALTHCHECK_URL/fail"; fi
           curl -fsS -m 10 --retry 3 -o /dev/null "$url" || echo "healthcheck ping failed"
+
+  # Queue the following run, whatever this one's result, unless one is already waiting its turn.
+  # A workflow_dispatch made with this run's token does start a run (GitHub's one exception to its
+  # no-loops rule). To stop the chain, disable the workflow in the Actions tab.
+  next:
+    needs: pipeline
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Queue the next run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          THIS_RUN: ${{ github.run_id }}
+          REF: ${{ github.ref_name }}
+        run: |
+          waiting=$(gh run list -R "$REPO" --workflow pipeline.yml --limit 20 --json status,databaseId \
+            -q "[.[] | select(.databaseId != $THIS_RUN) | select(.status == \"queued\" or .status == \"pending\" or .status == \"waiting\" or .status == \"requested\")] | length")
+          if [ "$waiting" = "0" ]; then
+            gh workflow run pipeline.yml -R "$REPO" --ref "$REF" -f chained=true && echo "queued the next run"
+          else
+            echo "a run is already waiting its turn ($waiting); not queueing another"
+          fi

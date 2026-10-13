@@ -551,6 +551,10 @@ class FakeActions:
         self.calls.append(("GET", url))
         if url.endswith("/runs") and (params or {}).get("status") in ("waiting", "in_progress"):
             return Resp(200, {"workflow_runs": [r for r in self.unfinished if r["status"] == params["status"]]})
+        if url.endswith("/runs") and not (params or {}).get("status"):
+            # The newest runs, any status: the unfinished ones and the last success.
+            done = [{"status": "completed", "created_at": self.last}] if self.last else []
+            return Resp(200, {"workflow_runs": self.unfinished + done})
         if url.endswith("/runs"):
             return Resp(200, {"workflow_runs": [{"updated_at": self.last, "html_url": "https://run"}] if self.last else []})
         if "/actions/workflows/" in url:
@@ -570,6 +574,8 @@ class FakeActions:
             return Resp(409 if any(r.get("refuses") for r in self.unfinished if url.endswith(f"/{r['id']}/cancel")) else 202, {})
         if url.endswith("/force-cancel"):
             return Resp(202, {})
+        if url.endswith("/dispatches"):
+            return Resp(204, None)
         if url.endswith("/issues"):
             self.issue = {"number": 6, "body": json["body"]}
             return Resp(201, self.issue)
@@ -617,6 +623,20 @@ def test_watchdog_cancels_a_run_that_is_stuck_and_leaves_normal_ones():
     assert any(u.endswith("/runs/1/force-cancel") for u in posts)  # the plain cancel was refused
     assert not any("/runs/2/" in u or "/runs/3/" in u for u in posts)
     assert watchdog.run(FakeActions("2026-10-13T15:20:00Z"), "o/r", now)["unstuck"] == []
+
+
+def test_watchdog_starts_a_run_when_the_chain_has_broken():
+    now = datetime(2026, 10, 13, 16, 37, tzinfo=timezone.utc)
+    # The last run was created hours ago and nothing is queued: start one.
+    quiet = FakeActions("2026-10-13T11:06:44Z")
+    assert watchdog.run(quiet, "o/r", now)["kicked"]
+    assert any(m == "POST" and u.endswith("/workflows/pipeline.yml/dispatches") for m, u in quiet.calls)
+    # A run created 20 minutes ago: the chain is fine.
+    assert not watchdog.run(FakeActions("2026-10-13T16:17:00Z"), "o/r", now)["kicked"]
+    # A run is queued or running: leave it.
+    busy = FakeActions("2026-10-13T11:06:44Z")
+    busy.unfinished = [{"id": 9, "status": "queued", "created_at": "2026-10-13T16:30:00Z"}]
+    assert not watchdog.run(busy, "o/r", now)["kicked"]
 
 
 def test_media_retries_a_flaky_upload_and_skips_an_asset_github_keeps_refusing():

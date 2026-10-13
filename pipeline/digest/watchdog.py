@@ -10,7 +10,9 @@ without repository activity. This checks, from outside the pipeline:
   through the API. That counts as activity for the 60-day rule without a commit, so nothing is
   rebuilt or redeployed;
 - a run that is stuck, waiting on its deployment or running far past the job's time limit, is
-  cancelled (see STUCK_MINUTES).
+  cancelled (see STUCK_MINUTES);
+- each pipeline run queues the next itself; when that chain has broken (no run created for
+  KICK_MINUTES and none unfinished), one run is started here.
 
 Only the standard library and requests; no database access.
 """
@@ -36,6 +38,7 @@ KEEPALIVE_WEEKDAY = 0  # Monday
 # so the site did not change for a week. The job's own limit is 28 minutes; a run waiting this long
 # for its deployment, or running this long, is cancelled here, and the next scheduled run goes ahead.
 STUCK_MINUTES = {"waiting": 30, "in_progress": 60}
+KICK_MINUTES = 45  # a run starts every 20 minutes when all is well
 KEEPALIVE_HOUR = 4
 
 
@@ -82,6 +85,21 @@ def unstick(s, repo: str, now: datetime) -> list[int]:
         if r.status_code in (202, 204):
             done.append(rid)
     return done
+
+
+def kick(s, repo: str, now: datetime) -> bool:
+    """Start a pipeline run when none has been created for KICK_MINUTES and none is unfinished."""
+    r = s.get(f"{API}/repos/{repo}/actions/workflows/{PIPELINE}/runs", params={"per_page": 5}, timeout=30)
+    if r.status_code != 200:
+        return False
+    runs = r.json().get("workflow_runs") or []
+    if any(x.get("status") != "completed" for x in runs):
+        return False
+    newest = max((_parse(x.get("created_at")) for x in runs if x.get("created_at")), default=None)
+    if newest and (now - newest).total_seconds() < KICK_MINUTES * 60:
+        return False
+    d = s.post(f"{API}/repos/{repo}/actions/workflows/{PIPELINE}/dispatches", json={"ref": "main"}, timeout=30)
+    return d.status_code in (200, 204)
 
 
 def decide(last: dict | None, now: datetime, max_age_hours: float = MAX_AGE_HOURS) -> tuple[bool, float | None]:
@@ -148,11 +166,12 @@ def run(s, repo: str, now: datetime | None = None, force_keepalive: bool = False
     states = {n: workflow_state(s, repo, n) for n in (PIPELINE, SELF)}
     enabled = keepalive(s, repo, now, states, force_keepalive)
     unstuck = unstick(s, repo, now)
+    kicked = kick(s, repo, now)
     last = last_success(s, repo)
     stopped, hours = decide(last, now)
     state = "enabled" if states.get(PIPELINE) == "active" or PIPELINE in enabled else states.get(PIPELINE, "unknown")
     action = sync_issue(s, repo, stopped, body(last, hours, state, repo, now))
-    return {"stopped": stopped, "hours": hours, "issue": action, "reenabled": enabled, "unstuck": unstuck, "states": states}
+    return {"stopped": stopped, "hours": hours, "issue": action, "reenabled": enabled, "unstuck": unstuck, "kicked": kicked, "states": states}
 
 
 def main() -> int:
