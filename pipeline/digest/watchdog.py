@@ -8,7 +8,9 @@ without repository activity. This checks, from outside the pipeline:
   issue labelled "pipeline-stopped" (updated, never duplicated) and closes it once runs succeed;
 - once a week (or when it is found disabled), re-enables the pipeline workflow and this one
   through the API. That counts as activity for the 60-day rule without a commit, so nothing is
-  rebuilt or redeployed.
+  rebuilt or redeployed;
+- a run that is stuck, waiting on its deployment or running far past the job's time limit, is
+  cancelled (see STUCK_MINUTES).
 
 Only the standard library and requests; no database access.
 """
@@ -28,6 +30,12 @@ LABEL = "pipeline-stopped"
 TITLE = "The pipeline has stopped publishing"
 MAX_AGE_HOURS = float(os.environ.get("WATCHDOG_MAX_AGE_HOURS") or 3)
 KEEPALIVE_WEEKDAY = 0  # Monday
+# A stuck run holds the "pipeline" concurrency group: every later run queues behind it and is
+# cancelled by the next one to arrive. From 6 to 13 Oct 2026 one run sat "waiting" on the
+# github-pages environment (no reviewers, no timer: a GitHub fault) and some 450 runs were cancelled,
+# so the site did not change for a week. The job's own limit is 28 minutes; a run waiting this long
+# for its deployment, or running this long, is cancelled here, and the next scheduled run goes ahead.
+STUCK_MINUTES = {"waiting": 30, "in_progress": 60}
 KEEPALIVE_HOUR = 4
 
 
@@ -46,6 +54,34 @@ def last_success(s, repo: str) -> dict | None:
     r.raise_for_status()
     runs = r.json().get("workflow_runs") or []
     return runs[0] if runs else None
+
+
+def stuck_runs(s, repo: str, now: datetime) -> list[dict]:
+    """Pipeline runs waiting or running longer than STUCK_MINUTES allows."""
+    out = []
+    for status, minutes in STUCK_MINUTES.items():
+        r = s.get(f"{API}/repos/{repo}/actions/workflows/{PIPELINE}/runs", params={"status": status, "per_page": 20}, timeout=30)
+        if r.status_code != 200:
+            continue
+        for run in r.json().get("workflow_runs") or []:
+            started = _parse(run.get("run_started_at") or run.get("created_at"))
+            if started and (now - started).total_seconds() > minutes * 60:
+                out.append(run)
+    return out
+
+
+def unstick(s, repo: str, now: datetime) -> list[int]:
+    """Cancel stuck runs; a run that ignores a cancel (one waiting on an environment can) is
+    force-cancelled. Returns the ids cancelled."""
+    done = []
+    for run in stuck_runs(s, repo, now):
+        rid = run.get("id")
+        r = s.post(f"{API}/repos/{repo}/actions/runs/{rid}/cancel", timeout=30)
+        if r.status_code not in (202, 204):
+            r = s.post(f"{API}/repos/{repo}/actions/runs/{rid}/force-cancel", timeout=30)
+        if r.status_code in (202, 204):
+            done.append(rid)
+    return done
 
 
 def decide(last: dict | None, now: datetime, max_age_hours: float = MAX_AGE_HOURS) -> tuple[bool, float | None]:
@@ -111,11 +147,12 @@ def run(s, repo: str, now: datetime | None = None, force_keepalive: bool = False
     now = now or datetime.now(timezone.utc)
     states = {n: workflow_state(s, repo, n) for n in (PIPELINE, SELF)}
     enabled = keepalive(s, repo, now, states, force_keepalive)
+    unstuck = unstick(s, repo, now)
     last = last_success(s, repo)
     stopped, hours = decide(last, now)
     state = "enabled" if states.get(PIPELINE) == "active" or PIPELINE in enabled else states.get(PIPELINE, "unknown")
     action = sync_issue(s, repo, stopped, body(last, hours, state, repo, now))
-    return {"stopped": stopped, "hours": hours, "issue": action, "reenabled": enabled, "states": states}
+    return {"stopped": stopped, "hours": hours, "issue": action, "reenabled": enabled, "unstuck": unstuck, "states": states}
 
 
 def main() -> int:

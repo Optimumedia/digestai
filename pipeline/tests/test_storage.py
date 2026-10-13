@@ -545,9 +545,12 @@ class FakeActions:
     def __init__(self, last_success_at: str | None, state: str = "active", open_issue: bool = False):
         self.last, self.state, self.issue = last_success_at, state, {"number": 5, "body": "x"} if open_issue else None
         self.calls: list[tuple[str, str]] = []
+        self.unfinished: list[dict] = []  # runs that are waiting or in progress
 
     def get(self, url, params=None, **kw):
         self.calls.append(("GET", url))
+        if url.endswith("/runs") and (params or {}).get("status") in ("waiting", "in_progress"):
+            return Resp(200, {"workflow_runs": [r for r in self.unfinished if r["status"] == params["status"]]})
         if url.endswith("/runs"):
             return Resp(200, {"workflow_runs": [{"updated_at": self.last, "html_url": "https://run"}] if self.last else []})
         if "/actions/workflows/" in url:
@@ -562,6 +565,11 @@ class FakeActions:
 
     def post(self, url, json=None, **kw):
         self.calls.append(("POST", url))
+        if url.endswith("/cancel"):
+            # A run waiting on an environment may refuse a plain cancel; force-cancel works.
+            return Resp(409 if any(r.get("refuses") for r in self.unfinished if url.endswith(f"/{r['id']}/cancel")) else 202, {})
+        if url.endswith("/force-cancel"):
+            return Resp(202, {})
         if url.endswith("/issues"):
             self.issue = {"number": 6, "body": json["body"]}
             return Resp(201, self.issue)
@@ -590,6 +598,25 @@ def test_watchdog_opens_one_issue_updates_it_closes_it_and_keeps_the_schedule_al
     assert watchdog.run(off, "o/r", now)["reenabled"] == ["pipeline.yml", "watchdog.yml"]
     monday = datetime(2026, 9, 21, 4, 37, tzinfo=timezone.utc)
     assert watchdog.run(FakeActions("2026-09-21T04:10:00Z"), "o/r", monday)["reenabled"] == ["pipeline.yml", "watchdog.yml"]
+
+
+def test_watchdog_cancels_a_run_that_is_stuck_and_leaves_normal_ones():
+    """6-13 Oct 2026: one run waited on the github-pages environment for a week, and every run
+    after it queued behind it and was cancelled."""
+    now = datetime(2026, 10, 13, 15, 37, tzinfo=timezone.utc)
+    gh = FakeActions("2026-10-06T15:11:16Z")
+    gh.unfinished = [
+        {"id": 1, "status": "waiting", "run_started_at": "2026-10-06T15:19:54Z", "refuses": True},  # a week
+        {"id": 2, "status": "waiting", "run_started_at": "2026-10-13T15:20:00Z"},  # 17 minutes: normal
+        {"id": 3, "status": "in_progress", "run_started_at": "2026-10-13T15:00:00Z"},  # 37 minutes: allowed
+        {"id": 4, "status": "in_progress", "run_started_at": "2026-10-13T13:30:00Z"},  # over 2 hours
+    ]
+    r = watchdog.run(gh, "o/r", now)
+    assert r["unstuck"] == [1, 4] and r["stopped"]
+    posts = [u for m, u in gh.calls if m == "POST"]
+    assert any(u.endswith("/runs/1/force-cancel") for u in posts)  # the plain cancel was refused
+    assert not any("/runs/2/" in u or "/runs/3/" in u for u in posts)
+    assert watchdog.run(FakeActions("2026-10-13T15:20:00Z"), "o/r", now)["unstuck"] == []
 
 
 def test_media_retries_a_flaky_upload_and_skips_an_asset_github_keeps_refusing():
