@@ -3,8 +3,9 @@ import Base from "../../layouts/Base.astro";
 import StoryRow from "../../components/StoryRow.astro";
 import Rail from "../../components/Rail.astro";
 import Breadcrumbs from "../../components/Breadcrumbs.astro";
-import { categories, storiesInCategory, storyModified, meta } from "../../lib/data";
-import { categoryCopy, categoryWeek, weekSummary, keyTopics, byImportance, clip, newsLabel, plural } from "../../lib/category";
+import Pager from "../../components/Pager.astro";
+import { categories, storyModified, meta } from "../../lib/data";
+import { categoryCopy, categoryPages, weekSummary, keyTopics, clip, newsLabel, plural } from "../../lib/category";
 
 export function getStaticPaths() {
   return Object.entries(categories).map(([category, name]) => ({ params: { category }, props: { name } }));
@@ -13,15 +14,11 @@ export function getStaticPaths() {
 const { category } = Astro.params;
 const { name } = Astro.props;
 const copy = categoryCopy(category!, name);
-const list = storiesInCategory(category!);
 // The page's own text, all from the export (lib/category.ts): a fixed introduction, then this week's
 // biggest stories in plain sentences, the names they mention most, the most important stories, and
-// the full list under them.
-const week = categoryWeek(category!);
+// the newest of the rest under them. Older stories are on numbered pages (category/[category]/[page].astro).
+const { list, week, top, first: rest, pages } = categoryPages(category!);
 const summary = weekSummary(week);
-const top = (week.length >= 3 ? week : [...list.slice(0, 30)].sort(byImportance)).slice(0, 5);
-const topIds = new Set(top.map((s) => s.id));
-const rest = list.filter((s) => !topIds.has(s.id));
 const topics = keyTopics(week.length >= 3 ? week : list.slice(0, 30));
 // Unique per category, and it names this week's lead story: "<category> AI news this week: <headline>".
 const title = summary ? `${newsLabel(copy)} this week: ${clip(summary.lead.headline, 56)}` : `${newsLabel(copy)}: the latest stories`;
@@ -103,10 +100,12 @@ const jsonLd = {
       {list.length === 0 && <p class="muted" style="padding: 24px 0">Nothing here yet.</p>}
       {rest.length > 0 && (
         <section aria-labelledby="all-h">
-          <div class="dayhead"><h2 id="all-h">All {name} stories</h2><span class="eyebrow">newest first</span></div>
-          <ol class="river">{rest.slice(0, 55).map((s) => <StoryRow story={s} />)}</ol>
+          <div class="dayhead"><h2 id="all-h">{pages > 1 ? `Latest ${name} stories` : `All ${name} stories`}</h2><span class="eyebrow">newest first</span></div>
+          <ol class="river">{rest.map((s) => <StoryRow story={s} />)}</ol>
         </section>
       )}
+      <Pager base={`/category/${category}`} page={1} pages={pages} />
+      {pages > 1 && <p class="muted pager-note">{list.length} {name} stories in all; this page shows the most important and the newest {rest.length}.</p>}
     </div>
     <Rail />
   </div>

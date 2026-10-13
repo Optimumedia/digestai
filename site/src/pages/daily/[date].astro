@@ -2,7 +2,9 @@
 import Base from "../../layouts/Base.astro";
 import StoryRow from "../../components/StoryRow.astro";
 import Rail from "../../components/Rail.astro";
+import Pager from "../../components/Pager.astro";
 import { storiesByDay, formatDate, DAILY_MIN_STORIES } from "../../lib/data";
+import { pageSlice } from "../../lib/paging";
 
 export function getStaticPaths() {
   return [...storiesByDay().entries()].map(([date, list]) => ({ params: { date }, props: { list } }));
@@ -10,6 +12,9 @@ export function getStaticPaths() {
 
 const { date } = Astro.params;
 const { list } = Astro.props;
+// A busy day has 150 stories or more: the day's page shows the 60 that mattered most and the rest are
+// on numbered pages (daily/[date]/[page].astro), noindex and out of the sitemap.
+const shown = pageSlice(list, 1);
 const pretty = formatDate(date + "T00:00:00Z", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 const days = [...storiesByDay().keys()];
 const idx = days.indexOf(date!);
@@ -23,9 +28,10 @@ const older = idx < days.length - 1 ? days[idx + 1] : null;
       <header class="page-head">
         <div class="eyebrow">Daily digest</div>
         <h1>{pretty}</h1>
-        <p>{list.length} stories, most important first.</p>
+        <p>{list.length} stories, most important first.{shown.pages > 1 && ` This page shows the top ${shown.items.length}.`}</p>
       </header>
-      <ol class="river">{list.map((s) => <StoryRow story={s} />)}</ol>
+      <ol class="river">{shown.items.map((s) => <StoryRow story={s} />)}</ol>
+      <Pager base={`/daily/${date}`} page={1} pages={shown.pages} back="← Previous" on="More stories →" />
       <nav class="meta-row" style="padding: 24px 0" aria-label="Archive navigation">
         {older && <a href={`/daily/${older}`}>← {older}</a>}
         <a href="/daily" style="margin-left:auto">All days</a>

@@ -552,6 +552,41 @@ table.sortable th:hover { color: var(--ink); }
 .model-line a { font-weight: 600; }
 /* /today: when the briefing was last rebuilt. */
 .updated-line { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink-3); margin: 6px 0 0; }
+/* Long lists in pages (components/Pager.astro): newer, the page numbers, older. */
+.pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 20px 0 8px; padding: 14px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-family: var(--font-mono); font-size: 13px; }
+.pager ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.pager li a, .pager li span { display: inline-block; min-width: 32px; padding: 5px 8px; text-align: center; border: 1px solid var(--line); border-radius: 3px; color: var(--ink-2); background: var(--surface); }
+.pager li a:hover { border-color: var(--accent); color: var(--accent); }
+.pager li span[aria-current] { border-color: var(--ink); background: var(--ink); color: var(--bg); }
+.pager li[aria-hidden] { padding: 5px 2px; color: var(--ink-3); }
+.pager-step { min-width: 120px; font-weight: 600; }
+.pager-step:last-child { text-align: right; }
+.pager-step:hover { color: var(--accent); }
+@media (max-width: 560px) { .pager { justify-content: center; } .pager ol { order: -1; width: 100%; } .pager-step { min-width: 0; } }
+.pager-note { font-size: 13.5px; margin: 0 0 8px; }
+/* Topic hubs: the first line answers "what is the latest <name> news". */
+.page-head .latest-line a { font-weight: 600; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.page-head .latest-line a:hover { color: var(--accent); text-decoration-color: currentColor; }
+/* Model pages: Quick facts, one question and its answer per row. */
+.quickfacts dl { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.quickfacts dl > div { padding: 9px 0; border-top: 1px solid var(--line); }
+.quickfacts dl > div:first-child { border-top: 0; padding-top: 2px; }
+.quickfacts dt { font-family: inherit; font-size: 15.5px; letter-spacing: 0; text-transform: none; color: var(--ink); font-weight: 600; }
+.quickfacts dd { margin-top: 2px; color: var(--ink-2); }
+.quickfacts dd a { font-weight: 600; color: var(--ink); }
+.quickfacts dd a:hover { color: var(--accent); }
+/* Story page: a model release links to its model page. */
+.model-callout { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin: 20px 0; padding: 12px 16px; max-width: 68ch; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 4px; background: var(--surface); }
+.model-callout b { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 500; }
+.model-callout a { font-weight: 600; }
+.model-callout a:hover { color: var(--accent); }
+/* /week: the week's ten, numbered like /today but one line of digest each. */
+.week-list h2 { font-size: 23px; }
+.week-list p { color: var(--ink-2); margin: 0 0 10px; max-width: 68ch; }
+.week-more { margin: 4px 0 8px; }
+/* /listen: the latest briefing as text. */
+.listen-text summary { font-weight: 600; cursor: pointer; }
+.listen-text p { max-width: 68ch; color: var(--ink-2); }
 .faq { margin-top: 28px; max-width: 68ch; }
 .faq details { border-top: 1px solid var(--line); padding: 10px 0; }
 .faq summary { font-weight: 600; cursor: pointer; }

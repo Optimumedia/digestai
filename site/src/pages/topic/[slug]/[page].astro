@@ -1,0 +1,23 @@
+---
+/* The older pages of a topic hub: /topic/<slug>/2 and up (60 stories each, lib/paging.ts). Always
+   "noindex, follow" and never in the sitemap; the hub itself (topic/[slug].astro) is the indexed page.
+   A topic that is a tracked model has no pages here: its hub redirects to /models/<slug>. */
+import OlderStories from "../../../components/OlderStories.astro";
+import { topicPages, topicStories, modelPageFor, companyFunding, type Entity } from "../../../lib/data";
+import { pageSlice, olderPages } from "../../../lib/paging";
+
+export function getStaticPaths() {
+  return topicPages()
+    .filter(({ slug }) => !modelPageFor(slug))
+    .flatMap(({ slug, entity }) => olderPages(topicStories(entity).length).map((n) => ({ params: { slug, page: String(n) }, props: { entity, n } })));
+}
+
+const { slug } = Astro.params;
+const { entity, n } = Astro.props as { entity: Entity; n: number };
+const list = topicStories(entity);
+const slice = pageSlice(list, n);
+const base = `/topic/${slug}`;
+const crumb = companyFunding(entity.name).length ? { name: "Companies", href: "/funding" } : { name: "Topics" };
+---
+
+<OlderStories base={base} heading={`${entity.name} news`} crumbs={[crumb, { name: entity.name, href: base }]} slice={slice} page={n} pages={slice.pages} total={list.length} />

@@ -118,6 +118,18 @@ const jsonLd = [series, ...(workSeries ? [workSeries] : []), ...(episodes.length
         />
       )}
 
+      {/* The latest briefing as text, near the top: people and assistants who come for "today's AI
+          news podcast" can read what it says. The same transcript as the episode's (episodes.json). */}
+      {latest?.transcript && (
+        <section class="listen-text" id="latest-text" aria-labelledby="text-h">
+          <div class="dayhead"><h2 id="text-h">The latest briefing in text</h2><span class="eyebrow">{formatDate(latest.date + "T00:00:00Z", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</span></div>
+          <details>
+            <summary>Read the transcript ({latest.stories.length} {latest.stories.length === 1 ? "story" : "stories"}, {mins(latest.seconds)})</summary>
+            {latest.transcript.split("\n\n").map((p) => <p>{p}</p>)}
+          </details>
+        </section>
+      )}
+
       <section class="podbox" aria-labelledby="sub-h">
         <h2 id="sub-h" class="eyebrow">How to subscribe</h2>
         <ol class="listen-how">
@@ -159,7 +171,9 @@ const jsonLd = [series, ...(workSeries ? [workSeries] : []), ...(episodes.length
                   {e.stories.map((s) => <li><a class="t" href={`/story/${s.slug}`}>{s.headline}</a></li>)}
                 </ul>
                 {day && <p class="ep-links"><a href={day}>The written stories for that day →</a></p>}
-                {e.transcript && <details><summary class="muted">Transcript</summary>{e.transcript.split("\n\n").map((p) => <p>{p}</p>)}</details>}
+                {e === latest && e.transcript
+                  ? <p class="ep-links"><a href="#latest-text">Transcript above ↑</a></p>
+                  : e.transcript && <details><summary class="muted">Transcript</summary>{e.transcript.split("\n\n").map((p) => <p>{p}</p>)}</details>}
               </li>
             );
           })}

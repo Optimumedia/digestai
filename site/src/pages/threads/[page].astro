@@ -1,0 +1,34 @@
+---
+/* The earlier pages of /threads: /threads/2 and up, 60 threads each, most recently updated first.
+   Always "noindex, follow" and never in the sitemap; /threads itself is the indexed page. */
+import Base from "../../layouts/Base.astro";
+import Rail from "../../components/Rail.astro";
+import ThreadRow from "../../components/ThreadRow.astro";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
+import Pager from "../../components/Pager.astro";
+import { threads } from "../../lib/data";
+import { pageSlice, olderPages } from "../../lib/paging";
+
+export function getStaticPaths() {
+  return olderPages(threads.length).map((n) => ({ params: { page: String(n) }, props: { n } }));
+}
+
+const { n } = Astro.props as { n: number };
+const slice = pageSlice(threads, n);
+---
+
+<Base title={`Developing stories: page ${n} of ${slice.pages}`} description={`Developing AI stories ${slice.from} to ${slice.to} of ${slice.total}, most recently updated first. The most recent are on the first page.`} paged={true}>
+  <div class="grid">
+    <div>
+      <Breadcrumbs items={[{ name: "Developing stories", href: "/threads" }, { name: `Page ${n}` }]} />
+      <header class="page-head">
+        <div class="eyebrow">Threads · page {n} of {slice.pages}</div>
+        <h1>Developing stories</h1>
+        <p>Threads {slice.from} to {slice.to} of {slice.total}, most recently updated first. <a href="/threads">The most recent are on the first page →</a></p>
+      </header>
+      <ol class="river">{slice.items.map((t) => <ThreadRow thread={t} />)}</ol>
+      <Pager base="/threads" page={n} pages={slice.pages} label="More threads" back="← More recent" on="Earlier threads →" />
+    </div>
+    <Rail />
+  </div>
+</Base>

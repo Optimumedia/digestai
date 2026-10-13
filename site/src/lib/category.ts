@@ -4,7 +4,7 @@
    paragraph uses only the stories' own headlines, key points and why-it-matters, so it can say
    nothing the stories do not. */
 import { meta, storiesInCategory, hubHref, formatDate, storyConfirmed, noindex, type Story } from "./data";
-import { registrable } from "./indexing.mjs";
+import { registrable, LIST_PAGE_SIZE, listPageCount } from "./indexing.mjs";
 
 export interface CategoryCopy {
   /** The page's H1. */
@@ -118,6 +118,23 @@ export function categoryWeek(slug: string): Story[] {
       return !Number.isNaN(t) && t > now - WEEK_MS && t <= now + 36e5;
     })
     .sort(byImportance);
+}
+
+/** The category page lists five most-important stories and then this many of the rest; what is left
+    goes on numbered pages (/category/<slug>/2 …), 60 a page, noindex and out of the sitemap. Before
+    that the stories after the first 60 were simply not linked from the category at all. */
+export const CATEGORY_REST_SHOWN = LIST_PAGE_SIZE - 5;
+
+/** A category's stories as its pages list them: `top` (most important) and `first` on the category
+    page itself, `older` on the numbered pages, and how many pages that makes with the first. */
+export function categoryPages(slug: string): { list: Story[]; week: Story[]; top: Story[]; first: Story[]; older: Story[]; pages: number } {
+  const list = storiesInCategory(slug);
+  const week = categoryWeek(slug);
+  const top = (week.length >= 3 ? week : [...list.slice(0, 30)].sort(byImportance)).slice(0, 5);
+  const topIds = new Set(top.map((s) => s.id));
+  const rest = list.filter((s) => !topIds.has(s.id));
+  const older = rest.slice(CATEGORY_REST_SHOWN);
+  return { list, week, top, first: rest.slice(0, CATEGORY_REST_SHOWN), older, pages: 1 + (older.length ? listPageCount(older.length) : 0) };
 }
 
 /** A sentence ends with a full stop (key points and why-it-matters usually do already). */

@@ -2,7 +2,7 @@ import { defineConfig } from "astro/config";
 import sitemap from "@astrojs/sitemap";
 import fs from "node:fs";
 import path from "node:path";
-import { published, sitemapIndex, JOB_SLUGS } from "./src/lib/indexing.mjs";
+import { published, sitemapIndex, isOlderListPage, JOB_SLUGS } from "./src/lib/indexing.mjs";
 import { isRedirectPage, loadRedirects } from "./src/lib/redirects.mjs";
 
 // Old addresses of merged stories are redirect pages: never listed for search engines.
@@ -70,6 +70,8 @@ export default defineConfig({
         // /subscribe is noindex until the Kit form is connected (subscribe.astro), and a real page after.
         if (p.endsWith("/subscribe") && !process.env.PUBLIC_KIT_FORM_URL) return false;
         if (/\/(search|admin|saved|river|offline)$/.test(p) || p in legacyRedirects || isRedirectPage(page, redirects)) return false;
+        // Page 2 and up of a long list (/topic/openai/2 …) is noindex, never listed (indexing.mjs).
+        if (isOlderListPage(p)) return false;
         return plan ? plan.include(p) : true;
       },
       serialize(item) {
@@ -77,6 +79,7 @@ export default defineConfig({
         const mod = plan?.lastmod.get(p);
         if (mod) item.lastmod = mod;
         if (p === "" || p === "/today") { item.changefreq = "hourly"; item.priority = 1.0; }
+        else if (p === "/week") { item.changefreq = "daily"; item.priority = 0.8; }
         else if (p === "/work") { item.changefreq = "hourly"; item.priority = 0.9; }
         else if (p === "/work/tools") { item.changefreq = "daily"; item.priority = 0.8; }
         else if (Object.values(JOB_SLUGS).some((slug) => p === `/work/${slug}`)) { item.changefreq = "daily"; item.priority = 0.7; }

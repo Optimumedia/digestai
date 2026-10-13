@@ -1,0 +1,22 @@
+---
+/* One developing story in the /threads list: its span, title, summary and three latest episodes. */
+import { threadStories, formatDate, shortDate, categories, type Thread } from "../lib/data";
+
+interface Props { thread: Thread }
+const { thread: t } = Astro.props;
+const eps = threadStories(t);
+---
+
+<li class="no-img" data-published={t.updatedAt}>
+  <div>
+    <div class="meta-row">
+      <a class="chip" href={`/category/${t.category}`}>{categories[t.category || ""] || "AI"}</a>
+      <span>{t.storyCount} episodes</span>
+      <span>{formatDate(t.firstAt, { day: "numeric", month: "short" })} → <time datetime={t.updatedAt || undefined}>{shortDate(t.updatedAt)}</time></span>
+      <span class="new-badge">new</span>
+    </div>
+    <h3><a href={`/thread/${t.slug}`}>{t.title}</a></h3>
+    <p>{t.summary}</p>
+    <ul class="episodes">{eps.slice(-3).reverse().map((s) => <li><a href={`/story/${s.slug}`}>{s.headline}</a></li>)}</ul>
+  </div>
+</li>

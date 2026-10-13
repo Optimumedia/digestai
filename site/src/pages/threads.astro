@@ -1,7 +1,14 @@
 ---
 import Base from "../layouts/Base.astro";
 import Rail from "../components/Rail.astro";
-import { threads, threadStories, formatDate, shortDate, categories } from "../lib/data";
+import ThreadRow from "../components/ThreadRow.astro";
+import Pager from "../components/Pager.astro";
+import { threads } from "../lib/data";
+import { pageSlice } from "../lib/paging";
+
+// Most recently updated first. With a few hundred threads the page passed 500 KB, so it shows the 60
+// most recent and the rest are on numbered pages (threads/[page].astro), noindex and out of the sitemap.
+const shown = pageSlice(threads, 1);
 ---
 
 <Base title="Developing stories" description="The AI sagas still unfolding: every thread with its episodes in order.">
@@ -10,29 +17,14 @@ import { threads, threadStories, formatDate, shortDate, categories } from "../li
       <header class="page-head">
         <div class="eyebrow">Threads</div>
         <h1>Developing stories</h1>
-        <p>Stories that keep producing news. Each thread is the episodes in order, so you can catch up from the start.</p>
+        <p>
+          Stories that keep producing news. Each thread is the episodes in order, so you can catch up from the start.
+          {shown.pages > 1 && ` ${threads.length} threads, most recently updated first; this page shows ${shown.items.length}.`}
+        </p>
       </header>
       {threads.length === 0 && <p class="muted" style="padding: 24px 0">No multi-episode stories yet. Threads form as coverage accumulates over days.</p>}
-      <ol class="river">
-        {threads.map((t) => {
-          const eps = threadStories(t);
-          return (
-            <li class="no-img" data-published={t.updatedAt}>
-              <div>
-                <div class="meta-row">
-                  <a class="chip" href={`/category/${t.category}`}>{categories[t.category || ""] || "AI"}</a>
-                  <span>{t.storyCount} episodes</span>
-                  <span>{formatDate(t.firstAt, { day: "numeric", month: "short" })} → <time datetime={t.updatedAt || undefined}>{shortDate(t.updatedAt)}</time></span>
-                  <span class="new-badge">new</span>
-                </div>
-                <h3><a href={`/thread/${t.slug}`}>{t.title}</a></h3>
-                <p>{t.summary}</p>
-                <ul class="episodes">{eps.slice(-3).reverse().map((s) => <li><a href={`/story/${s.slug}`}>{s.headline}</a></li>)}</ul>
-              </div>
-            </li>
-          );
-        })}
-      </ol>
+      <ol class="river">{shown.items.map((t) => <ThreadRow thread={t} />)}</ol>
+      <Pager base="/threads" page={1} pages={shown.pages} label="More threads" back="← More recent" on="Earlier threads →" />
     </div>
     <Rail />
   </div>

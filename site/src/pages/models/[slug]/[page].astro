@@ -1,0 +1,18 @@
+---
+/* The older pages of a model's stories: /models/<slug>/2 and up (60 each, lib/paging.ts). Always
+   "noindex, follow" and never in the sitemap; the model page itself keeps the facts and is indexed. */
+import OlderStories from "../../../components/OlderStories.astro";
+import { modelPageList, modelStories, type ModelPage } from "../../../lib/data";
+import { pageSlice, olderPages } from "../../../lib/paging";
+
+export function getStaticPaths() {
+  return modelPageList.flatMap((model) => olderPages(modelStories(model).length).map((n) => ({ params: { slug: model.slug, page: String(n) }, props: { model, n } })));
+}
+
+const { model, n } = Astro.props as { model: ModelPage; n: number };
+const list = modelStories(model);
+const slice = pageSlice(list, n);
+const base = `/models/${model.slug}`;
+---
+
+<OlderStories base={base} heading={`${model.name} news`} crumbs={[{ name: "Models", href: "/models" }, { name: model.name, href: base }]} slice={slice} page={n} pages={slice.pages} total={list.length} />

@@ -1,0 +1,19 @@
+---
+/* The rest of a busy day: /daily/<date>/2 and up, 60 stories each, still most important first.
+   Always "noindex, follow" and never in the sitemap; the day's own page is the indexed one. */
+import OlderStories from "../../../components/OlderStories.astro";
+import { storiesByDay, formatDate, type Story } from "../../../lib/data";
+import { pageSlice, olderPages } from "../../../lib/paging";
+
+export function getStaticPaths() {
+  return [...storiesByDay().entries()].flatMap(([date, list]) => olderPages(list.length).map((n) => ({ params: { date, page: String(n) }, props: { list, n } })));
+}
+
+const { date } = Astro.params;
+const { list, n } = Astro.props as { list: Story[]; n: number };
+const slice = pageSlice(list, n);
+const base = `/daily/${date}`;
+const pretty = formatDate(date + "T00:00:00Z", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+---
+
+<OlderStories base={base} heading={`AI news for ${pretty}`} eyebrow="Daily digest" crumbs={[{ name: "Daily archive", href: "/daily" }, { name: pretty, href: base }]} slice={slice} page={n} pages={slice.pages} total={list.length} order="most important first" />

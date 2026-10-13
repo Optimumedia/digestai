@@ -477,6 +477,20 @@ export function storiesForEntity(e: Entity): Story[] {
   );
 }
 
+/** Newest first by first publication, which is what a reader means by "the latest". Not updatedAt:
+    that moves when an old story gains a source, and would put it back at the top of a hub (the
+    freshness rules). The date each row shows is the same one it is sorted by. */
+export function newestFirst(list: Story[]): Story[] {
+  return [...list].sort(
+    (a, b) => Date.parse(b.firstPublishedAt || b.updatedAt || "0") - Date.parse(a.firstPublishedAt || a.updatedAt || "0"),
+  );
+}
+
+/** A topic hub's stories in the order its pages list them (page 1 and the numbered older pages). */
+export function topicStories(e: Entity): Story[] {
+  return newestFirst(storiesForEntity(e));
+}
+
 /** Topic pages, with spelling variants (OpenAI / Openai) merged under one slug. */
 export function topicPages(): { slug: string; entity: Entity }[] {
   const bySlug = new Map<string, Entity>();
@@ -509,6 +523,10 @@ const modelPageMap: Map<string, ModelPage> = modelPages(stories, entities, track
 export const modelPageList: ModelPage[] = [...modelPageMap.values()];
 export const modelPageFor = (slug: string): ModelPage | undefined => modelPageMap.get(slug);
 export const modelPageIndexable = (page: ModelPage): boolean => modelIndexable(page);
+/** A model page's stories, newest first (page 1 and the numbered older pages list them in this order). */
+export function modelStories(page: ModelPage): Story[] {
+  return newestFirst([...page.storyIds].map((id) => storyById.get(id)).filter((s): s is Story => Boolean(s)));
+}
 
 /** Where a name tag links: the model page for a tracked model, else its topic hub, else nowhere. */
 export function hubHref(name: string | null | undefined): string | null {
@@ -531,6 +549,69 @@ export function trackedModelsIn(story: Story): ModelPage[] {
     if (!seen.has(page.slug) && page.rows.some((r) => r.storySlug === story.slug)) { seen.add(page.slug); out.push(page); }
   }
   return out;
+}
+
+/** Models whose release the tracker took from this story: the story is their launch story, so it
+    links to the model page prominently, not only in the small "Model page" line. */
+export function modelsReleasedIn(story: Story): ModelPage[] {
+  return modelPageList.filter((page) => page.rows.some((r) => r.storySlug === story.slug));
+}
+
+/* ---- Quick facts on a model page ----
+   Questions people ask about a model, answered only from what the tracker holds (trackers.json:
+   lab, kind, availability, licence, context window, official link, the date of the first report).
+   A question whose fact the coverage never gave is left out: the page never says "unknown". The
+   tracker has no price field, so there is no price question. */
+export interface ModelFact {
+  q: string;
+  /** The answer as one plain sentence (also the FAQPage structured data). */
+  a: string;
+  /** A link that backs the answer: the lab's hub, the launch story or the official page. */
+  href?: string;
+  linkText?: string;
+  external?: boolean;
+}
+const MODEL_KINDS: Record<string, string> = { llm: "language model", multimodal: "multimodal model", image: "image model", video: "video model", audio: "audio model", code: "coding model", embedding: "embedding model", robotics: "robotics model" };
+const MODEL_AVAILABILITY: Record<string, string> = { api: "through an API", open_weights: "as open weights that can be downloaded and run", consumer: "in a consumer app" };
+
+export function modelQuickFacts(page: ModelPage): ModelFact[] {
+  const { name, rows } = page;
+  // Any of the model's rows can hold a spec: the newest row wins, older ones fill the gaps.
+  const pick = (k: "license" | "context" | "lab") => rows.find((r) => r[k])?.[k] || null;
+  const lab = pick("lab");
+  const license = pick("license");
+  const context = pick("context");
+  const link = rows.map((r) => r.link).find((l) => l && /^https?:\/\//.test(l)) || null;
+  const kind = MODEL_KINDS[rows.find((r) => MODEL_KINDS[r.kind])?.kind || ""];
+  const availability = rows.find((r) => MODEL_AVAILABILITY[r.availability])?.availability || null;
+  const first = [...rows].filter((r) => r.date).sort((a, b) => ((a.date || "") < (b.date || "") ? -1 : 1))[0];
+  const an = (w: string) => (/^[aeiou]/i.test(w) ? "an" : "a");
+  const facts: ModelFact[] = [];
+  if (lab) facts.push({ q: `Who makes ${name}?`, a: `${name} is made by ${lab}.`, href: hubHref(lab) || undefined, linkText: `${lab} news` });
+  if (first?.date) {
+    facts.push({
+      q: `When was ${name} released?`,
+      a: `The first report of ${name}'s release that Digest AI covered was published on ${formatDate(first.date)}.`,
+      href: first.storySlug && storyBySlug.has(first.storySlug) ? `/story/${first.storySlug}` : undefined,
+      linkText: first.storyHeadline,
+    });
+  }
+  if (kind) facts.push({ q: `What type of model is ${name}?`, a: `${name} is ${an(kind)} ${kind}.` });
+  // "the Apache 2.0 licence", but not "the Llama Community License licence".
+  const licence = license ? (/licen[cs]e/i.test(license) ? `the ${license}` : `the ${license} licence`) : "";
+  if (availability === "open_weights") {
+    facts.push({ q: `Are ${name}'s weights open?`, a: `Yes. ${name} is released as open weights that can be downloaded and run${licence ? `, under ${licence}` : ""}.` });
+  } else if (licence) {
+    facts.push({ q: `What licence is ${name} released under?`, a: `${name} is released under ${licence}.` });
+  }
+  if (context) facts.push({ q: `What is ${name}'s context window?`, a: `${name}'s context window is ${context}.` });
+  const shortLink = link ? link.replace(/^https?:\/\//, "").replace(/\/$/, "").slice(0, 50) : "";
+  if (availability) {
+    facts.push({ q: `Where is ${name} available?`, a: `${name} is available ${MODEL_AVAILABILITY[availability]}.`, href: link || undefined, linkText: shortLink || undefined, external: Boolean(link) });
+  } else if (link) {
+    facts.push({ q: `Where is the official page for ${name}?`, a: `The official page for ${name} is ${link}.`, href: link, linkText: shortLink, external: true });
+  }
+  return facts;
 }
 
 export function storiesByDay(): Map<string, Story[]> {

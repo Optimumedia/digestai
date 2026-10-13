@@ -81,7 +81,7 @@ def test_sitemap_lists_confirmed_or_important_stories_and_hubs():
         print("SKIP node not installed")
         return
     stories = [f"/story/{s['slug']}" for s in STORIES] + ["/story/old-confirmed", "/story/old-single"]
-    hubs = ["", "/today", "/category/policy", "/category/marketing", "/work", "/models", "/funding", "/api", "/about",
+    hubs = ["", "/today", "/week", "/category/policy", "/category/marketing", "/work", "/models", "/funding", "/api", "/about",
             "/listen", "/thread/big-thread", "/thread/small-thread", "/topic/anthropic", "/topic/small-co"]
     others = ["/daily/2026-09-20", "/week/2026-W38", "/threads", "/contact", "/privacy", "/terms", "/sources", "/subscribe"]
     out = _plan(stories + hubs + others)
@@ -98,7 +98,7 @@ def test_sitemap_lists_confirmed_or_important_stories_and_hubs():
     # Archive pages: listed only when two publishers covered the story.
     assert "/story/old-confirmed" in listed and "/story/old-single" not in listed
     # Hubs: the fixed ones, every category, threads of three or more, topics above the threshold.
-    for p in ("", "/today", "/category/policy", "/category/marketing", "/models", "/funding", "/api",
+    for p in ("", "/today", "/week", "/category/policy", "/category/marketing", "/models", "/funding", "/api",
               "/about", "/listen", "/threads", "/thread/big-thread", "/topic/anthropic"):
         assert p in listed, p
     assert "/thread/small-thread" not in listed and "/topic/small-co" not in listed
@@ -122,6 +122,58 @@ def test_sitemap_lastmod_is_the_date_the_page_shows():
     assert mod["/category/policy"] == "2026-09-20T12:30:00Z" and mod[""] == "2026-09-20T12:30:00Z"
     assert mod["/topic/anthropic"] == "2026-09-20T12:30:00Z"
     assert mod["/story/old-confirmed"] == "2026-07-01T00:00:00Z"
+    # /week leads with the current week's stories: it changes when the newest story does.
+    assert mod["/week"] == mod[""]
+
+
+def test_older_list_pages_stay_out_of_the_sitemap():
+    """Page 2 and up of a long list (/topic/openai/2 …) is noindex and never listed; page 1 is."""
+    if not shutil.which("node"):
+        print("SKIP node not installed")
+        return
+    older = ["/topic/anthropic/2", "/models/gpt-6-astra/3", "/category/policy/2", "/daily/2026-09-20/2", "/threads/2",
+             "/topic/anthropic/2/", "/category/policy/12"]
+    firsts = ["/topic/anthropic", "/category/policy", "/threads", "/week", "/week/2026-W38"]
+    out = _plan(older + firsts)
+    listed = set(out["listed"])
+    assert not listed & set(older), listed & set(older)
+    for p in ("/topic/anthropic", "/category/policy", "/threads", "/week"):
+        assert p in listed, p
+    probe = _run(
+        "console.log(JSON.stringify({size: lib.LIST_PAGE_SIZE, counts: [0, 1, 60, 61, 845].map((n) => lib.listPageCount(n)),"
+        " older: ['/topic/x/2', '/threads/3', '/daily/2026-09-20/2.html', '/topic/x', '/week/2026-W38', '/work/week/2026-W38',"
+        " '/threads', '/story/x', '/models/x/y'].map(lib.isOlderListPage)}));")
+    assert probe["size"] == 60
+    assert probe["counts"] == [1, 1, 1, 2, 15]
+    assert probe["older"] == [True, True, True, False, False, False, False, False, False]
+
+
+def test_list_templates_cap_their_rows():
+    """Every long hub renders one page of its list and a pager; the older pages are marked paged."""
+    pages = SITE / "src" / "pages"
+    for hub, older in (("topic/[slug].astro", "topic/[slug]/[page].astro"),
+                       ("models/[slug].astro", "models/[slug]/[page].astro"),
+                       ("category/[category].astro", "category/[category]/[page].astro"),
+                       ("daily/[date].astro", "daily/[date]/[page].astro"),
+                       ("threads.astro", "threads/[page].astro")):
+        src = (pages / hub).read_text(encoding="utf-8")
+        assert "<Pager" in src, hub
+        assert "list.map((s) => <StoryRow" not in src, f"{hub} renders its whole list"
+        assert (pages / older).exists(), older
+    older = (SITE / "src" / "components" / "OlderStories.astro").read_text(encoding="utf-8")
+    threads = (pages / "threads" / "[page].astro").read_text(encoding="utf-8")
+    assert "paged={true}" in older and "paged={true}" in threads
+    base = (SITE / "src" / "layouts" / "Base.astro").read_text(encoding="utf-8")
+    # A paged page is "noindex, follow" (thin) and left out of the site search.
+    assert "const thin = thinProp || paged" in base and 'paged ? {} : { "data-pagefind-body": "" }' in base
+    config = (SITE / "astro.config.mjs").read_text(encoding="utf-8")
+    assert "isOlderListPage(p)" in config
+
+
+def test_week_hub_answers_this_week():
+    src = (SITE / "src" / "pages" / "week" / "index.astro").read_text(encoding="utf-8")
+    assert "AI news this week" in src and '"ItemList"' in src and "list.slice(0, 10)" in src
+    assert "/week/${key}" in src and "articleCount" in src
 
 
 def test_registrable_matches_the_pipeline():
@@ -176,6 +228,18 @@ def test_built_site():
     assert checked, "no story with full text in the build"
     assert not any(p.startswith("/ft/") for p in locs)
     assert "Disallow: /ft/" in (dist / "robots.txt").read_text(encoding="utf-8")
+    # Older pages of long lists: built, "noindex, follow", out of the sitemap and the site search.
+    older = [p for p in dist.glob("*/**/*.html") if re.search(r"[\\/](?:topic|models|category|daily)[\\/][^\\/]+[\\/]\d+\.html$|[\\/]threads[\\/]\d+\.html$", str(p))]
+    for page in older:
+        rel = "/" + page.relative_to(dist).as_posix()[:-5]
+        assert rel not in locs, rel
+        html = page.read_text(encoding="utf-8")
+        assert 'content="noindex, follow"' in html and 'rel="canonical"' not in html and "data-pagefind-body" not in html, rel
+    # No hub page carries a whole long list any more.
+    for hub in [*(dist / "topic").glob("*.html"), *(dist / "models").glob("*.html"), *(dist / "category").glob("*.html"),
+                *(dist / "daily").glob("*.html"), dist / "threads.html", dist / "week.html"]:
+        if hub.exists():
+            assert hub.stat().st_size < 250_000, f"{hub.relative_to(dist)} is {hub.stat().st_size} bytes"
 
 
 if __name__ == "__main__":

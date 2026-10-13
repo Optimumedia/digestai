@@ -1,28 +1,139 @@
 ---
+/* /week answers "AI news this week": the current week's ten most important stories, each with its
+   one-line digest and how many sources reported it, a dated title and description, and the list as
+   structured data. The archive of earlier weeks is underneath. Everything is from the export; the
+   ranking is the one the week's own page uses (/week/<key>, importance then score), so the two agree.
+   A week runs Monday to Sunday (UTC). In the first hours of a Monday the new week is nearly empty, so
+   until it has WEEK_MIN_STORIES stories the page leads with the week before and says so. */
 import Base from "../../layouts/Base.astro";
+import Coverage from "../../components/Coverage.astro";
 import Rail from "../../components/Rail.astro";
-import { storiesByWeek, weekMonday, formatDate } from "../../lib/data";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
+import { storiesByWeek, weekMonday, weekKey, formatDate, dateTime, firstSentence, sourceNames, storyModified, categories, shortDate, topicInfo, meta, WEEK_MIN_STORIES } from "../../lib/data";
+import { clip } from "../../lib/category";
 
 const weeks = [...storiesByWeek().entries()];
+const thisKey = weekKey(meta.generatedAt);
+const current = weeks.find(([key]) => key === thisKey);
+// The week the page leads with: this one once it has enough stories, else the newest week that does.
+const lead = (current && current[1].length >= WEEK_MIN_STORIES ? current : weeks.find(([key, list]) => key <= thisKey && list.length >= WEEK_MIN_STORIES)) || weeks[0];
+const [key, list] = lead || ["", []];
+const isCurrent = key === thisKey;
+const top = list.slice(0, 10);
+const monday = key ? weekMonday(key) : new Date(meta.generatedAt);
+const sunday = new Date(monday.getTime() + 6 * 864e5);
+const sameMonth = monday.getUTCMonth() === sunday.getUTCMonth();
+const range = `${formatDate(monday.toISOString(), sameMonth ? { day: "numeric" } : { day: "numeric", month: "long" })} to ${formatDate(sunday.toISOString())}`;
+const shortRange = `${formatDate(monday.toISOString(), sameMonth ? { day: "numeric" } : { day: "numeric", month: "short" })} to ${formatDate(sunday.toISOString(), { day: "numeric", month: "short" })}`;
+const words = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+const n = words[top.length] || String(top.length);
+const noun = top.length === 1 ? "story" : "stories";
+const intro = key ? topicInfo[`week-${key.toLowerCase()}`]?.description || "" : "";
+const updated = list.map((s) => storyModified(s)).filter(Boolean).sort().pop() || meta.generatedAt;
+const label = isCurrent ? "AI news this week" : "AI news, last week";
+const title = top.length ? `${label}: the ${n} ${noun} that matter, ${shortRange}` : "AI news this week";
+// The dated label, then as many of the top headlines as fit whole, then the count.
+const tail = ` The ${n} most important of ${list.length} ${list.length === 1 ? "story" : "stories"}, each with its sources.`;
+let heads = top[0]?.headline || "";
+for (const s of top.slice(1, 3)) if (`${label}, ${range}: ${heads}; ${s.headline}.${tail}`.length <= 300) heads += `; ${s.headline}`;
+const description = top.length ? clip(`${label}, ${range}: ${heads}.${tail}`, 300) : "What changed in AI, week by week.";
+/** The one-line digest of a story: the first sentence of our own summary, else its first key point. */
+const digest = (s: (typeof top)[number]) => firstSentence(s.summaryMd || s.keyPoints[0] || "", 220);
+const sourceCount = (c: number) => `${c} ${c === 1 ? "source" : "sources"}`;
+const url = `${meta.siteUrl}/week`;
+const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: title,
+    description,
+    url,
+    dateModified: updated,
+    isPartOf: { "@type": "WebSite", name: "Digest AI", url: meta.siteUrl },
+  },
+  ...(top.length ? [{
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: `${label}, ${range}`,
+    itemListOrder: "https://schema.org/ItemListOrderDescending",
+    numberOfItems: top.length,
+    itemListElement: top.map((s, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      item: {
+        "@type": "NewsArticle",
+        headline: s.headline,
+        description: digest(s),
+        url: `${meta.siteUrl}/story/${s.slug}`,
+        datePublished: s.firstPublishedAt,
+        dateModified: storyModified(s),
+        publisher: { "@type": "Organization", name: "Digest AI", url: meta.siteUrl },
+      },
+    })),
+  }] : []),
+];
+const earlier = weeks.filter(([k]) => k !== key);
+const weekOf = (k: string) => formatDate(weekMonday(k).toISOString(), { day: "numeric", month: "long", year: "numeric" });
 ---
 
-<Base title="Weekly recaps" description="What changed in AI, week by week.">
+<Base title={title} description={description} jsonLd={jsonLd} modifiedAt={updated}>
   <div class="grid">
     <div>
+      <Breadcrumbs items={[{ name: "This week" }]} />
       <header class="page-head">
-        <div class="eyebrow">Archive</div>
-        <h1>Week by week</h1>
+        <div class="eyebrow">Weekly recap · {range}</div>
+        <h1>{isCurrent ? "AI news this week" : "AI news: last week's recap"}</h1>
+        {top.length > 0 && (
+          <p class="intro">
+            {isCurrent
+              ? `The ${n} AI ${noun} that matter most this week, ${range}, picked from ${list.length} ${list.length === 1 ? "story" : "stories"} published since Monday. Each has its sources.`
+              : `The new week has only just started, so these are the ${n} AI ${noun} that mattered most last week, ${range}, picked from ${list.length}. Each has its sources.`}
+          </p>
+        )}
+        {intro && <p>{intro}</p>}
+        <p class="updated-line">Updated <time datetime={updated} data-static>{dateTime(updated)}</time></p>
       </header>
-      <ol class="river">
-        {weeks.map(([week, list]) => (
-          <li class="no-img">
-            <div>
-              <h3><a href={`/week/${week}`}>Week of {formatDate(weekMonday(week).toISOString(), { day: "numeric", month: "long", year: "numeric" })}</a></h3>
-              <p>{list.length} stories · top: {list[0]?.headline}</p>
-            </div>
-          </li>
-        ))}
+
+      {top.length === 0 && <p class="muted" style="padding: 24px 0">No stories yet this week.</p>}
+      <ol class="today-list week-list">
+        {top.map((s) => {
+          const { names, more } = sourceNames(s, 4);
+          return (
+            <li data-published={s.updatedAt}>
+              <div class="meta-row">
+                <a class:list={["chip", { hot: s.importance >= 8 }]} href={`/category/${s.category}`}>{categories[s.category || ""] || "AI"}</a>
+                <time datetime={s.firstPublishedAt || s.updatedAt || undefined} data-static>{shortDate(s.firstPublishedAt || s.updatedAt)}</time>
+                <span>{sourceCount(s.articleCount)}{s.hasPrimary ? " · primary source" : ""}</span>
+              </div>
+              <h2><a href={`/story/${s.slug}`}>{s.headline}</a></h2>
+              <p>{digest(s)}</p>
+              <div class="row-foot">
+                <Coverage story={s} compact={true} />
+                <div class="sources-line">{names.map((name) => <b>{name}</b>)}{more > 0 && <span>+{more}</span>}</div>
+              </div>
+            </li>
+          );
+        })}
       </ol>
+      {key && top.length > 0 && (
+        <p class="week-more"><a class="more-link" href={`/week/${key}`}>The full recap for {range}: all {list.length} stories ranked, model releases and deals →</a></p>
+      )}
+
+      {earlier.length > 0 && (
+        <section aria-labelledby="weeks-h">
+          <div class="dayhead"><h2 id="weeks-h">{earlier.some(([k]) => k > key) ? "Other weeks" : "Earlier weeks"}</h2><span class="eyebrow">week by week</span></div>
+          <ol class="river">
+            {earlier.map(([week, items]) => (
+              <li class="no-img">
+                <div>
+                  <h3><a href={`/week/${week}`}>Week of {weekOf(week)}</a></h3>
+                  <p>{items.length} {items.length === 1 ? "story" : "stories"} · top: {items[0]?.headline}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
     </div>
     <Rail />
   </div>

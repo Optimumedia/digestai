@@ -86,6 +86,48 @@ def test_templates_use_the_shared_rules():
     assert 'priceChanges: read("work-prices.json", {}).changes' in config
 
 
+def test_model_quick_facts_only_say_what_the_tracker_holds():
+    data = (SITE / "src" / "lib" / "data.ts").read_text(encoding="utf-8")
+    model = (SITE / "src" / "pages" / "models" / "[slug].astro").read_text(encoding="utf-8")
+    story = (SITE / "src" / "pages" / "story" / "[slug].astro").read_text(encoding="utf-8")
+    assert "export function modelQuickFacts" in data and "modelQuickFacts(page)" in model
+    assert '"FAQPage"' in model and "Quick facts" in model
+    # A missing fact is a missing question, never an "unknown" or "not stated" answer.
+    body = data.split("export function modelQuickFacts", 1)[1].split("\nexport ", 1)[0]
+    assert "unknown" not in body.lower().replace('"unknown"', "") and "not stated" not in body.lower()
+    assert "Not stated" not in model
+    # A model release story links to its model page in its own box.
+    assert "modelsReleasedIn(story)" in story and "model-callout" in story
+
+
+def test_built_model_pages_match_their_faq_data():
+    import re
+    dist = SITE / "dist" / "models"
+    pages = sorted(dist.glob("*.html")) if dist.exists() else []
+    if not pages:
+        print("SKIP site not built")
+        return
+    checked = 0
+    for page in pages:
+        html = page.read_text(encoding="utf-8")
+        if "Quick facts" not in html:
+            continue
+        box = html.split('id="facts-h"', 1)[1].split("</section>", 1)[0]
+        questions = re.findall(r"<dt>(.*?)</dt>", box)
+        assert questions, page.name
+        assert "unknown" not in box.lower() and "not stated" not in box.lower(), page.name
+        docs = []
+        for m in re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.S):
+            doc = json.loads(m)
+            docs.extend(doc if isinstance(doc, list) else [doc])
+        faq = next(d for d in docs if d.get("@type") == "FAQPage")
+        names = [q["name"] for q in faq["mainEntity"]]
+        unescape = lambda s: s.replace("&#39;", "'").replace("&amp;", "&").replace("&quot;", '"')  # noqa: E731
+        assert [unescape(q) for q in questions] == names, (page.name, questions, names)
+        checked += 1
+    assert checked, "no model page with Quick facts in the build"
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

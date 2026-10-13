@@ -4,7 +4,10 @@ import StoryRow from "../../components/StoryRow.astro";
 import Rail from "../../components/Rail.astro";
 import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import StoryRedirect from "../../components/StoryRedirect.astro";
-import { topicPages, storiesForEntity, meta, topicInfo, companyFunding, modelsByLab, hubHref, formatDate, money, modelPageFor, TOPIC_MIN_STORIES } from "../../lib/data";
+import Pager from "../../components/Pager.astro";
+import { topicPages, topicStories, meta, topicInfo, companyFunding, modelsByLab, hubHref, formatDate, money, modelPageFor, storyModified, firstSentence, TOPIC_MIN_STORIES } from "../../lib/data";
+import { clip } from "../../lib/category";
+import { pageSlice } from "../../lib/paging";
 
 export function getStaticPaths() {
   return topicPages().map(({ slug, entity }) => ({ params: { slug }, props: { entity } }));
@@ -16,42 +19,72 @@ const { entity } = Astro.props;
 // hub's introduction and the follow button. The hub under the same slug only redirects there, so a
 // model has one indexable address instead of two pages competing for the same searches.
 const modelPage = modelPageFor(slug!);
-const list = storiesForEntity(entity);
+// Newest first by first publication. This page shows the newest 60; the older ones are on numbered
+// pages under it (topic/[slug]/[page].astro), which are noindex and out of the sitemap.
+const list = topicStories(entity);
+const shown = pageSlice(list, 1);
+const base = `/topic/${slug}`;
 const kindLabel = { companies: "Company", models: "Model", people: "Person" }[entity.kind] || "Topic";
 const follow = JSON.stringify({ kind: "topic", slug, name: entity.name });
-const latestHeads = list.slice(0, 3).map((s) => s.headline).join("; ");
 const intro = topicInfo[slug!]?.description || "";
 // The pipeline stores a plain "N stories since <date>, most recently ..." line when the model's
-// introduction could not be checked against the stories; it is fine as an intro, not as an answer
-// to "What is X?".
+// introduction could not be checked against the stories. The page now says the same thing itself,
+// from this build's own numbers, so that line is neither shown nor used as an answer to "What is X?".
 const templated = /^\d+ stor(y|ies) since /.test(intro);
+const about = intro && !templated ? intro : "";
 const thin = list.length < TOPIC_MIN_STORIES;
 const rounds = companyFunding(entity.name);
 const raised = rounds.reduce((n, r) => n + (r.amount_usd || 0), 0);
-const description = (intro ? `${intro} ${list.length} stories with sources.` : `${entity.name} in the AI news, ${list.length} ${list.length === 1 ? "story" : "stories"} with sources and discussion. Latest: ${latestHeads}`).slice(0, 300);
 const ogImage = list.length >= 3 ? `/og/topic-${slug}.png` : "/og-default.png";
 const roundName: Record<string, string> = { seed: "seed round", series_a: "Series A", series_b: "Series B", series_c: "Series C", series_d_plus: "late-stage round", acquisition: "acquisition", ipo: "IPO", debt: "debt financing", other: "financing" };
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+const plural = (n: number, w: string, ws = `${w}s`) => `${n} ${n === 1 ? w : ws}`;
+
+// The page answers "what is the latest <name> news": the newest story, with its date, leads the
+// title's promise, the description and the first visible line. Everything is from the stories.
+const latest = list[0];
+const latestAt = latest?.firstPublishedAt || latest?.updatedAt || null;
+const latestDate = formatDate(latestAt);
+const oldest = list[list.length - 1];
+const since = formatDate(oldest?.firstPublishedAt || oldest?.updatedAt);
+const sinceText = since && list.length > 1 ? ` since ${since}` : "";
+const title = rounds.length ? `Latest ${entity.name} news and funding` : `Latest ${entity.name} news`;
+// The newest headline and its date first, the count last; the second headline only when it fits.
+const lead = latest ? `Latest ${entity.name} news${latestDate ? `, ${latestDate}` : ""}: ${latest.headline}.` : `${entity.name} in the AI news on Digest AI.`;
+const tail = ` ${plural(list.length, "story", "stories")}${sinceText}, each with its sources.`;
+const second = list[1] ? ` Before that: ${list[1].headline}.` : "";
+const description = clip(lead + (lead.length + second.length + tail.length <= 300 ? second : "") + tail, 300);
+const modified = list.map((s) => storyModified(s)).filter(Boolean).sort().pop() || undefined;
 
 // Question-and-answer block: only questions the data can actually answer.
 const faq: { q: string; a: string }[] = [];
-if (intro && !templated) faq.push({ q: `What is ${entity.name}?`, a: intro });
+if (latest) faq.push({ q: `What is the latest ${entity.name} news?`, a: `${latestDate ? `As of ${latestDate}: ` : ""}${latest.headline}. ${firstSentence(latest.summaryMd || latest.keyPoints[0] || "", 240)}`.trim() });
+if (about) faq.push({ q: `What is ${entity.name}?`, a: about });
 if (rounds.length) faq.push({ q: `How much funding has ${entity.name} raised?`, a: `${entity.name} has ${money(raised)} in reported deals covered by Digest AI: ${rounds.slice(0, 4).map((r) => `${money(r.amount_usd)} ${roundName[r.round] || r.round}${r.date ? ` in ${formatDate(r.date, { month: "long", year: "numeric" })}` : ""}`).join("; ")}.` });
-if (list[0]) faq.push({ q: `What is the latest news about ${entity.name}?`, a: `${list[0].headline}${list[0].firstPublishedAt ? ` (${formatDate(list[0].firstPublishedAt)})` : ""}.` });
 
-const about = { "@type": entity.kind === "people" ? "Person" : entity.kind === "companies" ? "Organization" : "Thing", name: entity.name };
+const subject = { "@type": entity.kind === "people" ? "Person" : entity.kind === "companies" ? "Organization" : "Thing", name: entity.name };
 const jsonLd: any[] = [{
   "@context": "https://schema.org",
   "@type": "CollectionPage",
   name: `${entity.name} news`,
+  headline: title,
   description,
-  url: `${meta.siteUrl}/topic/${slug}`,
-  about,
-  hasPart: list.slice(0, 20).map((s) => ({ "@type": "NewsArticle", headline: s.headline, url: `${meta.siteUrl}/story/${s.slug}`, datePublished: s.firstPublishedAt })),
+  url: `${meta.siteUrl}${base}`,
+  ...(modified ? { dateModified: modified } : {}),
+  about: subject,
+  mainEntity: {
+    "@type": "ItemList",
+    name: `Latest ${entity.name} news, newest first`,
+    itemListOrder: "https://schema.org/ItemListOrderDescending",
+    numberOfItems: list.length,
+    itemListElement: shown.items.slice(0, 20).map((s, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      item: { "@type": "NewsArticle", headline: s.headline, url: `${meta.siteUrl}/story/${s.slug}`, datePublished: s.firstPublishedAt },
+    })),
+  },
 }];
 if (faq.length) jsonLd.push({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faq.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) });
 const crumb = rounds.length ? { name: "Companies", href: "/funding" } : { name: "Topics" };
-const title = rounds.length ? `${entity.name}: funding and news` : `${entity.name} news`;
 // A lab's hub lists the models the tracker has from it, each linking to its model page.
 const labModels = modelsByLab(entity.name);
 ---
@@ -59,18 +92,28 @@ const labModels = modelsByLab(entity.name);
 {modelPage ? (
   <StoryRedirect to={modelPage.slug} href={`/models/${modelPage.slug}`} headline={modelPage.name} site={meta.siteUrl} lead="Everything about this model is on its page:" />
 ) : (
-<Base title={title} description={description} image={`${meta.siteUrl}${ogImage}`} jsonLd={jsonLd} thin={thin}>
+<Base title={title} description={description} image={`${meta.siteUrl}${ogImage}`} jsonLd={jsonLd} thin={thin} modifiedAt={modified}>
   <div class="grid">
     <div>
       <Breadcrumbs items={[crumb, { name: entity.name }]} />
       <header class="page-head">
         <div class="eyebrow">{kindLabel}</div>
         <div class="head-row">
-          <h1>{entity.name}</h1>
+          <h1>{entity.name} news</h1>
           <button class="follow" data-follow={follow} aria-pressed="false">Follow</button>
         </div>
-        {intro && <p class="intro">{intro}</p>}
-        <p>{plural(list.length, "story").replace("storys", "stories")} mentioning {entity.name}, newest first, each with its sources and discussion. Follow to see new ones on your front page.</p>
+        {latest && (
+          <p class="intro latest-line">
+            The latest {entity.name} news{latestAt && <>, <time datetime={latestAt} data-static>{latestDate}</time></>}:
+            {" "}<a href={`/story/${latest.slug}`}>{latest.headline}</a>.
+          </p>
+        )}
+        {about && <p>{about}</p>}
+        <p>
+          {plural(list.length, "story", "stories")} mentioning {entity.name}{sinceText}, newest first, each with its sources and discussion.
+          {shown.pages > 1 && ` This page shows the newest ${shown.items.length}.`}
+          {" "}Follow to see new ones on your front page.
+        </p>
       </header>
 
       {rounds.length > 0 && (
@@ -88,7 +131,8 @@ const labModels = modelsByLab(entity.name);
         </section>
       )}
 
-      <ol class="river">{list.map((s) => <StoryRow story={s} />)}</ol>
+      <ol class="river">{shown.items.map((s) => <StoryRow story={s} />)}</ol>
+      <Pager base={base} page={1} pages={shown.pages} />
 
       {faq.length > 0 && (
         <section class="faq">

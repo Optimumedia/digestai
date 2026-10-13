@@ -1,0 +1,64 @@
+---
+/* A numbered older page of a long story list (/topic/openai/2, /category/models/3 …; the rule is in
+   indexing.mjs, the arithmetic in lib/paging.ts). It is only the list: the hub's introduction, facts
+   and questions stay on page 1, which is the address search engines index. This page is
+   "noindex, follow", so its links to older stories are still crawled. */
+import Base from "../layouts/Base.astro";
+import StoryRow from "./StoryRow.astro";
+import Rail from "./Rail.astro";
+import Breadcrumbs from "./Breadcrumbs.astro";
+import Pager from "./Pager.astro";
+import { formatDate, type Story } from "../lib/data";
+import type { PageSlice } from "../lib/paging";
+
+interface Props {
+  /** The hub's own address (page 1), e.g. /topic/openai. */
+  base: string;
+  /** What the list is, as the hub's H1 says it: "OpenAI news". */
+  heading: string;
+  /** Breadcrumb items down to the hub (the hub itself last, with its href). */
+  crumbs: { name: string; href?: string }[];
+  slice: PageSlice<Story>;
+  /** Position of this page among the hub's pages (the hub is 1) and how many there are. */
+  page: number;
+  pages: number;
+  /** Rows on the hub's pages before this slice starts, so "stories 61 to 120" counts the whole list. */
+  offset?: number;
+  total: number;
+  /** How the list is ordered. */
+  order?: "newest first" | "most important first";
+  eyebrow?: string;
+  currentCategory?: string | null;
+}
+const { base, heading, crumbs, slice, page, pages, offset = 0, total, order = "newest first", eyebrow = "Older stories", currentCategory } = Astro.props;
+const from = offset + slice.from;
+const to = offset + slice.to;
+const dates = slice.items.map((s) => s.firstPublishedAt || s.updatedAt).filter(Boolean).sort() as string[];
+const span = order === "newest first" && dates.length
+  ? formatDate(dates[0]) === formatDate(dates[dates.length - 1])
+    ? `, from ${formatDate(dates[0])}`
+    : `, from ${formatDate(dates[0])} to ${formatDate(dates[dates.length - 1])}`
+  : "";
+const title = `${heading}: page ${page} of ${pages}`;
+const description = `${heading}, stories ${from} to ${to} of ${total}${span}, ${order}. The newest are on the first page.`;
+const daily = order !== "newest first";
+---
+
+<Base title={title} description={description} paged={true} currentCategory={currentCategory}>
+  <div class="grid">
+    <div>
+      <Breadcrumbs items={[...crumbs, { name: `Page ${page}` }]} />
+      <header class="page-head">
+        <div class="eyebrow">{eyebrow} · page {page} of {pages}</div>
+        <h1>{heading}</h1>
+        <p>
+          Stories {from} to {to} of {total}{span}, {order}.
+          {" "}<a href={base}>{daily ? "Back to the first page →" : "The latest are on the first page →"}</a>
+        </p>
+      </header>
+      <ol class="river">{slice.items.map((s) => <StoryRow story={s} />)}</ol>
+      <Pager base={base} page={page} pages={pages} back={daily ? "← Previous" : "← Newer"} on={daily ? "More stories →" : "Older stories →"} />
+    </div>
+    <Rail />
+  </div>
+</Base>

@@ -8,7 +8,7 @@ import { storyJsonLdImages, storyOgImage } from "../../lib/data";
 import StoryRedirect from "../../components/StoryRedirect.astro";
 import WorkCard from "../../components/WorkCard.astro";
 import { toolFor, toolSlug, workCardFor } from "../../lib/work";
-import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, dateTime, shortDate, readingMinutes, related, meta, threadFor, threadStories, hubHref, trackedModelsIn, storiesInCategory, storyIndexable, storyForSlug, storyRedirects, storyImages, defaultImage, storyModified, clipHeadline } from "../../lib/data";
+import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, dateTime, shortDate, readingMinutes, related, meta, threadFor, threadStories, hubHref, trackedModelsIn, modelsReleasedIn,storiesInCategory, storyIndexable, storyForSlug, storyRedirects, storyImages, defaultImage, storyModified, clipHeadline } from "../../lib/data";
 
 export function getStaticPaths() {
   return [
@@ -27,8 +27,11 @@ const description = plain(story.summaryMd || story.keyPoints.join(" "), 160);
 const site = meta.siteUrl;
 const entityList = Object.entries(story.entities || {}).flatMap(([kind, names]) => names.map((n) => ({ kind, n })));
 const rel = related(story, 5);
-// Tracked models this story is about: one small line to each model's own page.
-const modelLinks = trackedModelsIn(story).slice(0, 3);
+// A model release (the tracker took the model from this story) links to the model's page in a box
+// under the key points; other tracked models the story is about get the one small line further down.
+const released = modelsReleasedIn(story).slice(0, 2);
+const releasedSlugs = new Set(released.map((m) => m.slug));
+const modelLinks = trackedModelsIn(story).filter((m) => !releasedSlugs.has(m.slug)).slice(0, 3);
 const relIds = new Set(rel.map((s) => s.id));
 const moreInCategory = storiesInCategory(story.category || "").filter((s) => s.id !== story.id && !relIds.has(s.id)).slice(0, 5);
 const discussions = story.discussions || [];
@@ -156,6 +159,13 @@ const jsonLd = {
           <ul>{story.keyPoints.map((k) => <li>{k}</li>)}</ul>
         </section>
       )}
+
+      {released.map((m) => (
+        <aside class="model-callout" aria-label="Model page">
+          <b>Model release</b>
+          <a href={`/models/${m.slug}`}>{m.name}: quick facts, availability and every story about it →</a>
+        </aside>
+      ))}
 
       {story.summaryMd && story.summaryMd.includes("\n\n") && (
         <div class="article" set:html={renderMarkdown(story.summaryMd.split("\n\n").slice(1).join("\n\n"))} />

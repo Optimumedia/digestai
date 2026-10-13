@@ -1,0 +1,32 @@
+---
+/* Links between the pages of a long list (lib/paging.ts): back, the page numbers, on. Rendered only
+   when the list has more than one page. `base` is the hub's own address (page 1). */
+import { pageHref, pagerNumbers } from "../lib/paging";
+
+interface Props {
+  base: string;
+  page: number;
+  pages: number;
+  /** The nav's accessible name. */
+  label?: string;
+  /** Link text towards page 1 and towards the last page (lists are newest first unless said). */
+  back?: string;
+  on?: string;
+}
+const { base, page, pages, label = "More stories", back = "← Newer", on = "Older stories →" } = Astro.props;
+const numbers = pagerNumbers(page, pages);
+---
+
+{pages > 1 && (
+  <nav class="pager" aria-label={label}>
+    {page > 1 ? <a class="pager-step" href={pageHref(base, page - 1)} rel="prev">{back}</a> : <span class="pager-step" aria-hidden="true"></span>}
+    <ol>
+      {numbers.map((n) => (
+        n === null
+          ? <li aria-hidden="true">…</li>
+          : <li>{n === page ? <span aria-current="page">{n}</span> : <a href={pageHref(base, n)} aria-label={`Page ${n} of ${pages}`}>{n}</a>}</li>
+      ))}
+    </ol>
+    {page < pages ? <a class="pager-step" href={pageHref(base, page + 1)} rel="next">{on}</a> : <span class="pager-step" aria-hidden="true"></span>}
+  </nav>
+)}

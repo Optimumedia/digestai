@@ -1,0 +1,31 @@
+---
+/* The older pages of a category: /category/<slug>/2 and up, 60 stories each, newest first (the
+   category page itself shows the five most important and the newest 55). Always "noindex, follow"
+   and never in the sitemap. */
+import OlderStories from "../../../components/OlderStories.astro";
+import { categories } from "../../../lib/data";
+import { categoryCopy, categoryPages, CATEGORY_REST_SHOWN } from "../../../lib/category";
+import { pageSlice } from "../../../lib/paging";
+
+export function getStaticPaths() {
+  return Object.entries(categories).flatMap(([category, name]) =>
+    Array.from({ length: categoryPages(category).pages - 1 }, (_, i) => ({ params: { category, page: String(i + 2) }, props: { name, n: i + 2 } })));
+}
+
+const { category } = Astro.params;
+const { name, n } = Astro.props as { name: string; n: number };
+const { list, top, older, pages } = categoryPages(category!);
+const base = `/category/${category}`;
+---
+
+<OlderStories
+  base={base}
+  heading={categoryCopy(category!, name).h1}
+  crumbs={[{ name, href: base }]}
+  slice={pageSlice(older, n - 1)}
+  page={n}
+  pages={pages}
+  offset={top.length + CATEGORY_REST_SHOWN}
+  total={list.length}
+  currentCategory={category}
+/>

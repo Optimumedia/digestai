@@ -25,6 +25,9 @@ interface Props {
   /** Content page too thin to index yet (a one-story hub, a single-source brief): "noindex, follow",
       no canonical, out of the sitemaps; everything else, analytics included, as on any page. */
   thin?: boolean;
+  /** A numbered older page of a long list (/topic/openai/2, lib/paging.ts): "noindex, follow" like a
+      thin page, and left out of the site's own search, which would otherwise list every page of it. */
+  paged?: boolean;
   /** A section with its own look (AI at Work): set as data-section on <body>, where its tokens live. */
   section?: "work";
 }
@@ -44,9 +47,11 @@ const {
   storyId,
   articleId,
   noindex = false,
-  thin = false,
+  thin: thinProp = false,
+  paged = false,
   section,
 } = Astro.props;
+const thin = thinProp || paged;
 const indexable = !noindex && !thin;
 
 const site = (Astro.site?.toString() || meta.siteUrl).replace(/\/$/, "");
@@ -200,7 +205,8 @@ const clientConfig = {
       </script>
     </header>
 
-    <main class="wrap" data-pagefind-body>
+    {/* Astro writes data-x={false} as data-x="false", which Pagefind still counts: leave it out instead. */}
+    <main class="wrap" {...(paged ? {} : { "data-pagefind-body": "" })}>
       <slot />
     </main>
 

@@ -15,6 +15,25 @@ export const WORK_PRICES_MIN_ENTRIES = 5;
 /** A story with one source, no primary document and importance at or below this is a thin page. */
 export const THIN_STORY_IMPORTANCE = 4;
 
+/* ---- Long lists: 60 rows a page ----
+   /topic/openai listed 845 stories in 1.4 MB of HTML, which is more than a crawler or an AI assistant
+   reads to the end. A list page now shows its newest LIST_PAGE_SIZE rows and the older ones go on
+   numbered pages under it (/topic/openai/2, /models/<slug>/2, /category/<key>/2, /daily/<date>/2,
+   /threads/2). Page 1 keeps the address, the introduction, the facts and the questions, and is the
+   only one indexed: every numbered page is "noindex, follow" and is never in a sitemap. */
+export const LIST_PAGE_SIZE = 60;
+
+/** How many pages a list of `total` rows takes (at least one). */
+export function listPageCount(total, size = LIST_PAGE_SIZE) {
+  return Math.max(1, Math.ceil((total || 0) / size));
+}
+
+/** True for a numbered older page of a list (page 2 and up), by its path without a trailing slash. */
+export function isOlderListPage(path) {
+  const p = String(path || "").replace(/\.html$/, "").replace(/\/$/, "");
+  return /^\/(?:topic|models|category|daily)\/[^/]+\/\d+$/.test(p) || /^\/threads\/\d+$/.test(p);
+}
+
 /** Stories the site publishes: the export can carry stories whose articles were all withdrawn. */
 export function published(stories) {
   return stories.filter((s) => s.articles?.length);
@@ -178,7 +197,7 @@ export const SITEMAP_MIN_IMPORTANCE = 6;
 export const THREAD_SITEMAP_MIN = 3;
 /** Fixed hub pages that are listed (when not noindex). Categories, topics, models, threads and the
     AI at Work subpages are matched by the rules in sitemapIndex. */
-export const SITEMAP_HUBS = ["", "/today", "/work", "/work/tools", "/work/prices", "/models", "/funding", "/api", "/about", "/listen", "/threads", "/about/how-it-works", "/about/martin"];
+export const SITEMAP_HUBS = ["", "/today", "/week", "/work", "/work/tools", "/work/prices", "/models", "/funding", "/api", "/about", "/listen", "/threads", "/about/how-it-works", "/about/martin"];
 
 /** Publisher identity from a host name: news.example.co.uk and example.co.uk are one source.
     The same rule as pipeline/digest/hold.py registrable(). */
@@ -256,7 +275,8 @@ export function sitemapIndex({ stories = [], entities = [], models = [], threads
     if (archivedInSitemap(a)) listed.add(`/story/${a.slug}`);
   }
   const all = newest(modById.values());
-  for (const p of ["", "/today"]) if (all) lastmod.set(p, all);
+  // /week leads with the current week's stories, so it changes whenever a story does.
+  for (const p of ["", "/today", "/week"]) if (all) lastmod.set(p, all);
   const byCategory = new Map();
   for (const s of stories) if (s.category) byCategory.set(s.category, [...(byCategory.get(s.category) || []), s.id]);
   for (const [cat, ids] of byCategory) lastmod.set(`/category/${cat}`, newestOf(ids));
@@ -299,7 +319,7 @@ export function sitemapIndex({ stories = [], entities = [], models = [], threads
 
   const include = (path) => {
     const p = String(path || "").replace(/\/$/, "");
-    if (noindex.has(p)) return false;
+    if (noindex.has(p) || isOlderListPage(p)) return false;
     return listed.has(p) || /^\/category\/[^/]+$/.test(p) || /^\/(?:work\/)?week\/[^/]+$/.test(p);
   };
   return { include, lastmod, noindex };
