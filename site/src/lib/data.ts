@@ -584,7 +584,17 @@ export function modelQuickFacts(page: ModelPage): ModelFact[] {
   const link = rows.map((r) => r.link).find((l) => l && /^https?:\/\//.test(l)) || null;
   const kind = MODEL_KINDS[rows.find((r) => MODEL_KINDS[r.kind])?.kind || ""];
   const availability = rows.find((r) => MODEL_AVAILABILITY[r.availability])?.availability || null;
-  const first = [...rows].filter((r) => r.date).sort((a, b) => ((a.date || "") < (b.date || "") ? -1 : 1))[0];
+  // The release answer cites the earliest report whose headline names the model. The earliest row
+  // alone can be a story about another model that only mentions this one (13 Oct: GPT-6 Astra's
+  // "release" linked to "OpenAI launches GPT-6.1 Sol at one-fifth of Astra's price"). A short form
+  // counts when it still carries a number ("Fable 5.1" for "Claude Fable 5.1"); "Astra" alone does not.
+  const fullName = name.toLowerCase();
+  const shortName = fullName.split(/\s+/).slice(1).join(" ");
+  const names = [fullName, ...(/\d/.test(shortName) ? [shortName] : [])];
+  const namesModel = (r: (typeof rows)[number]) => names.some((n) => (r.storyHeadline || "").toLowerCase().includes(n));
+  const dated = [...rows].filter((r) => r.date).sort((a, b) => ((a.date || "") < (b.date || "") ? -1 : 1));
+  const first = dated.find(namesModel) || dated[0];
+  const firstLinks = Boolean(first && namesModel(first));
   const an = (w: string) => (/^[aeiou]/i.test(w) ? "an" : "a");
   const facts: ModelFact[] = [];
   if (lab) facts.push({ q: `Who makes ${name}?`, a: `${name} is made by ${lab}.`, href: hubHref(lab) || undefined, linkText: `${lab} news` });
@@ -592,8 +602,8 @@ export function modelQuickFacts(page: ModelPage): ModelFact[] {
     facts.push({
       q: `When was ${name} released?`,
       a: `The first report of ${name}'s release that Digest AI covered was published on ${formatDate(first.date)}.`,
-      href: first.storySlug && storyBySlug.has(first.storySlug) ? `/story/${first.storySlug}` : undefined,
-      linkText: first.storyHeadline,
+      href: firstLinks && first.storySlug && storyBySlug.has(first.storySlug) ? `/story/${first.storySlug}` : undefined,
+      linkText: firstLinks ? first.storyHeadline : undefined,
     });
   }
   if (kind) facts.push({ q: `What type of model is ${name}?`, a: `${name} is ${an(kind)} ${kind}.` });
