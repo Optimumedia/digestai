@@ -1395,6 +1395,31 @@ def test_briefing_leads_with_confirmed_stories():
     assert 50 in export.build_briefing(focus, now)["storyIds"]
 
 
+def test_a_run_cut_short_still_publishes_the_last_dashboard():
+    """13 Oct: a run stopped by the time limit before the admin step left the site without
+    admin.json ("No admin data yet")."""
+    import tempfile
+    from pathlib import Path
+
+    from digest import config, run
+
+    tmp = Path(tempfile.mkdtemp())
+    saved = (config.SITE_DATA_DIR, config.CACHE_DIR)
+    config.SITE_DATA_DIR, config.CACHE_DIR = tmp / "site", tmp / "cache"
+    try:
+        assert not run.restore_admin()  # nothing kept yet: nothing to do
+        config.CACHE_DIR.mkdir(parents=True)
+        (config.CACHE_DIR / "admin.json").write_text('{"generatedAt": "earlier"}', encoding="utf-8")
+        assert run.restore_admin()
+        assert (config.SITE_DATA_DIR / "admin.json").read_text(encoding="utf-8") == '{"generatedAt": "earlier"}'
+        # This run's own dashboard is never overwritten by the kept one.
+        (config.SITE_DATA_DIR / "admin.json").write_text('{"generatedAt": "now"}', encoding="utf-8")
+        assert not run.restore_admin()
+        assert "now" in (config.SITE_DATA_DIR / "admin.json").read_text(encoding="utf-8")
+    finally:
+        config.SITE_DATA_DIR, config.CACHE_DIR = saved
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

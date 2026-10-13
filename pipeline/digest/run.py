@@ -4,12 +4,13 @@ from __future__ import annotations
 import importlib
 import json
 import logging
+import shutil
 import sys
 import time
 
 from sqlalchemy import insert, update
 
-from . import cache, db
+from . import cache, config, db
 
 log = logging.getLogger("digest")
 
@@ -35,6 +36,24 @@ def step_fn(name: str):
 STEPS = {name: (lambda name=name: step_fn(name)()) for name in ORDER}
 
 
+def restore_admin() -> bool:
+    """The admin step is near the end of a run. When the workflow's time limit stops a run before it
+    (13 Oct: the first run after a week's stop was cut off at "media"), the site was built without
+    admin.json and the dashboard said "No admin data yet". The last dashboard the admin step wrote
+    is kept in the runner cache; it goes back in place here, showing its own age, until this run's
+    admin step replaces it."""
+    site, kept = config.SITE_DATA_DIR / "admin.json", config.CACHE_DIR / "admin.json"
+    if site.exists() or not kept.exists():
+        return False
+    try:
+        site.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(kept, site)
+        return True
+    except OSError as exc:
+        log.warning("could not put the last admin.json back: %s", exc)
+        return False
+
+
 def main(argv: list[str]) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname).1s %(name)s: %(message)s", datefmt="%H:%M:%S")
     logging.getLogger("urllib3").setLevel(logging.WARNING)
@@ -42,6 +61,7 @@ def main(argv: list[str]) -> int:
     if not steps:
         print(f"usage: python -m digest.run [{'|'.join(['all'] + ORDER)}]")
         return 2
+    restore_admin()
     b_start = db.bytes_read()
     eng = db.engine()
     summary = {}

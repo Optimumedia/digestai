@@ -706,7 +706,15 @@ def run() -> dict:
     out["alerts"] = [{"level": c["level"], "text": _plain(c)} for c in actions if c["level"] in ("critical", "warning")]
 
     config.SITE_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    (config.SITE_DATA_DIR / "admin.json").write_text(json.dumps(out, ensure_ascii=False, default=str), encoding="utf-8")
+    text_out = json.dumps(out, ensure_ascii=False, default=str)
+    (config.SITE_DATA_DIR / "admin.json").write_text(text_out, encoding="utf-8")
+    # A copy in the runner cache: a run stopped by its time limit before this step still publishes
+    # the last dashboard (run.py puts it back) instead of "No admin data yet".
+    try:
+        config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        (config.CACHE_DIR / "admin.json").write_text(text_out, encoding="utf-8")
+    except OSError as exc:
+        log.warning("could not keep a copy of admin.json: %s", exc)
     return {"runs": len(out["runs"]), "sources": len(out["sources"]), "engagement": out["engagement"]["available"], "historyDays": len(out["history"]),
             "actions": len(actions), "qualitySeconds": out["quality"].get("seconds")}
 
