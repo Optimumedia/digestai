@@ -5,6 +5,17 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
+## Today in AI, 14 October 2026
+
+The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
+
+1. [OpenAI engineer Abdulrahman Alfozan charged with planting hidden recording device in executive conference room](https://digestai.news/story/openai-engineer-arrested-for-allegedly-planting-recording-device-in-of) (31 sources)
+2. [OpenAI accuses ex-employee of sharing unreleased product plans with Apple](https://digestai.news/story/openai-says-ex-employee-shared-unreleased-product-files-with-apple) (3 sources)
+3. [Zenzap raises $44M to build AI-powered workplace messenger](https://digestai.news/story/zenzap-raises-44m-to-build-ai-powered-workplace-messenger) (2 sources)
+4. [Tamnoon builds AI remediation agent Tami on Amazon Bedrock to cut cloud risks by 90%](https://digestai.news/story/tamnoon-builds-ai-remediation-agent-tami-on-amazon-bedrock-to-cut-clou) (1 source)
+5. [Danaher and NVIDIA team to embed AI in scientific instruments](https://digestai.news/story/danaher-and-nvidia-team-to-embed-ai-in-scientific-instruments) (2 sources)
+
+More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
 
 ## How it is built
