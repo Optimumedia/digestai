@@ -424,7 +424,7 @@ jobs:
     needs: pipeline
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 6
     steps:
       - name: Queue the next run
         env:
@@ -436,7 +436,13 @@ jobs:
           waiting=$(gh run list -R "$REPO" --workflow pipeline.yml --limit 20 --json status,databaseId \
             -q "[.[] | select(.databaseId != $THIS_RUN) | select(.status == \"queued\" or .status == \"pending\" or .status == \"waiting\" or .status == \"requested\")] | length")
           if [ "$waiting" = "0" ]; then
-            gh workflow run pipeline.yml -R "$REPO" --ref "$REF" -f chained=true && echo "queued the next run"
+            # GitHub sometimes answers a dispatch with HTTP 500 (14 Oct: the chain stopped for an hour
+            # on one), so try a few times before giving up to the watchdog.
+            for attempt in 1 2 3 4 5; do
+              if gh workflow run pipeline.yml -R "$REPO" --ref "$REF" -f chained=true; then echo "queued the next run"; exit 0; fi
+              echo "dispatch failed (attempt $attempt); trying again"; sleep $((attempt * 15))
+            done
+            exit 1
           else
             echo "a run is already waiting its turn ($waiting); not queueing another"
           fi
