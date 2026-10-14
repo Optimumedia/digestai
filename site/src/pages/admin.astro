@@ -96,6 +96,11 @@ const autoCountries: string[] = (auto7.countries.length ? auto7.countries : auto
   .filter((name: string, i: number, all: string[]) => name !== "Unknown" && all.indexOf(name) === i);
 const autoFrom = autoCountries.length > 4 ? `${autoCountries.slice(0, 4).join(", ")} and ${autoCountries.length - 4} more ${autoCountries.length - 4 === 1 ? "country" : "countries"}` : listed(autoCountries);
 const readerDays = sinceFirst(eng.perDay, ["views", "visitors", "clicks", "automated"]).slice(-30);
+// Days the counter could not record (admin.py COUNTER_GAPS), named under the chart.
+const counterGaps: { from: string; to: string; reason: string }[] = admin?.counterGaps || [];
+const gapDay = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+const counterGapText = counterGaps.map((g) => (g.from === g.to ? gapDay(g.from) : `${gapDay(g.from)} to ${gapDay(g.to)}`)).join(", ");
+const counterGapReason = counterGaps[0]?.reason || "The visitor counter was not recording";
 const autoInChart = readerDays.reduce((n: number, r: any) => n + (Number(r.automated) || 0), 0);
 const clicks7 = week(eng.perDay, "clicks"), saves7 = week(eng.perDay, "saves"), follows7 = week(eng.perDay, "follows"), shares7 = week(eng.perDay, "shares");
 const dwell7 = week(eng.perDay, "dwellSeconds");
@@ -540,6 +545,7 @@ const homeData = JSON.stringify({
               <h2>Views, visitors and clicks to source <span class="muted">per day, last 30 days · hover a day for exact numbers</span></h2>
               <div class="legend"><span><i style={`background:${C.s1}`}></i>Views</span><span><i style={`background:${C.s2}`}></i>Visitors</span><span><i style={`background:${C.s3}`}></i>Clicks to source</span></div>
               <Fragment set:html={columns(readerDays, "day", [{ key: "views", label: "Views", color: C.s1 }, { key: "visitors", label: "Visitors", color: C.s2 }, { key: "clicks", label: "Clicks to source", color: C.s3 }], { grouped: true, w: 1100, h: 240, xFormat: dayLabel(), tipNote: (r) => (Number(r.automated) > 0 ? `${autoVisits(Number(r.automated))} not shown` : "") })} />
+              {readerDays.some((r: any) => r.noData) && <p class="muted" data-no-data>{counterGapText}: no data. {counterGapReason}, so these days are shaded, not counted as zero.</p>}
               {autoInChart > 0 && <p class="muted" data-auto-chart>Readers only. {autoVisits(autoInChart)} in these days {autoInChart === 1 ? "is" : "are"} left out of the bars; hover a day for its count.</p>}
             </article>
           </div>
@@ -1030,7 +1036,9 @@ const homeData = JSON.stringify({
             const n = span(lastSeen[k], A[1]) - 1;
             pa = [add(A[0], -n), add(A[1], -n)]; pb = [add(B[0], -n), add(B[1], -n)]; shifted = true;
           }
-          const why = ([from]) => !start ? "no data yet"
+          const gapIn = ([f, t]) => { for (let d = f; d <= t; d = add(d, 1)) if (byDay.get(d)?.noData) return true; return false; };
+          const why = ([from, to]) => gapIn([from, to]) ? "not recorded: the visitor counter was blocked on some of these days"
+            : !start ? "no data yet"
             : from < start ? `not enough history yet (data starts ${fmtDay(start)})`
             : m.lag ? "Search Console has not reported these days yet"
             : "some days in this period were not recorded";
@@ -1258,6 +1266,7 @@ const homeData = JSON.stringify({
         const rows = history.filter((r) => r.day >= d.launch && r.day <= end);
         const measured = rows.some((r) => r.visitors != null);
         const total = rows.reduce((n, r) => n + (Number(r.visitors) || 0), 0);
+        const gapDays = rows.filter((r) => r.noData).length;
         const countEl = root.querySelector("[data-goal-count]"), pace = root.querySelector("[data-goal-pace]");
         const bar = root.querySelector("[data-goal-bar]"), mark = root.querySelector("[data-goal-mark]");
         countEl.textContent = measured ? num(total) : "–";
@@ -1265,7 +1274,7 @@ const homeData = JSON.stringify({
         if (!measured) pace.textContent = "Visitor counts appear after the first tracked visit.";
         else if (today < d.launch) pace.textContent = `The count starts on ${fmtDay(d.launch)}.`;
         else if (total >= d.goal) pace.innerHTML = `<strong>Goal reached:</strong> ${num(total)} visitors${today > end ? ` in the 30 days to ${fmtDay(end)}` : " so far"}.`;
-        else if (today > end) pace.innerHTML = `The 30 days ended on ${fmtDay(end)} with <strong>${num(total)} visitors</strong>, ${num(d.goal - total)} short of the goal.`;
+        else if (today > end) pace.innerHTML = `The 30 days ended on ${fmtDay(end)} with <strong>${num(total)} visitors</strong>, ${num(d.goal - total)} short of the goal${gapDays ? `, with ${gapDays} day${gapDays > 1 ? "s" : ""} not recorded (the visitor counter was blocked)` : ""}.`;
         else {
           const elapsed = spanDays(d.launch, today), left = spanDays(today, end), remaining = d.goal - total;
           const avg = total / elapsed, need = Math.ceil(remaining / left);

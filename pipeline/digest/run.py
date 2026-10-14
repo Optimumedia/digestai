@@ -26,7 +26,7 @@ log = logging.getLogger("digest")
 # Each step is the run() of the module of the same name, imported when it starts:
 # a run of one step (the workflow's export after an early stop) does not load the other 25 modules,
 # and extract's HTML libraries (trafilatura, ~0.6 s) are loaded by the extract step alone.
-ORDER = ["fetch", "extract", "gate", "enrich", "cluster", "threads", "discuss", "pulse", "rank", "upgrade", "repair", "export", "push", "topics", "intros", "images", "howto", "prices", "simplify", "audio", "media", "social", "newsletter", "gsc", "tidy", "backup", "admin", "morning", "notify", "indexnow"]
+ORDER = ["fetch", "extract", "gate", "enrich", "cluster", "threads", "discuss", "pulse", "rank", "upgrade", "repair", "export", "push", "topics", "intros", "images", "howto", "prices", "simplify", "audio", "media", "social", "newsletter", "gsc", "tidy", "backup", "admin", "morning", "notify", "readme", "indexnow"]
 
 
 def step_fn(name: str):

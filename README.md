@@ -1,7 +1,16 @@
-# Digest AI (digestai.news) v2
+# Digest AI (digestai.news)
+
+**[Digest AI](https://digestai.news) cuts through the AI noise.** It reads about 78 sources every
+20 minutes, merges the outlets that report the same news into one story, and links every source,
+so you read each story once and can check it against the original reporting. Free, no account.
+
+<!-- today-in-ai:start -->
+<!-- today-in-ai:end -->
+
+## How it is built
 
 An AI news desk that runs on free tiers: a scheduled Python pipeline gathers, extracts,
-enriches, clusters and ranks AI news, and a static Astro site publishes it to Cloudflare Pages.
+enriches, clusters and ranks AI news, and a static Astro site publishes it on GitHub Pages.
 
 ```
 pipeline/   Python ingestion pipeline (GitHub Actions, every 20 minutes)

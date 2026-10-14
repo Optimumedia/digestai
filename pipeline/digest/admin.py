@@ -705,6 +705,11 @@ def run() -> dict:
     # alerts: the older flat list notify.py turns into a GitHub issue; information cards stay out.
     out["alerts"] = [{"level": c["level"], "text": _plain(c)} for c in actions if c["level"] in ("critical", "warning")]
 
+    # Days the counter could not record are shown as missing, not as days nobody came.
+    blank_counter_gaps(out.get("history") or [])
+    blank_counter_gaps((out.get("engagement") or {}).get("perDay") or [])
+    out["counterGaps"] = [{"from": a, "to": b, "reason": why} for a, b, why in COUNTER_GAPS]
+
     config.SITE_DATA_DIR.mkdir(parents=True, exist_ok=True)
     text_out = json.dumps(out, ensure_ascii=False, default=str)
     (config.SITE_DATA_DIR / "admin.json").write_text(text_out, encoding="utf-8")
@@ -720,6 +725,34 @@ def run() -> dict:
 
 
 # ---------------------------------------------------------------------------- action cards
+
+# Days when no reader event could be stored at all. From 4 to 10 Oct 2026 Supabase refused every
+# request from the site (the free plan's egress quota, over since September), so those days hold no
+# visits, not zero visits. The dashboard draws them as "no data" and Compare says they were not
+# recorded; the database keeps its zeros. Inclusive UTC days.
+COUNTER_GAPS = [("2026-10-04", "2026-10-10", "Supabase blocked the visitor counter (free-plan quota)")]
+READER_KEYS = ("sessions", "visitors", "views", "automated", "automatedVisits", "clicks", "saves", "follows",
+               "shares", "listens", "alertSignups", "searches", "dwellSeconds", "dwellReads")
+
+
+def counter_gap(day: str) -> str | None:
+    return next((why for a, b, why in COUNTER_GAPS if a <= str(day)[:10] <= b), None)
+
+
+def blank_counter_gaps(rows: list[dict]) -> int:
+    """Reader numbers on gap days become null with a noData reason; returns how many rows changed."""
+    n = 0
+    for r in rows:
+        why = counter_gap(r.get("day", ""))
+        if not why:
+            continue
+        for k in READER_KEYS:
+            if k in r:
+                r[k] = None
+        r["noData"] = why
+        n += 1
+    return n
+
 
 ACTIONS_URL = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY') or 'Optimumedia/digestai'}/actions/workflows/pipeline.yml"
 FAILED_RUNS_URL = ACTIONS_URL + "?query=is%3Afailure"

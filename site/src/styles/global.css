@@ -483,6 +483,8 @@ table.tracker td a:hover { color: var(--accent); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 .chart { width: 100%; height: auto; display: block; font-family: var(--font-body); }
 .chart .grid { stroke: var(--line); stroke-width: 1; }
+/* A day with no recorded data (admin COUNTER_GAPS): a quiet band, not a zero bar. */
+.chart .nodata { fill: var(--surface-2); stroke: var(--line); stroke-dasharray: 3 3; }
 .chart .axis { stroke: var(--ink-3); stroke-width: 1; }
 .chart .tick, .chart .ylabel, .chart .value, .chart .endlabel { fill: var(--ink-2); font-size: 11px; }
 .chart .endlabel { font-weight: 600; fill: var(--ink); }

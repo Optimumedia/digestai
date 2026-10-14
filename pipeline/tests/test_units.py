@@ -1420,6 +1420,19 @@ def test_a_run_cut_short_still_publishes_the_last_dashboard():
         config.SITE_DATA_DIR, config.CACHE_DIR = saved
 
 
+def test_days_the_counter_was_blocked_show_as_no_data_not_zero():
+    from digest import admin
+    rows = [{"day": "2026-10-03", "visitors": 19, "views": 38, "googleClicks": 1},
+            {"day": "2026-10-04", "visitors": 0, "views": 0, "dwellSeconds": 0, "googleClicks": 2},
+            {"day": "2026-10-10", "visitors": 0, "automated": 0},
+            {"day": "2026-10-11", "visitors": 1, "views": 1}]
+    assert admin.blank_counter_gaps(rows) == 2
+    assert rows[0]["visitors"] == 19 and "noData" not in rows[0]
+    assert rows[1]["visitors"] is None and rows[1]["dwellSeconds"] is None and rows[1]["noData"]
+    assert rows[1]["googleClicks"] == 2  # search figures were recorded; only reader counts are missing
+    assert rows[2]["automated"] is None and rows[3]["visitors"] == 1
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

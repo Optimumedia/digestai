@@ -72,6 +72,12 @@ export function columns(rows: Record<string, any>[], xKey: string, series: Serie
   }
   rows.forEach((r, i) => {
     const cx = padL + band * i + band / 2;
+    // A day the data could not be recorded (admin.py COUNTER_GAPS) is shaded, never drawn as zero.
+    if (r.noData) {
+      out += `<rect class="nodata" x="${cx - band / 2 + 1}" y="${padT}" width="${Math.max(1, band - 2)}" height="${ph}"><title>${esc(xf(r[xKey]))}: no data. ${esc(String(r.noData))}</title></rect>`;
+      if (i % every === 0) out += `<text class="tick" x="${cx}" y="${h - 6}" text-anchor="middle">${esc(xf(r[xKey]))}</text>`;
+      return;
+    }
     const note = opts.tipNote ? opts.tipNote(r) : "";
     const tip = `${esc(xf(r[xKey]))}: ` + series.map((s) => `${s.label} ${r[s.key] ?? 0}`).join(", ") + (note ? ` · ${esc(note)}` : "");
     if (opts.grouped) {

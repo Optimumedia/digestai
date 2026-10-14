@@ -68,3 +68,4 @@ jobs:
           python tests/test_share.py
           python tests/test_briefing.py
           python tests/test_fetch.py
+          python tests/test_readme.py
