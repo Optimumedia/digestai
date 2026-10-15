@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 14 October 2026
+## Today in AI, 15 October 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [OpenAI engineer Abdulrahman Alfozan charged with planting hidden recording device in executive conference room](https://digestai.news/story/openai-engineer-arrested-for-allegedly-planting-recording-device-in-of) (31 sources)
-2. [OpenAI accuses ex-employee of sharing unreleased product plans with Apple](https://digestai.news/story/openai-says-ex-employee-shared-unreleased-product-files-with-apple) (3 sources)
-3. [Zenzap raises $44M to build AI-powered workplace messenger](https://digestai.news/story/zenzap-raises-44m-to-build-ai-powered-workplace-messenger) (2 sources)
-4. [Tamnoon builds AI remediation agent Tami on Amazon Bedrock to cut cloud risks by 90%](https://digestai.news/story/tamnoon-builds-ai-remediation-agent-tami-on-amazon-bedrock-to-cut-clou) (1 source)
-5. [Danaher and NVIDIA team to embed AI in scientific instruments](https://digestai.news/story/danaher-and-nvidia-team-to-embed-ai-in-scientific-instruments) (2 sources)
+1. [Eight states sue OpenAI over ChatGPT’s alleged harms to children](https://digestai.news/story/eight-states-sue-openai-alleging-it-harms-children) (9 sources)
+2. [YouTube rolls out 'Made with AI' labels for songs created with generative AI](https://digestai.news/story/youtube-adds-ai-generated-song-labels-to-music-app) (3 sources)
+3. [The Nordics and NVIDIA Show What’s Possible When a Region Commits to Advanced Computing](https://digestai.news/story/the-nordics-and-nvidia-show-whats-possible-when-a-region-commits-to-ad) (1 source)
+4. [OpenAI alleges former employee took product plans and presented them to Apple](https://digestai.news/story/openai-says-ex-employee-shared-unreleased-product-files-with-apple) (6 sources)
+5. [LFM2.5-24B-A2B: Built for fast on-device agents](https://digestai.news/story/lfm2-5-24b-a2b-built-for-fast-on-device-agents) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
