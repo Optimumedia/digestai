@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 15 October 2026
+## Today in AI, 16 October 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Eight states sue OpenAI over ChatGPT’s alleged harms to children](https://digestai.news/story/eight-states-sue-openai-alleging-it-harms-children) (9 sources)
-2. [YouTube rolls out 'Made with AI' labels for songs created with generative AI](https://digestai.news/story/youtube-adds-ai-generated-song-labels-to-music-app) (3 sources)
-3. [The Nordics and NVIDIA Show What’s Possible When a Region Commits to Advanced Computing](https://digestai.news/story/the-nordics-and-nvidia-show-whats-possible-when-a-region-commits-to-ad) (1 source)
-4. [OpenAI alleges former employee took product plans and presented them to Apple](https://digestai.news/story/openai-says-ex-employee-shared-unreleased-product-files-with-apple) (6 sources)
-5. [LFM2.5-24B-A2B: Built for fast on-device agents](https://digestai.news/story/lfm2-5-24b-a2b-built-for-fast-on-device-agents) (1 source)
+1. [NVIDIA releases Nemotron 3.5 Super VL and Bolt edge models for enterprise agents](https://digestai.news/story/nvidia-releases-nemotron-3-5-super-vl-and-bolt-edge-models-with-open-w) (8 sources)
+2. [OpenAI adds tab‑reading ability to ChatGPT Chrome extension](https://digestai.news/story/openai-adds-tabreading-ability-to-chatgpt-chrome-extension) (2 sources)
+3. [Simons Foundation, Anthropic, OpenAI commit $15M for math AI](https://digestai.news/story/simons-foundation-anthropic-openai-commit-15m-for-math-ai) (2 sources)
+4. [OpenAI targets ChatGPT users with ads via prompts, emails, and phone numbers](https://digestai.news/story/openai-targets-chatgpt-users-with-ads-via-prompts-emails-and-phone-num) (1 source)
+5. [Researchers introduce ARIA framework for correcting multi-agent AI errors in real time](https://digestai.news/story/researchers-introduce-aria-framework-for-correcting-multi-agent-ai-err) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
