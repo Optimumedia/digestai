@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 16 October 2026
+## Today in AI, 17 October 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [NVIDIA releases Nemotron 3.5 Super VL and Bolt edge models for enterprise agents](https://digestai.news/story/nvidia-releases-nemotron-3-5-super-vl-and-bolt-edge-models-with-open-w) (8 sources)
-2. [OpenAI adds tab‑reading ability to ChatGPT Chrome extension](https://digestai.news/story/openai-adds-tabreading-ability-to-chatgpt-chrome-extension) (2 sources)
-3. [Simons Foundation, Anthropic, OpenAI commit $15M for math AI](https://digestai.news/story/simons-foundation-anthropic-openai-commit-15m-for-math-ai) (2 sources)
-4. [OpenAI targets ChatGPT users with ads via prompts, emails, and phone numbers](https://digestai.news/story/openai-targets-chatgpt-users-with-ads-via-prompts-emails-and-phone-num) (1 source)
-5. [Researchers introduce ARIA framework for correcting multi-agent AI errors in real time](https://digestai.news/story/researchers-introduce-aria-framework-for-correcting-multi-agent-ai-err) (1 source)
+1. [Anthropic’s Claude Code team cuts human code reviews by 40% with AI checks](https://digestai.news/story/anthropics-claude-code-team-cuts-human-code-reviews-by-40-with-ai-chec) (2 sources)
+2. [Reflection releases Beam, a 501B-parameter open-weight model under Apache 2.0](https://digestai.news/story/reflection-releases-beams-open-weights-under-apache-2-0-license) (5 sources)
+3. [Anthropic’s Claude Mythos 5 redesigns quantum circuits better than prior research](https://digestai.news/story/anthropics-claude-mythos-5-redesigns-quantum-circuits-better-than-prio) (2 sources)
+4. [Anthropic says Claude traced NIST ECDSA curve seeds to 1990s C library RNG](https://digestai.news/story/anthropics-claude-traces-ecdsa-curve-seeds-to-1990s-unix-timestamps) (2 sources)
+5. [Xero survey finds AI boosts accounting firms’ output without hiring](https://digestai.news/story/xero-survey-finds-ai-boosts-accounting-firms-output-without-hiring) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
