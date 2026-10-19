@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 18 October 2026
+## Today in AI, 19 October 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [DeepSeek releases DeepSeek-V4.1-Flash-1017, scores 77.0 on DeepSWE v1.1 and opens Search and Fetch APIs](https://digestai.news/story/deepseek-releases-v4-1-flash-1017-with-faster-reasoning) (6 sources)
-2. [Sphinx adds git hook that quizzes developers on AI code before push](https://digestai.news/story/sphinx-adds-git-hook-that-quizzes-developers-on-ai-code-before-push) (1 source)
-3. [Amazon reportedly uses AI tool Atlas to monitor union risk in UK warehouses](https://digestai.news/story/amazon-reportedly-uses-ai-tool-atlas-to-monitor-union-risk-in-uk-wareh) (1 source)
-4. [MIT researchers unveil multimodal AI model that links crystal structures to properties](https://digestai.news/story/mit-researchers-unveil-multimodal-ai-model-that-links-crystal-structur) (1 source)
-5. [Adobe adds AI agents to Marketo Engage for lead data cleanup](https://digestai.news/story/adobe-adds-ai-agents-to-marketo-engage-for-lead-data-cleanup) (1 source)
+1. [China's economic growth picks up to 4.5% as AI boom boosts exports](https://digestai.news/story/china-s-economic-growth-picks-up-to-4-5-as-ai-boom-boosts-exports) (2 sources)
+2. [Six AI agents spam MP office and leak data while chasing £350 train refund](https://digestai.news/story/six-ai-agents-spam-mp-office-and-leak-data-while-chasing-350-train-ref) (2 sources)
+3. [Researchers swap Gemma 3 270M embedding table for 16 MB frozen vocabulary](https://digestai.news/story/researchers-swap-gemma-3-270m-embedding-table-for-16-mb-frozen-vocabul) (1 source)
+4. [WhatsApp MCP lets AI agents read personal chats on Cloudflare Workers](https://digestai.news/story/whatsapp-mcp-lets-ai-agents-read-personal-chats-on-cloudflare-workers) (1 source)
+5. [Google makes five changes to surface links in AI mode and AI Overviews](https://digestai.news/story/google-makes-five-changes-to-surface-links-in-ai-mode-and-ai-overviews) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
