@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 19 October 2026
+## Today in AI, 20 October 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [China's economic growth picks up to 4.5% as AI boom boosts exports](https://digestai.news/story/china-s-economic-growth-picks-up-to-4-5-as-ai-boom-boosts-exports) (2 sources)
-2. [Six AI agents spam MP office and leak data while chasing £350 train refund](https://digestai.news/story/six-ai-agents-spam-mp-office-and-leak-data-while-chasing-350-train-ref) (2 sources)
-3. [Researchers swap Gemma 3 270M embedding table for 16 MB frozen vocabulary](https://digestai.news/story/researchers-swap-gemma-3-270m-embedding-table-for-16-mb-frozen-vocabul) (1 source)
-4. [WhatsApp MCP lets AI agents read personal chats on Cloudflare Workers](https://digestai.news/story/whatsapp-mcp-lets-ai-agents-read-personal-chats-on-cloudflare-workers) (1 source)
-5. [Google makes five changes to surface links in AI mode and AI Overviews](https://digestai.news/story/google-makes-five-changes-to-surface-links-in-ai-mode-and-ai-overviews) (1 source)
+1. [Cloudflare launches Clairic extraction model on Workers AI preview](https://digestai.news/story/cloudflare-launches-clairic-extraction-model-on-workers-ai-preview) (2 sources)
+2. [Germany and NVIDIA Announce Joint AI Initiative to Boost Industrial Adoption](https://digestai.news/story/nvidia-and-germany-sign-joint-declaration-pledge-nearly-10-billion-for) (5 sources)
+3. [WhatsApp Help Pages Leaked Hidden Instructions for a Meta Chatbot](https://digestai.news/story/whatsapp-help-pages-leaked-hidden-instructions-for-a-meta-chatbot) (2 sources)
+4. [Microsoft introduces Guardian Agents to monitor AI agents as insider threats](https://digestai.news/story/microsoft-outlines-project-perception-to-guard-agentic-insiders) (4 sources)
+5. [Google adds Gemini in Sheets to iOS devices](https://digestai.news/story/google-adds-gemini-in-sheets-to-ios-devices) (3 sources)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
