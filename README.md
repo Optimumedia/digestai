@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 20 October 2026
+## Today in AI, 21 October 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Cloudflare launches Clairic extraction model on Workers AI preview](https://digestai.news/story/cloudflare-launches-clairic-extraction-model-on-workers-ai-preview) (2 sources)
-2. [Germany and NVIDIA Announce Joint AI Initiative to Boost Industrial Adoption](https://digestai.news/story/nvidia-and-germany-sign-joint-declaration-pledge-nearly-10-billion-for) (5 sources)
-3. [WhatsApp Help Pages Leaked Hidden Instructions for a Meta Chatbot](https://digestai.news/story/whatsapp-help-pages-leaked-hidden-instructions-for-a-meta-chatbot) (2 sources)
-4. [Microsoft introduces Guardian Agents to monitor AI agents as insider threats](https://digestai.news/story/microsoft-outlines-project-perception-to-guard-agentic-insiders) (4 sources)
-5. [Google adds Gemini in Sheets to iOS devices](https://digestai.news/story/google-adds-gemini-in-sheets-to-ios-devices) (3 sources)
+1. [Meta pauses Muse sharing after researchers find AI chats on the web](https://digestai.news/story/meta-pauses-muse-sharing-feature-after-researchers-find-public-links) (4 sources)
+2. [DeepSeek open-sources DeepInfer inference framework for DeepSeek-V4.1-Flash](https://digestai.news/story/deepseek-open-sources-deepinfer-stack-potentially-lowering-inference-c) (6 sources)
+3. [Claude designs protein minibinders against scorpion neurotoxins](https://digestai.news/story/claude-designs-protein-minibinders-against-scorpion-neurotoxins) (1 source)
+4. [SpaceX reports Q3 revenue up 161% to $14.58B, AI revenue up 830%](https://digestai.news/story/spacex-reports-q3-revenue-up-161-to-14-58b-ai-revenue-up-830) (2 sources)
+5. [Adobe reports 27% of shoppers trust AI search summaries over traditional results](https://digestai.news/story/adobe-reports-27-of-shoppers-trust-ai-search-summaries-over-traditiona) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
