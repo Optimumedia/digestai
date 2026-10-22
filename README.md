@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 21 October 2026
+## Today in AI, 22 October 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Meta pauses Muse sharing after researchers find AI chats on the web](https://digestai.news/story/meta-pauses-muse-sharing-feature-after-researchers-find-public-links) (4 sources)
-2. [DeepSeek open-sources DeepInfer inference framework for DeepSeek-V4.1-Flash](https://digestai.news/story/deepseek-open-sources-deepinfer-stack-potentially-lowering-inference-c) (6 sources)
-3. [Claude designs protein minibinders against scorpion neurotoxins](https://digestai.news/story/claude-designs-protein-minibinders-against-scorpion-neurotoxins) (1 source)
-4. [SpaceX reports Q3 revenue up 161% to $14.58B, AI revenue up 830%](https://digestai.news/story/spacex-reports-q3-revenue-up-161-to-14-58b-ai-revenue-up-830) (2 sources)
-5. [Adobe reports 27% of shoppers trust AI search summaries over traditional results](https://digestai.news/story/adobe-reports-27-of-shoppers-trust-ai-search-summaries-over-traditiona) (1 source)
+1. [Anthropic launches Claude Duet, a proactive agent app for iOS, Android, and web in research preview for US Pro and Max users](https://digestai.news/story/anthropic-opens-claude-duet-research-preview-for-us-pro-and-max-users) (12 sources)
+2. [Recursive releases Flint, a 40B parameter MoE coding model with 2.5B active parameters per token](https://digestai.news/story/recursive-releases-flint-40b-coding-agent-model-on-hugging-face) (5 sources)
+3. [PHP patches critical RCE flaws discovered with GPT-5.6 Sol, affecting up to 70% of websites](https://digestai.news/story/php-discloses-php2shell-vulnerability-affecting-up-to-70-of-websites) (9 sources)
+4. [Meta raises 2026 AI spending floor to $135B and plans nonvoting Class C shares](https://digestai.news/story/meta-will-issue-nonvoting-stock-to-fund-ai-model-development) (7 sources)
+5. [Revolut scales pragma for 80 million customers as European banks adopt NVIDIA open models](https://digestai.news/story/revolut-scales-pragma-for-80-million-customers-as-european-banks-adopt) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
