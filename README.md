@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 22 October 2026
+## Today in AI, 23 October 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Anthropic launches Claude Duet, a proactive agent app for iOS, Android, and web in research preview for US Pro and Max users](https://digestai.news/story/anthropic-opens-claude-duet-research-preview-for-us-pro-and-max-users) (12 sources)
-2. [Recursive releases Flint, a 40B parameter MoE coding model with 2.5B active parameters per token](https://digestai.news/story/recursive-releases-flint-40b-coding-agent-model-on-hugging-face) (5 sources)
-3. [PHP patches critical RCE flaws discovered with GPT-5.6 Sol, affecting up to 70% of websites](https://digestai.news/story/php-discloses-php2shell-vulnerability-affecting-up-to-70-of-websites) (9 sources)
-4. [Meta raises 2026 AI spending floor to $135B and plans nonvoting Class C shares](https://digestai.news/story/meta-will-issue-nonvoting-stock-to-fund-ai-model-development) (7 sources)
-5. [Revolut scales pragma for 80 million customers as European banks adopt NVIDIA open models](https://digestai.news/story/revolut-scales-pragma-for-80-million-customers-as-european-banks-adopt) (1 source)
+1. [Hugging Face releases Carbon-X, a 14B parameter DNA language model](https://digestai.news/story/hugging-face-releases-carbon-x-a-chatwithdna-model) (7 sources)
+2. [Canva releases its first image generation model Canva Craft](https://digestai.news/story/canva-launches-canva-research-lab-to-boost-design-ai-for-small-busines) (4 sources)
+3. [Claude proves security properties for 123 open-source libraries using RISC‑V verification](https://digestai.news/story/claude-proves-security-properties-for-123-open-source-libraries-using) (1 source)
+4. [OpenAI nears $30B funding round at $1.25T valuation led by UAE investors and Coatue](https://digestai.news/story/openai-may-raise-up-to-30b-at-1-25t-valuation-sources-say) (5 sources)
+5. [NVIDIA reports Kazakhtelecom deployed 400 H200 and 480 B300 GPUs, plans over 1,000 more](https://digestai.news/story/kazakhtelecom-plans-to-add-more-than-1-000-gpus-to-data-center-valley) (4 sources)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
