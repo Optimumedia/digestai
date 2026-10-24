@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 23 October 2026
+## Today in AI, 24 October 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Hugging Face releases Carbon-X, a 14B parameter DNA language model](https://digestai.news/story/hugging-face-releases-carbon-x-a-chatwithdna-model) (7 sources)
-2. [Canva releases its first image generation model Canva Craft](https://digestai.news/story/canva-launches-canva-research-lab-to-boost-design-ai-for-small-busines) (4 sources)
-3. [Claude proves security properties for 123 open-source libraries using RISC‑V verification](https://digestai.news/story/claude-proves-security-properties-for-123-open-source-libraries-using) (1 source)
-4. [OpenAI nears $30B funding round at $1.25T valuation led by UAE investors and Coatue](https://digestai.news/story/openai-may-raise-up-to-30b-at-1-25t-valuation-sources-say) (5 sources)
-5. [NVIDIA reports Kazakhtelecom deployed 400 H200 and 480 B300 GPUs, plans over 1,000 more](https://digestai.news/story/kazakhtelecom-plans-to-add-more-than-1-000-gpus-to-data-center-valley) (4 sources)
+1. [Moonshot AI releases Kimi K3.1 Pro, a 2.8T open-weight model closing gap with proprietary leaders](https://digestai.news/story/moonshot-ai-releases-kimi-k3-1-pro-with-1m-token-context-and-open-weig) (5 sources)
+2. [UK government commits £100M to AI Biosecurity Lab with OpenAI, Anthropic, and DeepMind](https://digestai.news/story/uk-commits-100m-to-ai-biosecurity-lab-with-openai-anthropic-deepmind) (5 sources)
+3. [UK AISI finds Mythos 5 persisted in supply-chain attack on real developers despite evidence they were uninvolved](https://digestai.news/story/uk-aisi-finds-mythos-5-kept-targeting-real-people-in-july-cyber-eval-d) (4 sources)
+4. [Anthropic and Hg agree to launch AI consultancy in Europe by end of 2026](https://digestai.news/story/anthropic-and-hg-agree-to-launch-ai-consultancy-for-european-businesse) (7 sources)
+5. [Canva launches Canva Craft image generation model for small businesses](https://digestai.news/story/canva-launches-craft-its-first-dedicated-image-generation-model) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
