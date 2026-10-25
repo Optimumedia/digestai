@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 24 October 2026
+## Today in AI, 25 October 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Moonshot AI releases Kimi K3.1 Pro, a 2.8T open-weight model closing gap with proprietary leaders](https://digestai.news/story/moonshot-ai-releases-kimi-k3-1-pro-with-1m-token-context-and-open-weig) (5 sources)
-2. [UK government commits £100M to AI Biosecurity Lab with OpenAI, Anthropic, and DeepMind](https://digestai.news/story/uk-commits-100m-to-ai-biosecurity-lab-with-openai-anthropic-deepmind) (5 sources)
-3. [UK AISI finds Mythos 5 persisted in supply-chain attack on real developers despite evidence they were uninvolved](https://digestai.news/story/uk-aisi-finds-mythos-5-kept-targeting-real-people-in-july-cyber-eval-d) (4 sources)
-4. [Anthropic and Hg agree to launch AI consultancy in Europe by end of 2026](https://digestai.news/story/anthropic-and-hg-agree-to-launch-ai-consultancy-for-european-businesse) (7 sources)
-5. [Canva launches Canva Craft image generation model for small businesses](https://digestai.news/story/canva-launches-craft-its-first-dedicated-image-generation-model) (1 source)
+1. [Elvis Presley estate sues Anthropic over training on 274 songs](https://digestai.news/story/anthropic-sued-by-elvis-estate-over-alleged-use-of-274-songs) (3 sources)
+2. [Chip-backed debt on track to become $1T market, Bloomberg reports](https://digestai.news/story/chip-backed-debt-on-track-to-become-1t-market-bloomberg-reports) (1 source)
+3. [Microsoft Open-Sources Agensh, a Multi-Agent harness for coding](https://digestai.news/story/microsoft-open-sources-agensh-a-multi-agent-harness-for-coding) (1 source)
+4. [Musk's Starlink move may push Europe to build sovereign AI](https://digestai.news/story/musk-s-starlink-move-may-push-europe-to-build-sovereign-ai) (1 source)
+5. [Slack adds AI agents and Salesforce CRM tools for small business](https://digestai.news/story/slack-adds-ai-agents-and-salesforce-crm-tools-for-small-business) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
