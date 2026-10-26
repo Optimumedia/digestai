@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 25 October 2026
+## Today in AI, 26 October 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Elvis Presley estate sues Anthropic over training on 274 songs](https://digestai.news/story/anthropic-sued-by-elvis-estate-over-alleged-use-of-274-songs) (3 sources)
-2. [Chip-backed debt on track to become $1T market, Bloomberg reports](https://digestai.news/story/chip-backed-debt-on-track-to-become-1t-market-bloomberg-reports) (1 source)
-3. [Microsoft Open-Sources Agensh, a Multi-Agent harness for coding](https://digestai.news/story/microsoft-open-sources-agensh-a-multi-agent-harness-for-coding) (1 source)
-4. [Musk's Starlink move may push Europe to build sovereign AI](https://digestai.news/story/musk-s-starlink-move-may-push-europe-to-build-sovereign-ai) (1 source)
-5. [Slack adds AI agents and Salesforce CRM tools for small business](https://digestai.news/story/slack-adds-ai-agents-and-salesforce-crm-tools-for-small-business) (1 source)
+1. [Nvidia CEO Jensen Huang discusses $2,000-per-GPU annual software fee for running AI agents](https://digestai.news/story/nvidia-may-charge-2-000-per-gpu-per-year-for-ai-software-report-says) (5 sources)
+2. [OpenAI and Anthropic cut LLM prices by up to 80%](https://digestai.news/story/openai-and-anthropic-cut-llm-prices-by-up-to-80) (1 source)
+3. [SoftBank reportedly plans $50 billion AI and data center investment in Malaysia](https://digestai.news/story/softbank-reportedly-plans-50-billion-ai-and-data-center-investment-in) (1 source)
+4. [A fine-tuned Inception v3 CNN outperforms GPT-6 Astra and Claude Fable 5.1 on skin cancer diagnosis](https://digestai.news/story/inception-v3-cnn-beats-gpt-6-astra-and-claude-fable-5-1-on-skin-cancer) (1 source)
+5. [$M^3$ framework improves jailbreaking success rates by up to 53% on six models](https://digestai.news/story/m-3-framework-improves-jailbreaking-success-rates-by-up-to-53-on-six-m) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
