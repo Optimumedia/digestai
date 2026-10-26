@@ -807,6 +807,45 @@ def test_a_wave_of_automated_visits_gets_a_card_only_past_the_threshold():
     assert "463 today from China and the United States, against" in admin.automated_cards(named)[0]["what"]
 
 
+
+def test_a_wave_that_closes_its_pages_is_still_left_out():
+    """From 16 Oct 2026 the automated browsers closed each page, so every visit also sent a few
+    seconds on the page and a read depth of "top". Those visits are marked, every row of them; a
+    visitor who scrolled, stayed ten seconds or clicked a source is a reader."""
+    from digest import admin, readers
+
+    with fresh_db() as (eng, _tmp):
+        t = NOW - timedelta(hours=3)
+        day = t.date().isoformat()
+        rows = []
+        for i in range(12):  # the wave: view, 3 seconds, depth "top"
+            rows += [_visit(f"w{i}", "Asia/Jakarta", t, path=f"/story/w{i}", story_id=5),
+                     _visit(f"w{i}", "Asia/Jakarta", t, path=f"/story/w{i}", etype="dwell", value=3, story_id=5),
+                     _visit(f"w{i}", "Asia/Jakarta", t, path=f"/story/w{i}", etype="depth", value=12, story_id=5, detail="top")]
+        rows += [_visit("rd", "Asia/Jakarta", t, path="/story/r", story_id=6),  # read past the summary
+                 _visit("rd", "Asia/Jakarta", t, path="/story/r", etype="dwell", value=8, story_id=6),
+                 _visit("rd", "Asia/Jakarta", t, path="/story/r", etype="depth", value=60, story_id=6, detail="summary"),
+                 _visit("st", "Asia/Jakarta", t, path="/story/s", story_id=6),  # stayed 45 seconds
+                 _visit("st", "Asia/Jakarta", t, path="/story/s", etype="dwell", value=45, story_id=6),
+                 _visit("ck", "Asia/Jakarta", t, path="/story/c", story_id=6),  # clicked a source
+                 _visit("ck", "Asia/Jakarta", t, path="/story/c", etype="click_source", story_id=6)]
+        with eng.begin() as conn:
+            conn.execute(insert(db.events), rows)
+        days = [(NOW - timedelta(days=i)).date().isoformat() for i in range(13, -1, -1)]
+        with eng.connect() as conn:
+            got = {r[0]: tuple(int(x) for x in r[1:]) for r in readers.zone_rows(conn, NOW)}
+            assert got["Asia/Jakarta"] == (15, 12, 15, 12), got
+            cache.BOT_ZONES.put(conn, {})  # no copy left by an earlier test
+            zones = readers.bot_zones(conn, NOW)
+            assert zones == ["Asia/Jakarta"], zones
+            eng_rows = admin.reader_engagement(conn, NOW, days, zones)
+        per_day = {r["day"]: r for r in eng_rows["perDay"]}[day]
+        assert (per_day["views"], per_day["visitors"], per_day["automated"]) == (3, 3, 12), per_day
+        # Time on page is the readers' only: 8 + 45 seconds over two reading sessions, not the wave's 36.
+        assert per_day["dwellSeconds"] == 53 and per_day["dwellReads"] == 2, per_day
+        assert per_day["clicks"] == 1
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):

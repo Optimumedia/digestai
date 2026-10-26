@@ -7,8 +7,10 @@ the reader engagement the ranking learns from (rank.py). This module is that rul
 
 The rule. A view is *likely automated* when all three hold:
 
-1. it is the visitor's only event: no second page, no time on page, no read depth, no click, no
-   card seen (a visitor is the random per-day number the browser sends, else the tab's session);
+1. it is the visitor's only page and they did nothing there: no second page, no click, no card seen,
+   no scroll, no ten seconds on the page. What the page sends by itself when it is closed (a few
+   seconds on the page, a read depth of "top") is not doing something (a visitor is the random
+   per-day number the browser sends, else the tab's session);
 2. it came direct: no referrer and no utm_source;
 3. its time zone is *bot-heavy*: at least BOT_ZONE_MIN visitors in the zone did only that, and they
    are at least BOT_ZONE_SHARE of all the zone's visitors, over the last 7 or the last 30 days.
@@ -32,7 +34,7 @@ import logging
 import time
 from datetime import timedelta
 
-from sqlalchemy import and_, case, func, literal_column, select
+from sqlalchemy import and_, case, func, literal_column, or_, select
 
 from . import cache, db
 
@@ -40,6 +42,11 @@ log = logging.getLogger("digest.readers")
 
 BOT_ZONE_MIN = 5
 BOT_ZONE_SHARE = 0.8
+# What a page sends by itself when it is closed, with no sign of reading: a few seconds on the page
+# and a read depth of "top" (never scrolled). From 16 Oct 2026 a wave of automated browsers closed
+# each page instead of dropping it, so every visit also sent these two; the rule counts them as
+# nothing done. Ten seconds is the page's own gate for counting a view without any input (app.js).
+PASSIVE_DWELL_SECONDS = 10
 ZONE_WINDOWS_DAYS = (7, 30)
 REFRESH_HOURS = 1.0
 # "The visitor's only event" is judged a day either side of the period asked for, so a reader whose
@@ -50,6 +57,17 @@ EDGE = timedelta(days=1)
 
 def _who(e):
     return func.coalesce(e.visitor, e.session)
+
+
+def _passive(e):
+    """An event the page sends on its own when it is closed: under PASSIVE_DWELL_SECONDS on the page,
+    or a read depth of "top"."""
+    return or_(and_(e.type == "dwell", e.value < PASSIVE_DWELL_SECONDS), and_(e.type == "depth", e.detail == "top"))
+
+
+def _did_something(e):
+    """Any event other than the view itself and what the page sends on its own when it is closed."""
+    return and_(e.type != "view", ~_passive(e))
 
 
 def bot_heavy(visitors: int, bare: int) -> bool:
@@ -65,7 +83,8 @@ def zone_rows(conn, now) -> list[tuple]:
     short, long = min(ZONE_WINDOWS_DAYS), max(ZONE_WINDOWS_DAYS)
     who = _who(e)
     per_visitor = (
-        select(who.label("who"), func.max(e.tz).label("tz"), func.count().label("n"),
+        select(who.label("who"), func.max(e.tz).label("tz"),
+               func.sum(case((_did_something(e), 1), else_=0)).label("acts"),
                func.sum(case((e.type == "view", 1), else_=0)).label("views"),
                func.max(func.coalesce(e.source, "direct")).label("src"),
                func.sum(case((e.created_at >= now - timedelta(days=short), 1), else_=0)).label("recent"))
@@ -73,7 +92,7 @@ def zone_rows(conn, now) -> list[tuple]:
         .group_by(who)
     ).subquery()
     v = per_visitor.c
-    bare = and_(v.n == 1, v.views == 1, v.src == "direct")
+    bare = and_(v.acts == 0, v.views == 1, v.src == "direct")
     recent = v.recent > 0
     return [tuple(r) for r in conn.execute(
         select(v.tz, func.count(), func.sum(case((bare, 1), else_=0)),
@@ -124,9 +143,15 @@ def tagged(since, zones, until=None):
         if until is not None:
             q = q.where(e.created_at < until)
         return q.subquery("ev")
-    alone = func.count().over(partition_by=who) == 1
+    # The visitor opened one page, came direct and did nothing there: every one of their events (the
+    # view, and what the page sent on its own when closed) is marked, so their few seconds count
+    # neither as a reader's view nor as a reader's time on page.
+    def per_who(cond):
+        return func.sum(case((cond, 1), else_=0)).over(partition_by=who)
+    alone = and_(per_who(e.type == "view") == 1, per_who(_did_something(e)) == 0,
+                 per_who(func.coalesce(e.source, "direct") != "direct") == 0)
     # Plain 1 and 0, not bound values: the column is an integer on SQLite and Postgres alike.
-    auto = case((and_(e.type == "view", alone, func.coalesce(e.source, "direct") == "direct", e.tz.in_(list(zones))),
+    auto = case((and_(or_(e.type == "view", _passive(e)), alone, e.tz.in_(list(zones))),
                  literal_column("1")), else_=literal_column("0"))
     wide = select(*cols, auto.label("auto")).where(e.created_at >= since - EDGE)
     if until is not None:

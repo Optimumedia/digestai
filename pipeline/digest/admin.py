@@ -120,7 +120,8 @@ def reader_engagement(conn, now, days: list[str], zones: list[str]) -> dict:
     per_day: dict[str, dict] = {d: {"day": d, "views": 0, "sessions": 0, "visitors": 0, "automated": 0, "clicks": 0, "saves": 0,
                                     "follows": 0, "shares": 0, "dwellSeconds": 0, "dwellReads": 0} for d in days}
     for d, etype, n, total, sessions, automated in conn.execute(
-        select(day, t.type, func.count(), func.sum(t.value), func.count(func.distinct(case((reader, t.session)))), func.sum(t.auto))
+        select(day, t.type, func.count(), func.sum(case((reader, t.value), else_=0)),
+               func.count(func.distinct(case((reader, t.session)))), func.sum(t.auto))
         # Time on page and read depth are story reading here; /work pages send them without a
         # story (their own line: work_engagement).
         .where(or_(t.type.notin_(("dwell", "depth")), t.story_id.isnot(None)))
@@ -152,7 +153,7 @@ def reader_engagement(conn, now, days: list[str], zones: list[str]) -> dict:
     # Reading sessions: distinct (session, story) pairs that reported any time on page.
     for d, n in conn.execute(
         select(day, func.count(func.distinct(t.session + "|" + func.cast(t.story_id, db.String))))
-        .where(t.type == "dwell").group_by(day)
+        .where(t.type == "dwell", reader).group_by(day)
     ).all():
         if str(d)[:10] in per_day:
             per_day[str(d)[:10]]["dwellReads"] = int(n or 0)
