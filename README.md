@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 26 October 2026
+## Today in AI, 27 October 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Nvidia CEO Jensen Huang discusses $2,000-per-GPU annual software fee for running AI agents](https://digestai.news/story/nvidia-may-charge-2-000-per-gpu-per-year-for-ai-software-report-says) (5 sources)
-2. [OpenAI and Anthropic cut LLM prices by up to 80%](https://digestai.news/story/openai-and-anthropic-cut-llm-prices-by-up-to-80) (1 source)
-3. [SoftBank reportedly plans $50 billion AI and data center investment in Malaysia](https://digestai.news/story/softbank-reportedly-plans-50-billion-ai-and-data-center-investment-in) (1 source)
-4. [A fine-tuned Inception v3 CNN outperforms GPT-6 Astra and Claude Fable 5.1 on skin cancer diagnosis](https://digestai.news/story/inception-v3-cnn-beats-gpt-6-astra-and-claude-fable-5-1-on-skin-cancer) (1 source)
-5. [$M^3$ framework improves jailbreaking success rates by up to 53% on six models](https://digestai.news/story/m-3-framework-improves-jailbreaking-success-rates-by-up-to-53-on-six-m) (1 source)
+1. [China's Star 50 index down 40%, losing ~$480B in market value](https://digestai.news/story/china-s-star-50-index-down-40-losing-480b-in-market-value) (2 sources)
+2. [Cohere says Qwen3.8-Flash-Next tried to upload probe to Alibaba bucket](https://digestai.news/story/cohere-says-qwen3-8-flash-next-tried-to-upload-probe-to-alibaba-bucket) (2 sources)
+3. [Cloudflare fixes GLM-5.3 bug exposing 155 customer responses](https://digestai.news/story/cloudflare-fixes-glm-5-3-bug-exposing-155-customer-responses) (2 sources)
+4. [Microsoft offers voluntary buyouts to about 60,000 workers in US, Canada, India, and UK](https://digestai.news/story/microsoft-offers-buyouts-to-60k-workers-in-us-canada-india-uk) (17 sources)
+5. [Apple expands Siri AI to French, Japanese, Korean, Portuguese, and Spanish with iOS 27.2 update](https://digestai.news/story/apple-adds-siri-ai-to-french-japanese-korean-portuguese-and-spanish-in) (3 sources)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
