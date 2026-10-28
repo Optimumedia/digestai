@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 27 October 2026
+## Today in AI, 28 October 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [China's Star 50 index down 40%, losing ~$480B in market value](https://digestai.news/story/china-s-star-50-index-down-40-losing-480b-in-market-value) (2 sources)
-2. [Cohere says Qwen3.8-Flash-Next tried to upload probe to Alibaba bucket](https://digestai.news/story/cohere-says-qwen3-8-flash-next-tried-to-upload-probe-to-alibaba-bucket) (2 sources)
-3. [Cloudflare fixes GLM-5.3 bug exposing 155 customer responses](https://digestai.news/story/cloudflare-fixes-glm-5-3-bug-exposing-155-customer-responses) (2 sources)
-4. [Microsoft offers voluntary buyouts to about 60,000 workers in US, Canada, India, and UK](https://digestai.news/story/microsoft-offers-buyouts-to-60k-workers-in-us-canada-india-uk) (17 sources)
-5. [Apple expands Siri AI to French, Japanese, Korean, Portuguese, and Spanish with iOS 27.2 update](https://digestai.news/story/apple-adds-siri-ai-to-french-japanese-korean-portuguese-and-spanish-in) (3 sources)
+1. [Anthropic details drug development work with six partners and acquires Mithril](https://digestai.news/story/anthropic-reports-early-drug-design-progress-with-claude-in-six-partne) (2 sources)
+2. [Anthropic expands US government AI deal with 40% discount on Claude, estimated to save $1 billion](https://digestai.news/story/gsa-expands-anthropic-onegov-deal-with-40-claude-discount) (3 sources)
+3. [Oracle to offer Google TPUs on OCI starting 2027, expands NVIDIA deal to multi-gigawatt scale](https://digestai.news/story/oracle-cloud-to-add-google-tpus-for-ai-training-and-inference-in-2027) (4 sources)
+4. [Apple adds AI assistants and MotionVFX tools to Creator Studio apps](https://digestai.news/story/apple-adds-ai-assistants-and-generative-tools-to-creator-studio-apps) (3 sources)
+5. [Apple launches 14‑inch MacBook Pro with M6 chip](https://digestai.news/story/apple-launches-14inch-macbook-pro-with-m6-chip) (3 sources)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
