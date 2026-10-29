@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 28 October 2026
+## Today in AI, 29 October 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Anthropic details drug development work with six partners and acquires Mithril](https://digestai.news/story/anthropic-reports-early-drug-design-progress-with-claude-in-six-partne) (2 sources)
-2. [Anthropic expands US government AI deal with 40% discount on Claude, estimated to save $1 billion](https://digestai.news/story/gsa-expands-anthropic-onegov-deal-with-40-claude-discount) (3 sources)
-3. [Oracle to offer Google TPUs on OCI starting 2027, expands NVIDIA deal to multi-gigawatt scale](https://digestai.news/story/oracle-cloud-to-add-google-tpus-for-ai-training-and-inference-in-2027) (4 sources)
-4. [Apple adds AI assistants and MotionVFX tools to Creator Studio apps](https://digestai.news/story/apple-adds-ai-assistants-and-generative-tools-to-creator-studio-apps) (3 sources)
-5. [Apple launches 14‑inch MacBook Pro with M6 chip](https://digestai.news/story/apple-launches-14inch-macbook-pro-with-m6-chip) (3 sources)
+1. [Google launches Gemini 4 Carbon for cybersecurity defenders at $2/1M input and $10/1M output tokens](https://digestai.news/story/gemini-4-carbon-our-next-frontier-model) (6 sources)
+2. [Google expands AI Mode ads to 10 countries and launches multiturn ads in the U.S.](https://digestai.news/story/google-expands-ai-mode-ads-to-australia-canada-and-eight-other-markets) (3 sources)
+3. [Google Search revenue flat in Q3 2026 as AI Mode cuts monetization](https://digestai.news/story/google-search-revenue-flat-in-q3-2026-as-ai-mode-cuts-monetization) (3 sources)
+4. [DOJ probes Nvidia’s $12.93 billion Hugging Face deal over competition concerns](https://digestai.news/story/doj-examines-nvidias-12-93-billion-hugging-face-acquisition-for-compet) (9 sources)
+5. [NVIDIA releases open-weight Nemotron 3.5 Transcribe model and Granary v2 dataset](https://digestai.news/story/nvidia-releases-open-weight-nemotron-3-5-transcribe-with-multilingual) (10 sources)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
