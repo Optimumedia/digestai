@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 29 October 2026
+## Today in AI, 30 October 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Google launches Gemini 4 Carbon for cybersecurity defenders at $2/1M input and $10/1M output tokens](https://digestai.news/story/gemini-4-carbon-our-next-frontier-model) (6 sources)
-2. [Google expands AI Mode ads to 10 countries and launches multiturn ads in the U.S.](https://digestai.news/story/google-expands-ai-mode-ads-to-australia-canada-and-eight-other-markets) (3 sources)
-3. [Google Search revenue flat in Q3 2026 as AI Mode cuts monetization](https://digestai.news/story/google-search-revenue-flat-in-q3-2026-as-ai-mode-cuts-monetization) (3 sources)
-4. [DOJ probes Nvidia’s $12.93 billion Hugging Face deal over competition concerns](https://digestai.news/story/doj-examines-nvidias-12-93-billion-hugging-face-acquisition-for-compet) (9 sources)
-5. [NVIDIA releases open-weight Nemotron 3.5 Transcribe model and Granary v2 dataset](https://digestai.news/story/nvidia-releases-open-weight-nemotron-3-5-transcribe-with-multilingual) (10 sources)
+1. [Google’s Gemini 4 Carbon ranks #1 on Artificial Analysis Intelligence Index v5 with score of 59](https://digestai.news/story/google-anthropic-and-openai-lead-ai-intelligence-index-ark-invest-repo) (4 sources)
+2. [CrowdStrike says China-linked hackers used DeepSeek to target 200+ groups](https://digestai.news/story/crowdstrike-says-china-linked-hackers-used-deepseek-to-target-200-grou) (2 sources)
+3. [Rivian licenses AI voice assistant technology through Volkswagen JV](https://digestai.news/story/rivian-licenses-ai-assistant-to-volkswagen-for-id-every1-vehicles) (2 sources)
+4. [Amazon’s AWS sales jump 39% as Q3 operating income climbs 61%](https://digestai.news/story/amazons-aws-sales-jump-39-as-q3-operating-income-climbs-61) (2 sources)
+5. [Collective raises $100M to automate bookkeeping for solo business owners](https://digestai.news/story/collective-raises-100m-to-automate-bookkeeping-for-solo-business-owner) (2 sources)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
