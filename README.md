@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 30 October 2026
+## Today in AI, 31 October 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Google’s Gemini 4 Carbon ranks #1 on Artificial Analysis Intelligence Index v5 with score of 59](https://digestai.news/story/google-anthropic-and-openai-lead-ai-intelligence-index-ark-invest-repo) (4 sources)
-2. [CrowdStrike says China-linked hackers used DeepSeek to target 200+ groups](https://digestai.news/story/crowdstrike-says-china-linked-hackers-used-deepseek-to-target-200-grou) (2 sources)
-3. [Rivian licenses AI voice assistant technology through Volkswagen JV](https://digestai.news/story/rivian-licenses-ai-assistant-to-volkswagen-for-id-every1-vehicles) (2 sources)
-4. [Amazon’s AWS sales jump 39% as Q3 operating income climbs 61%](https://digestai.news/story/amazons-aws-sales-jump-39-as-q3-operating-income-climbs-61) (2 sources)
-5. [Collective raises $100M to automate bookkeeping for solo business owners](https://digestai.news/story/collective-raises-100m-to-automate-bookkeeping-for-solo-business-owner) (2 sources)
+1. [Cisco gives 27-year-old engineer unlimited AI tokens to rewrite 98% of legacy code in 24 months](https://digestai.news/story/cisco-assigns-27-year-old-engineer-to-rewrite-98-of-legacy-code-with-a) (2 sources)
+2. [Cursor discloses SSH backdoor attempt in malicious Claude Code extension version 2.1.313](https://digestai.news/story/cursor-finds-ssh-backdoor-in-fake-claude-code-extension) (6 sources)
+3. [OpenAI CEO Sam Altman says home PC RAM is quite terrible for global allocation](https://digestai.news/story/openai-ceo-criticizes-home-ram-use-for-ai-inference) (6 sources)
+4. [Proton CEO Andy Yen cancels AI re-interviews after employee backlash](https://digestai.news/story/proton-cancels-ai-re-interviews-after-employee-backlash-over-security) (5 sources)
+5. [SEO experts warn brands must track AI recommendation rates beyond awareness](https://digestai.news/story/seo-experts-warn-brands-must-track-ai-recommendation-rates-beyond-awar) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
