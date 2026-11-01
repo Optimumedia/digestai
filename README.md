@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 31 October 2026
+## Today in AI, 1 November 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Cisco gives 27-year-old engineer unlimited AI tokens to rewrite 98% of legacy code in 24 months](https://digestai.news/story/cisco-assigns-27-year-old-engineer-to-rewrite-98-of-legacy-code-with-a) (2 sources)
-2. [Cursor discloses SSH backdoor attempt in malicious Claude Code extension version 2.1.313](https://digestai.news/story/cursor-finds-ssh-backdoor-in-fake-claude-code-extension) (6 sources)
-3. [OpenAI CEO Sam Altman says home PC RAM is quite terrible for global allocation](https://digestai.news/story/openai-ceo-criticizes-home-ram-use-for-ai-inference) (6 sources)
-4. [Proton CEO Andy Yen cancels AI re-interviews after employee backlash](https://digestai.news/story/proton-cancels-ai-re-interviews-after-employee-backlash-over-security) (5 sources)
-5. [SEO experts warn brands must track AI recommendation rates beyond awareness](https://digestai.news/story/seo-experts-warn-brands-must-track-ai-recommendation-rates-beyond-awar) (1 source)
+1. [Cisco Talos details VOLTA-Autodoxer malware that uses AI to rank victims by monetizable assets](https://digestai.news/story/cisco-talos-finds-ai-enhanced-infostealer-malware-targeting-digital-as) (3 sources)
+2. [DeepSeek Harness team releases open-source Super-agent prototype](https://digestai.news/story/deepseek-harness-team-releases-open-source-super-agent-prototype) (2 sources)
+3. [Guidewire agrees to acquire Hyperexponential for $1.7 billion in cash](https://digestai.news/story/guidewire-agrees-to-acquire-hyperexponential-for-1-7-billion-in-cash) (1 source)
+4. [ChatGPT and Codex usage limits merge in December](https://digestai.news/story/chatgpt-and-codex-usage-limits-merge-in-december) (1 source)
+5. [Xero connects to Google Gemini for real-time financial insights](https://digestai.news/story/xero-connects-to-google-gemini-for-real-time-financial-insights) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
