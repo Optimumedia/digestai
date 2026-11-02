@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 1 November 2026
+## Today in AI, 2 November 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Cisco Talos details VOLTA-Autodoxer malware that uses AI to rank victims by monetizable assets](https://digestai.news/story/cisco-talos-finds-ai-enhanced-infostealer-malware-targeting-digital-as) (3 sources)
-2. [DeepSeek Harness team releases open-source Super-agent prototype](https://digestai.news/story/deepseek-harness-team-releases-open-source-super-agent-prototype) (2 sources)
-3. [Guidewire agrees to acquire Hyperexponential for $1.7 billion in cash](https://digestai.news/story/guidewire-agrees-to-acquire-hyperexponential-for-1-7-billion-in-cash) (1 source)
-4. [ChatGPT and Codex usage limits merge in December](https://digestai.news/story/chatgpt-and-codex-usage-limits-merge-in-december) (1 source)
-5. [Xero connects to Google Gemini for real-time financial insights](https://digestai.news/story/xero-connects-to-google-gemini-for-real-time-financial-insights) (1 source)
+1. [Saudi Aramco acquires a 49% stake in AI startup Humain for $2.6 billion](https://digestai.news/story/aramco-acquires-49-stake-in-ai-startup-humain-for-2-6-billion) (2 sources)
+2. [South Korean President Lee Jae Myung vows $15.97B for AI, chips, physical AI, and data centers in 2027 budget](https://digestai.news/story/south-korea-to-spend-15-97b-on-ai-and-chips-in-2027-budget) (1 source)
+3. [JetBrains/Mellum2.1-12B-A2.5B-Thinking-MTP · Hugging Face](https://digestai.news/story/jetbrains-mellum2-1-12b-a2-5b-thinking-mtp-hugging-face) (1 source)
+4. [Researchers propose Agentic World Modeling for safer agent test-time scaling](https://digestai.news/story/researchers-propose-agentic-world-modeling-for-safer-agent-test-time-s) (1 source)
+5. [Fed survey finds small businesses using AI are more likely to hire](https://digestai.news/story/fed-survey-finds-small-businesses-using-ai-are-more-likely-to-hire) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
