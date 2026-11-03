@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 2 November 2026
+## Today in AI, 3 November 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Saudi Aramco acquires a 49% stake in AI startup Humain for $2.6 billion](https://digestai.news/story/aramco-acquires-49-stake-in-ai-startup-humain-for-2-6-billion) (2 sources)
-2. [South Korean President Lee Jae Myung vows $15.97B for AI, chips, physical AI, and data centers in 2027 budget](https://digestai.news/story/south-korea-to-spend-15-97b-on-ai-and-chips-in-2027-budget) (1 source)
-3. [JetBrains/Mellum2.1-12B-A2.5B-Thinking-MTP · Hugging Face](https://digestai.news/story/jetbrains-mellum2-1-12b-a2-5b-thinking-mtp-hugging-face) (1 source)
-4. [Researchers propose Agentic World Modeling for safer agent test-time scaling](https://digestai.news/story/researchers-propose-agentic-world-modeling-for-safer-agent-test-time-s) (1 source)
-5. [Fed survey finds small businesses using AI are more likely to hire](https://digestai.news/story/fed-survey-finds-small-businesses-using-ai-are-more-likely-to-hire) (1 source)
+1. [Oracle files to sell $10B in stock and $10B in bonds to fund AI buildout](https://digestai.news/story/oracle-issues-10b-bonds-to-fund-ai-data-centers-amid-debt-concerns) (3 sources)
+2. [Salesforce agrees to acquire Cresta for $2.7 billion, report says](https://digestai.news/story/salesforce-agrees-to-acquire-cresta-for-2-7-billion-report-says) (2 sources)
+3. [MIT researchers report GPT-6 Astra natively reads and writes neural network weights, raising Qwen3.5-0.8B MATH-500 from 7.9% to 48.1% by editing 0.016% of weigh](https://digestai.news/story/gpt-6-astra-edits-neural-network-weights-to-improve-performance-withou) (4 sources)
+4. [Marvell agrees to buy Lumentum in $115 billion all-stock deal for AI connectivity](https://digestai.news/story/marvell-to-buy-lumentum-in-115-billion-all-stock-deal-to-boost-ai-conn) (3 sources)
+5. [HubSpot outlines four AI maturity stages for marketers](https://digestai.news/story/hubspot-outlines-four-ai-maturity-stages-for-marketers) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
