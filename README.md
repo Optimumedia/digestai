@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 3 November 2026
+## Today in AI, 4 November 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Oracle files to sell $10B in stock and $10B in bonds to fund AI buildout](https://digestai.news/story/oracle-issues-10b-bonds-to-fund-ai-data-centers-amid-debt-concerns) (3 sources)
-2. [Salesforce agrees to acquire Cresta for $2.7 billion, report says](https://digestai.news/story/salesforce-agrees-to-acquire-cresta-for-2-7-billion-report-says) (2 sources)
-3. [MIT researchers report GPT-6 Astra natively reads and writes neural network weights, raising Qwen3.5-0.8B MATH-500 from 7.9% to 48.1% by editing 0.016% of weigh](https://digestai.news/story/gpt-6-astra-edits-neural-network-weights-to-improve-performance-withou) (4 sources)
-4. [Marvell agrees to buy Lumentum in $115 billion all-stock deal for AI connectivity](https://digestai.news/story/marvell-to-buy-lumentum-in-115-billion-all-stock-deal-to-boost-ai-conn) (3 sources)
-5. [HubSpot outlines four AI maturity stages for marketers](https://digestai.news/story/hubspot-outlines-four-ai-maturity-stages-for-marketers) (1 source)
+1. [Binance says hackers used fake interviews and AI tools to steal $6.3B](https://digestai.news/story/binance-says-hackers-used-fake-interviews-and-ai-tools-to-steal-6-3b) (2 sources)
+2. [Google says schools must accept AI features to retain Search access for K-12 students](https://digestai.news/story/google-expands-guided-learning-to-classrooms-and-pilots-optin-k12-ai-a) (16 sources)
+3. [Crypto and AI PACs spent $250 million in 2026 federal elections](https://digestai.news/story/crypto-and-ai-pacs-spent-250-million-in-2026-federal-elections) (1 source)
+4. [SLATE benchmark tests long-horizon API selection in e-commerce automation](https://digestai.news/story/slate-benchmark-tests-long-horizon-api-selection-in-e-commerce-automat) (1 source)
+5. [ChatGPT consumer lead reports 1.2B users, 20% of Google’s search volume](https://digestai.news/story/chatgpt-consumer-lead-reports-1-2b-users-20-of-googles-search-volume) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
