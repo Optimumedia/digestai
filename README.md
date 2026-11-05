@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 4 November 2026
+## Today in AI, 5 November 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Binance says hackers used fake interviews and AI tools to steal $6.3B](https://digestai.news/story/binance-says-hackers-used-fake-interviews-and-ai-tools-to-steal-6-3b) (2 sources)
-2. [Google says schools must accept AI features to retain Search access for K-12 students](https://digestai.news/story/google-expands-guided-learning-to-classrooms-and-pilots-optin-k12-ai-a) (16 sources)
-3. [Crypto and AI PACs spent $250 million in 2026 federal elections](https://digestai.news/story/crypto-and-ai-pacs-spent-250-million-in-2026-federal-elections) (1 source)
-4. [SLATE benchmark tests long-horizon API selection in e-commerce automation](https://digestai.news/story/slate-benchmark-tests-long-horizon-api-selection-in-e-commerce-automat) (1 source)
-5. [ChatGPT consumer lead reports 1.2B users, 20% of Google’s search volume](https://digestai.news/story/chatgpt-consumer-lead-reports-1-2b-users-20-of-googles-search-volume) (1 source)
+1. [Democrat Gina Hinojosa's Texas Win Triggers AI Stock Selloff Over Data Center Moratorium Fears](https://digestai.news/story/texas-governor-win-sparks-ai-data-center-policy-fears) (6 sources)
+2. [Democratic wins in Texas, Georgia, Ohio and Pennsylvania expose 50% of proposed US AI data center additions to greater scrutiny](https://digestai.news/story/democratic-wins-may-expose-50-of-us-ai-data-center-plans-to-scrutiny) (8 sources)
+3. [OpenAI pipeline finds 948 Linux privilege escalation flaws using upcoming cyber model](https://digestai.news/story/openais-cyber-model-finds-948-linux-kernel-privilege-escalation-flaws) (3 sources)
+4. [Pangram launches AI image and video detectors with 99.96% accuracy](https://digestai.news/story/pangram-launches-ai-image-and-video-detectors-with-99-96-accuracy) (2 sources)
+5. [AI Express integrates diverse AI tools for unified service](https://digestai.news/story/ai-express-integrates-diverse-ai-tools-for-unified-service) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
