@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 5 November 2026
+## Today in AI, 6 November 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Democrat Gina Hinojosa's Texas Win Triggers AI Stock Selloff Over Data Center Moratorium Fears](https://digestai.news/story/texas-governor-win-sparks-ai-data-center-policy-fears) (6 sources)
-2. [Democratic wins in Texas, Georgia, Ohio and Pennsylvania expose 50% of proposed US AI data center additions to greater scrutiny](https://digestai.news/story/democratic-wins-may-expose-50-of-us-ai-data-center-plans-to-scrutiny) (8 sources)
-3. [OpenAI pipeline finds 948 Linux privilege escalation flaws using upcoming cyber model](https://digestai.news/story/openais-cyber-model-finds-948-linux-kernel-privilege-escalation-flaws) (3 sources)
-4. [Pangram launches AI image and video detectors with 99.96% accuracy](https://digestai.news/story/pangram-launches-ai-image-and-video-detectors-with-99-96-accuracy) (2 sources)
-5. [AI Express integrates diverse AI tools for unified service](https://digestai.news/story/ai-express-integrates-diverse-ai-tools-for-unified-service) (1 source)
+1. [Thinking Machines Lab releases Inkling 2 Small with 594B parameters and 17B active parameters](https://digestai.news/story/inkling-2-small-released-with-594b-parameters-and-17b-active) (5 sources)
+2. [Anthropic launches read-only Personal Finance tool for Claude in the U.S.](https://digestai.news/story/anthropic-adds-personal-finance-tool-to-claude-for-us-pro-users) (7 sources)
+3. [OpenAI launches GPT-6 Cyber, finds 81 Firefox flaws and 948 Linux exploits](https://digestai.news/story/openai-releases-gpt-6-cyber-claims-81-novel-firefox-vulnerabilities) (14 sources)
+4. [UK consumer AI spending passes £1B annually with 5.1% of adults paying for subscriptions as of July 2026](https://digestai.news/story/uk-ai-subscription-spending-hits-1b-yearly-study-finds) (3 sources)
+5. [Claude Code user reports email leak in User-Agent header](https://digestai.news/story/claude-code-user-reports-email-leak-in-user-agent-header) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
