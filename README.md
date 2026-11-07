@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 6 November 2026
+## Today in AI, 7 November 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Thinking Machines Lab releases Inkling 2 Small with 594B parameters and 17B active parameters](https://digestai.news/story/inkling-2-small-released-with-594b-parameters-and-17b-active) (5 sources)
-2. [Anthropic launches read-only Personal Finance tool for Claude in the U.S.](https://digestai.news/story/anthropic-adds-personal-finance-tool-to-claude-for-us-pro-users) (7 sources)
-3. [OpenAI launches GPT-6 Cyber, finds 81 Firefox flaws and 948 Linux exploits](https://digestai.news/story/openai-releases-gpt-6-cyber-claims-81-novel-firefox-vulnerabilities) (14 sources)
-4. [UK consumer AI spending passes £1B annually with 5.1% of adults paying for subscriptions as of July 2026](https://digestai.news/story/uk-ai-subscription-spending-hits-1b-yearly-study-finds) (3 sources)
-5. [Claude Code user reports email leak in User-Agent header](https://digestai.news/story/claude-code-user-reports-email-leak-in-user-agent-header) (1 source)
+1. [Protesters break into Microsoft data center site in Amsterdam, hang anti-AI banners](https://digestai.news/story/protesters-breach-microsoft-data-center-construction-site-in-amsterdam) (6 sources)
+2. [OpenAI CFO Sarah Friar says data center investment will continue despite election results](https://digestai.news/story/openai-cfo-says-it-will-keep-investing-in-ai-data-centers-despite-elec) (5 sources)
+3. [Meta improves Muse and Meta AI with Active Memory and Active Focus](https://digestai.news/story/meta-adds-specialized-muse-models-with-active-memory-and-active-focus) (2 sources)
+4. [Nvidia reportedly financing billions for ASE advanced chip packaging expansion](https://digestai.news/story/tsmc-may-enter-3d-dram-production-on-nvidias-request-amid-ai-driven-sh) (3 sources)
+5. [HubSpot report: 86.4% of teams use AI, but strategy gaps persist](https://digestai.news/story/hubspot-report-86-4-of-teams-use-ai-but-strategy-gaps-persist) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
