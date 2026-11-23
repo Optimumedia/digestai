@@ -1,0 +1,100 @@
+---
+/* /models/released/<YYYY-MM> answers "which AI models came out in <month>?": every launch the tracker
+   may state as fact (answers.mjs), the date it was first reported, and whether the lab or two
+   publishers confirm it. A dated answer that stays true, so its address stays. A month with fewer than
+   RELEASE_MONTH_MIN launches is built and linked but noindex (answers.mjs monthIndexable). */
+import Base from "../../../layouts/Base.astro";
+import Rail from "../../../components/Rail.astro";
+import Breadcrumbs from "../../../components/Breadcrumbs.astro";
+import { releaseMonths, releaseMonthIndexable, releaseRecordStart, monthName, hubHref, formatDate, meta, type Release } from "../../../lib/data";
+
+export function getStaticPaths() {
+  return [...releaseMonths.entries()].map(([month, rows]) => ({ params: { month }, props: { rows } }));
+}
+
+const { month } = Astro.params as { month: string };
+const { rows } = Astro.props as { rows: Release[] };
+const name = monthName(month);
+const keys = [...releaseMonths.keys()];
+const idx = keys.indexOf(month);
+const newer = idx > 0 ? keys[idx - 1] : null;
+const older = idx < keys.length - 1 ? keys[idx + 1] : null;
+const current = meta.generatedAt.slice(0, 7) === month;
+const confirmed = rows.filter((r) => r.confirmed);
+const labs = new Set(rows.map((r) => r.lab));
+const openWeights = rows.filter((r) => r.availability === "open_weights").length;
+const api = rows.filter((r) => r.availability === "api").length;
+// The record starts when the tracker does: a month that began earlier is only partly covered.
+const partStart = releaseRecordStart && releaseRecordStart.slice(0, 7) === month && releaseRecordStart.slice(8, 10) !== "01" ? releaseRecordStart : null;
+const plural = (n: number, w: string, ws = `${w}s`) => `${n} ${n === 1 ? w : ws}`;
+const topLabs = [...labs].map((l) => [l, rows.filter((r) => r.lab === l).length] as const).sort((a, b) => b[1] - a[1]).filter(([, n]) => n >= 2).slice(0, 5);
+const kinds: Record<string, string> = { llm: "Language", multimodal: "Multimodal", image: "Image", video: "Video", audio: "Audio", code: "Code", embedding: "Embedding", robotics: "Robotics", other: "Model" };
+const labels: Record<string, string> = { api: "API", open_weights: "Open weights", consumer: "Consumer app", research: "Research", unknown: "" };
+const asOf = formatDate(meta.generatedAt);
+const span = current ? `in ${name} so far (to ${asOf})` : `in ${name}`;
+const lead = `Digest AI recorded ${plural(rows.length, "AI model release")} ${span} from ${plural(labs.size, "maker")}; ${confirmed.length} ${confirmed.length === 1 ? "is" : "are"} confirmed by the lab's own announcement or by two publishers.`;
+const busiest = topLabs.length ? ` Most releases: ${topLabs.map(([l, n]) => `${l} (${n})`).join(", ")}.` : "";
+const title = `AI models released in ${name}${current ? " (so far)" : ""}`;
+const description = `${lead}${busiest} Open weights: ${openWeights}; API: ${api}. Each with its launch story and sources.`.slice(0, 300);
+const url = `${meta.siteUrl}/models/released/${month}`;
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  name: title,
+  description,
+  url,
+  dateModified: rows[0]?.date || meta.generatedAt,
+  isPartOf: { "@type": "WebSite", name: "Digest AI", url: meta.siteUrl },
+  mainEntity: {
+    "@type": "ItemList",
+    name: title,
+    numberOfItems: rows.length,
+    itemListElement: rows.slice(0, 100).map((r, i) => ({ "@type": "ListItem", position: i + 1, name: `${r.name} (${r.lab})`, url: `${meta.siteUrl}/models/${r.slug}` })),
+  },
+};
+---
+
+<Base title={title} description={description} canonical={url} jsonLd={jsonLd} thin={!releaseMonthIndexable(rows)} modifiedAt={rows[0]?.date || meta.generatedAt}>
+  <div class="grid">
+    <div>
+      <Breadcrumbs items={[{ name: "Models", href: "/models" }, { name: "Latest", href: "/models/latest" }, { name }]} />
+      <header class="page-head">
+        <div class="eyebrow">Model releases · {name}</div>
+        <h1>AI models released in {name}</h1>
+        <p class="intro">{lead}{busiest}</p>
+        <p>
+          Newest first, with the date each launch was first reported and the story that reports it. By availability: {openWeights} open weights, {api} through an API.
+          {partStart && ` The record begins on ${formatDate(partStart)}, when the tracker started, so earlier ${name} launches are not listed.`}
+          {" "}Rumours, plans, apps and stories that only use a model are left out; a model is listed under the month it was first reported.
+        </p>
+      </header>
+
+      <div class="tablewrap">
+        <table class="tracker">
+          <thead><tr><th>First reported</th><th>Model</th><th>Lab</th><th>Type</th><th>Availability</th><th>Licence</th><th>Confirmed</th><th>Launch story</th></tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr>
+                <td class="num"><time datetime={r.date || undefined} data-static>{formatDate(r.date, { day: "numeric", month: "short" })}</time></td>
+                <td><b>{hubHref(r.name) ? <a href={hubHref(r.name)!}>{r.name}</a> : r.name}</b>{r.link && <a class="mono muted" href={r.link} rel="noopener nofollow" target="_blank" title="Official page"> ↗</a>}</td>
+                <td>{hubHref(r.lab) ? <a href={hubHref(r.lab)!}>{r.lab}</a> : r.lab}</td>
+                <td>{kinds[r.kind] || ""}</td>
+                <td>{labels[r.availability] ?? ""}</td>
+                <td>{r.license || ""}</td>
+                <td>{r.confirmed ? "Yes" : "One report"}</td>
+                <td>{r.storySlug ? <a href={`/story/${r.storySlug}`}>{r.storyHeadline}</a> : r.storyHeadline}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <nav class="meta-row" style="padding: 8px 0 24px" aria-label="Other months">
+        {older && <a href={`/models/released/${older}`}>← {monthName(older)}</a>}
+        <a href="/models/latest" style="margin-left:auto">Newest from each lab</a>
+        {newer && <a href={`/models/released/${newer}`}>{monthName(newer)} →</a>}
+      </nav>
+    </div>
+    <Rail />
+  </div>
+</Base>

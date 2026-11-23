@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { published, sitemapIndex, isOlderListPage, JOB_SLUGS } from "./src/lib/indexing.mjs";
 import { isRedirectPage, loadRedirects } from "./src/lib/redirects.mjs";
+import { answerPages } from "./src/lib/answers.mjs";
 
 // Old addresses of merged stories are redirect pages: never listed for search engines.
 const redirects = loadRedirects(path.resolve("src/data"));
@@ -35,6 +36,10 @@ try {
     priceChanges: read("work-prices.json", {}).changes || [],
   });
 } catch {}
+// The model answer pages (/models/latest, /models/released/<month>): listed with the date of their
+// newest launch, unless too thin to index (answers.mjs, the same rule the pages use).
+let answers = { lastmod: new Map(), thin: new Set() };
+try { answers = answerPages(read("trackers.json", {}).models || []); } catch {}
 
 /* Addresses from the previous site that still get search impressions. Astro writes each as a page
    with a meta refresh, a canonical link and a plain link to the new address, which is the only kind
@@ -72,17 +77,21 @@ export default defineConfig({
         if (/\/(search|admin|saved|river|offline)$/.test(p) || p in legacyRedirects || isRedirectPage(page, redirects)) return false;
         // Page 2 and up of a long list (/topic/openai/2 …) is noindex, never listed (indexing.mjs).
         if (isOlderListPage(p)) return false;
+        if (answers.thin.has(p)) return false;
+        if (answers.lastmod.has(p)) return true;
         return plan ? plan.include(p) : true;
       },
       serialize(item) {
         const p = new URL(item.url).pathname.replace(/\/$/, "");
-        const mod = plan?.lastmod.get(p);
+        const mod = plan?.lastmod.get(p) || answers.lastmod.get(p);
         if (mod) item.lastmod = mod;
         if (p === "" || p === "/today") { item.changefreq = "hourly"; item.priority = 1.0; }
         else if (p === "/week") { item.changefreq = "daily"; item.priority = 0.8; }
         else if (p === "/work") { item.changefreq = "hourly"; item.priority = 0.9; }
         else if (p === "/work/tools") { item.changefreq = "daily"; item.priority = 0.8; }
         else if (Object.values(JOB_SLUGS).some((slug) => p === `/work/${slug}`)) { item.changefreq = "daily"; item.priority = 0.7; }
+        else if (p === "/models/latest") { item.changefreq = "daily"; item.priority = 0.8; }
+        else if (p.startsWith("/models/released/")) { item.changefreq = "weekly"; item.priority = 0.6; }
         else if (p.startsWith("/models/")) { item.changefreq = "daily"; item.priority = 0.6; }
         else if (p.startsWith("/work/week/")) { item.changefreq = "weekly"; item.priority = 0.5; }
         else if (archivedPaths.has(p) && !liveStories.has(p)) { item.changefreq = "yearly"; item.priority = 0.2; }

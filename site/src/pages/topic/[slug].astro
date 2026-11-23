@@ -5,7 +5,7 @@ import Rail from "../../components/Rail.astro";
 import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import StoryRedirect from "../../components/StoryRedirect.astro";
 import Pager from "../../components/Pager.astro";
-import { topicPages, topicStories, meta, topicInfo, companyFunding, modelsByLab, hubHref, formatDate, money, modelPageFor, storyModified, firstSentence, TOPIC_MIN_STORIES } from "../../lib/data";
+import { topicPages, topicStories, meta, topicInfo, companyFunding, modelsByLab, hubHref, formatDate, money, modelPageFor, storyModified, firstSentence, newestModelFrom, TOPIC_MIN_STORIES } from "../../lib/data";
 import { clip } from "../../lib/category";
 import { pageSlice } from "../../lib/paging";
 
@@ -58,6 +58,9 @@ const modified = list.map((s) => storyModified(s)).filter(Boolean).sort().pop() 
 // Question-and-answer block: only questions the data can actually answer.
 const faq: { q: string; a: string }[] = [];
 if (latest) faq.push({ q: `What is the latest ${entity.name} news?`, a: `${latestDate ? `As of ${latestDate}: ` : ""}${latest.headline}. ${firstSentence(latest.summaryMd || latest.keyPoints[0] || "", 240)}`.trim() });
+// A lab's newest model, only as answers.mjs allows it to be stated: a confirmed launch, no rumour.
+const newestModel = newestModelFrom(entity.name);
+if (newestModel) faq.push({ q: `What is the newest ${entity.name} model?`, a: `As of ${formatDate(meta.generatedAt)}, the newest ${entity.name} model Digest AI has confirmed is ${newestModel.name}, first reported on ${formatDate(newestModel.date)}.` });
 if (about) faq.push({ q: `What is ${entity.name}?`, a: about });
 if (rounds.length) faq.push({ q: `How much funding has ${entity.name} raised?`, a: `${entity.name} has ${money(raised)} in reported deals covered by Digest AI: ${rounds.slice(0, 4).map((r) => `${money(r.amount_usd)} ${roundName[r.round] || r.round}${r.date ? ` in ${formatDate(r.date, { month: "long", year: "numeric" })}` : ""}`).join("; ")}.` });
 
@@ -106,6 +109,11 @@ const labModels = modelsByLab(entity.name);
           <p class="intro latest-line">
             The latest {entity.name} news{latestAt && <>, <time datetime={latestAt} data-static>{latestDate}</time></>}:
             {" "}<a href={`/story/${latest.slug}`}>{latest.headline}</a>.
+          </p>
+        )}
+        {newestModel && (
+          <p class="latest-line">
+            Newest {entity.name} model: <a href={`/models/${newestModel.slug}`}>{newestModel.name}</a>, first reported <time datetime={newestModel.date || undefined} data-static>{formatDate(newestModel.date)}</time>. <a href="/models/latest">Newest from every lab →</a>
           </p>
         )}
         {about && <p>{about}</p>}

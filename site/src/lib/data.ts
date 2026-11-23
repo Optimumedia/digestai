@@ -182,7 +182,11 @@ export const meta: Meta = readJson<Meta>("meta.json", {
 
 export const categories: Record<string, string> = meta.categories || DEFAULT_CATEGORIES;
 
-export const stories: Story[] = published(readJson<Story[]>("stories.json", []));
+// Key points are shown and served as plain text; the model sometimes writes Markdown bold into one
+// ("data exfiltration to **134.209.82.225:8099**" on /today, 30 Oct 2026), which showed as asterisks.
+export const stories: Story[] = published(readJson<Story[]>("stories.json", [])).map((s) => (
+  s.keyPoints?.some((k) => k.includes("**")) ? { ...s, keyPoints: s.keyPoints.map((k) => k.replace(/\*\*/g, "")) } : s
+));
 export const entities: Entity[] = readJson<Entity[]>("entities.json", []);
 export const sources: { key: string; name: string; url: string; kind: string; type: string }[] = readJson("sources.json", []);
 export interface Episode {

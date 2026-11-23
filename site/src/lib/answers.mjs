@@ -229,10 +229,12 @@ export const monthIndexable = (rows) => (rows?.length || 0) >= RELEASE_MONTH_MIN
 
 /** The answer pages' paths and last changes, for the sitemap plan in indexing.mjs. */
 export function answerPages(models) {
-  const list = releaseList(withCanonicalLabs(models));
+  const rows = withCanonicalLabs(models);
+  const list = releaseList(rows);
   const lastmod = new Map();
   const thin = new Set();
   if (list[0]?.date) lastmod.set("/models/latest", list[0].date);
+  if (newestByLab(list, rows).length < 3) thin.add("/models/latest");
   for (const [key, rows] of releasesByMonth(list)) {
     lastmod.set(`/models/released/${key}`, rows[0].date);
     if (!monthIndexable(rows)) thin.add(`/models/released/${key}`);
