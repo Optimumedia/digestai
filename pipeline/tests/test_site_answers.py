@@ -178,7 +178,10 @@ def test_built_answer_files():
         noindex = 'content="noindex' in html
         assert listed != noindex, f"{page.name}: sitemap and robots meta disagree"
     today = (dist / "today.html").read_text(encoding="utf-8")
-    assert "The main AI news on" in today and "today.md" in today
+    assert "today.md" in today
+    briefing = json.loads((SITE / "src" / "data" / "briefing.json").read_text(encoding="utf-8"))
+    if briefing.get("storyIds"):  # an empty briefing has no answer to give
+        assert "The main AI news on" in today
     about = (dist / "about.html").read_text(encoding="utf-8")
     assert '"FAQPage"' in about and "not connected to digest.ai" in about
 
