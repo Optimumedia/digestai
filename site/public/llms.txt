@@ -14,6 +14,11 @@ Editorial standards: https://digestai.news/about#standards
 - AI at Work (practical AI for marketers and small businesses: what a tool does, who it is for, cost, effort, one caveat): https://digestai.news/work
 - Tool directory (AI tools for marketing and small business, newest change first): https://digestai.news/work/tools
 - Model tracker (releases with lab, type, availability, licence, context window): https://digestai.news/models
+- AI model API prices (per million input and output tokens, each with the sentence and story that stated it): https://digestai.news/models/pricing
+- Open-weights AI models (downloadable models with licence and context window): https://digestai.news/models/open-weights
+- AI model context windows, largest first: https://digestai.news/models/context-windows
+- Comparisons (ChatGPT vs Claude, model vs model: facts, prices and the sentences where the coverage compared them): https://digestai.news/compare
+- AI tools by task for small businesses (SEO, ads, email, video, images, writing, online shops, free tools): https://digestai.news/work/tools/<task>, e.g. https://digestai.news/work/tools/seo and https://digestai.news/work/tools/free
 - Funding tracker (rounds, acquisitions and valuations as reported, one row per deal): https://digestai.news/funding
 - Developing stories (threads that update as coverage grows): https://digestai.news/threads
 - Categories: https://digestai.news/category/models, /category/marketing, /category/agents, /category/research, /category/business, /category/policy, /category/hardware, /category/enterprise, /category/robotics, /category/society

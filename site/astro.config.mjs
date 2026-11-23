@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { published, sitemapIndex, isOlderListPage, JOB_SLUGS } from "./src/lib/indexing.mjs";
 import { isRedirectPage, loadRedirects } from "./src/lib/redirects.mjs";
+import { buildEvergreen } from "./src/lib/evergreen.mjs";
 
 // Old addresses of merged stories are redirect pages: never listed for search engines.
 const redirects = loadRedirects(path.resolve("src/data"));
@@ -34,6 +35,16 @@ try {
     // /work/prices is indexable only once enough tools have actually moved (WORK_PRICES_MIN_ENTRIES).
     priceChanges: read("work-prices.json", {}).changes || [],
   });
+} catch {}
+// Evergreen lists and comparisons (/models/pricing, /compare/..., /work/tools/<task>): listed when the
+// page's own threshold says it is worth indexing (evergreen.mjs), with the date its newest fact is from.
+let evergreen = new Map();
+try {
+  evergreen = buildEvergreen({
+    stories: published(read("stories.json", [])),
+    models: read("trackers.json", {}).models || [],
+    tools: read("work.json", {}).tools || [],
+  }).pages;
 } catch {}
 
 /* Addresses from the previous site that still get search impressions. Astro writes each as a page
@@ -72,11 +83,12 @@ export default defineConfig({
         if (/\/(search|admin|saved|river|offline)$/.test(p) || p in legacyRedirects || isRedirectPage(page, redirects)) return false;
         // Page 2 and up of a long list (/topic/openai/2 …) is noindex, never listed (indexing.mjs).
         if (isOlderListPage(p)) return false;
+        if (evergreen.has(p)) return evergreen.get(p).indexable;
         return plan ? plan.include(p) : true;
       },
       serialize(item) {
         const p = new URL(item.url).pathname.replace(/\/$/, "");
-        const mod = plan?.lastmod.get(p);
+        const mod = plan?.lastmod.get(p) || evergreen.get(p)?.lastmod;
         if (mod) item.lastmod = mod;
         if (p === "" || p === "/today") { item.changefreq = "hourly"; item.priority = 1.0; }
         else if (p === "/week") { item.changefreq = "daily"; item.priority = 0.8; }
