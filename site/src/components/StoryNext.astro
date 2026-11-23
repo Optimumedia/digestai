@@ -27,7 +27,9 @@ const candidates = [...order, ...briefingAlso].filter((s) => s.id !== story.id);
 const next = candidates[0];
 const near = related(story, 3).find((s) => s.id !== next?.id && (s.firstPublishedAt || "") >= (story.firstPublishedAt || "").slice(0, 7));
 const label = at >= 0 ? `Next in today's briefing` : brief.length ? "Today's top story" : "Read next";
-const place = at >= 0 ? `Story ${at + 1} of ${brief.length}` : "";
+// The place of the story offered, not of this one ("Story 2 of 5" beside story 2's headline).
+const nextAt = next ? brief.findIndex((s) => s.id === next.id) : -1;
+const place = at >= 0 && nextAt >= 0 ? `Story ${nextAt + 1} of ${brief.length}` : "";
 const list = JSON.stringify(candidates.slice(0, 8).map((s) => ({ s: s.slug, h: s.headline })));
 const url = storyUrl(story);
 const line = shareLine(story);
@@ -37,7 +39,7 @@ const links = shareLinks(url, story.headline, line);
 <div class="nextup-wrap" data-pagefind-ignore>
   {next && (
     <nav class="nextup" aria-label="What to read next" data-next={list} data-current={story.slug} data-briefing={JSON.stringify(brief.map((s) => s.slug))}>
-      <div class="nextup-k"><span data-next-label>{label}</span>{place && <span class="muted"> · {place}</span>}</div>
+      <div class="nextup-k"><span data-next-label>{label}</span>{place && <span class="muted" data-next-place> · {place}</span>}</div>
       <a class="nextup-link" href={`/story/${next.slug}`} data-work-next="story-next" data-next-link>
         <span data-next-title>{next.headline}</span><span aria-hidden="true"> →</span>
       </a>

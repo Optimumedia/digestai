@@ -168,7 +168,9 @@ def test_built_answer_files():
         assert "—" not in own, f"{name} has an em dash in its own text"
         assert len(body.encode("utf-8")) < 60_000, name
     latest = (dist / "models" / "latest.html").read_text(encoding="utf-8")
-    assert "As of " in latest and 'type="text/markdown"' in latest and '"FAQPage"' in latest
+    assert 'type="text/markdown"' in latest
+    if doc["newestByLab"]:  # a build from data with no confirmed launch shows the page's empty state
+        assert "As of " in latest and '"FAQPage"' in latest
     sitemap = "".join(p.read_text(encoding="utf-8") for p in dist.glob("sitemap-*.xml"))
     for page in sorted((dist / "models" / "released").glob("*.html")):
         html = page.read_text(encoding="utf-8")

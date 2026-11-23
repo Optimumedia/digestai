@@ -692,6 +692,7 @@
       link.href = `/story/${unread[0].s}`;
       nav.querySelector("[data-next-title]").textContent = unread[0].h;
       nav.querySelector("[data-next-meta]")?.remove();
+      nav.querySelector("[data-next-place]")?.remove();  // it was the first offer's place
       nav.querySelector("[data-next-label]").textContent = "Next you have not read";
     }
   });
