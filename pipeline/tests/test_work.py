@@ -993,6 +993,8 @@ def test_the_admin_work_engagement_line_is_one_narrow_query():
             {"type": "card_view", "path": "/work", "value": 1, "detail": "Canva Magic Studio"},
             {"type": "card_view", "path": "/work", "value": 1, "detail": "Canva Magic Studio"},
             {"type": "card_view", "path": "/work", "value": 1, "detail": "Other tool"},
+            {"type": "next_click", "path": "/work", "value": 1, "detail": "home-teaser"},
+            {"type": "next_click", "path": "/story/x", "value": 1, "detail": "story-next"},  # a story's read-next link (StoryNext.astro)
         ]
         with eng.begin() as conn:
             # Every row names every column: an executemany takes its columns from the first row.
@@ -1002,7 +1004,7 @@ def test_the_admin_work_engagement_line_is_one_narrow_query():
             got = admin.work_engagement(conn, now - timedelta(days=7), "Canva Magic Studio")
             plain_line = admin.work_engagement(conn, now - timedelta(days=7))
     assert {k: got[k] for k in ("views", "depthAvg", "depthReads", "tries", "copies", "expands", "nextClicks", "cardViews")} == \
-        {"views": 2, "depthAvg": 70, "depthReads": 2, "tries": 2, "copies": 1, "expands": 1, "nextClicks": 0, "cardViews": 4}, got
+        {"views": 2, "depthAvg": 70, "depthReads": 2, "tries": 2, "copies": 1, "expands": 1, "nextClicks": 1, "cardViews": 4}, got
     # Tries plus prompt copies per 100 /work views, and the featured card's try rate (tries per 100 times seen).
     assert got["actionsPer100"] == 150.0
     assert (got["featuredTries"], got["featuredViews"], got["featuredTryRate"]) == (2, 3, 66.7), got
