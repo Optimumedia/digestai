@@ -26,7 +26,7 @@ log = logging.getLogger("digest")
 # Each step is the run() of the module of the same name, imported when it starts:
 # a run of one step (the workflow's export after an early stop) does not load the other 25 modules,
 # and extract's HTML libraries (trafilatura, ~0.6 s) are loaded by the extract step alone.
-ORDER = ["fetch", "extract", "gate", "enrich", "cluster", "threads", "discuss", "pulse", "rank", "upgrade", "repair", "export", "push", "topics", "intros", "images", "howto", "prices", "simplify", "audio", "media", "social", "newsletter", "gsc", "tidy", "backup", "admin", "morning", "notify", "readme", "indexnow"]
+ORDER = ["fetch", "extract", "gate", "enrich", "cluster", "threads", "discuss", "pulse", "rank", "upgrade", "repair", "export", "push", "topics", "intros", "images", "howto", "prices", "simplify", "audio", "media", "social", "newsletter", "gsc", "tidy", "backup", "admin", "team", "morning", "notify", "readme", "indexnow"]
 
 
 def step_fn(name: str):
@@ -34,6 +34,27 @@ def step_fn(name: str):
 
 
 STEPS = {name: (lambda name=name: step_fn(name)()) for name in ORDER}
+
+# Steps that can wait for the next run (20 minutes later) when time is short, with the seconds each
+# needs to be worth starting. The others always run, and these seconds are kept for them, so a slow
+# day costs topic descriptions or images, never the dashboard, the team or the archive's backup.
+# On 23 Nov 2026 summaries took ten minutes, topics six, and the run was cut off before media,
+# admin and the team ever ran.
+CAN_WAIT = {"discuss": 20, "pulse": 10, "upgrade": 20, "repair": 10, "topics": 100, "intros": 30, "images": 60,
+            "howto": 40, "prices": 30, "simplify": 40, "social": 20, "newsletter": 30, "gsc": 15, "tidy": 20}
+# The daily spoken briefing always runs: it has its own limit (AUDIO_TIME_BUDGET_SECONDS) and takes a
+# second once the day's episode exists, but as a step that could wait it was skipped behind ten
+# minutes of summaries.
+LAST = {"audio": 150, "media": 90, "backup": 25, "admin": 30, "team": 5, "morning": 20, "notify": 5, "readme": 5, "indexnow": 5}
+
+
+def time_kept(steps: list[str], i: int) -> float:
+    """Seconds kept for the steps after position i that always run."""
+    return float(sum(LAST.get(s, 0) for s in steps[i + 1:]))
+
+
+def should_wait(step: str, steps: list[str], i: int, elapsed: float, budget: float) -> bool:
+    return step in CAN_WAIT and budget - elapsed - time_kept(steps, i) < CAN_WAIT[step]
 
 
 def restore_admin() -> bool:
@@ -66,7 +87,14 @@ def main(argv: list[str]) -> int:
     eng = db.engine()
     summary = {}
     startup_bytes = db.bytes_read() - b_start
-    for step in steps:
+    run_start = time.time()
+    timed = not argv or argv[0] == "all"
+    for i, step in enumerate(steps):
+        elapsed = time.time() - run_start
+        if timed and should_wait(step, steps, i, elapsed, config.RUN_BUDGET_SECONDS):
+            summary[step] = {"skipped": "time", "left": round(config.RUN_BUDGET_SECONDS - elapsed), "seconds": 0.0, "readKB": 0.0}
+            log.info("%s: %s", step, json.dumps(summary[step]))
+            continue
         started = db.utcnow()
         with eng.begin() as conn:
             run_id = conn.execute(insert(db.runs).values(started_at=started, step=step)).inserted_primary_key[0]

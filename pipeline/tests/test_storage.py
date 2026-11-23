@@ -443,6 +443,19 @@ def test_archive_appends_stories_leaving_the_window_and_rebuilds_when_lost():
             archive._download = saved_download
         assert st["rebuilt"] and st["total"] == 1 and st["removed"] == 1, st
         assert archive._load()["stories"]["story-7"]["sources"] == e["sources"]
+        # A damaged copy (7 Nov 2026: "invalid block type", which is not an OSError) is a missing
+        # one: no crash, the archive is taken again.
+        good = archive.path().read_bytes()
+        archive.path().write_bytes(good[:10] + bytes([0xFF] * 40) + good[50:])
+        assert archive._load()["stories"] == {}
+        tr.new_process()
+        archive._download = lambda *a, **k: None
+        try:
+            with eng.connect() as conn:
+                st = archive.update(conn, tr.NOW + timedelta(hours=2), tr.NOW + timedelta(hours=2) - window, sources, unpublished=["story-8"])
+        finally:
+            archive._download = saved_download
+        assert st["rebuilt"] and st["total"] == 1, st
         # The site file leaves out stories that are live again.
         n = archive.export(tmp / "out", {"story-7"})
         assert n == 0 and json.loads((tmp / "out" / "archive.json").read_text()) == []
@@ -604,6 +617,33 @@ def test_watchdog_opens_one_issue_updates_it_closes_it_and_keeps_the_schedule_al
     assert watchdog.run(off, "o/r", now)["reenabled"] == ["pipeline.yml", "watchdog.yml"]
     monday = datetime(2026, 9, 21, 4, 37, tzinfo=timezone.utc)
     assert watchdog.run(FakeActions("2026-09-21T04:10:00Z"), "o/r", monday)["reenabled"] == ["pipeline.yml", "watchdog.yml"]
+
+
+def test_watchdog_sees_a_site_that_stopped_changing_while_runs_succeed():
+    """7 to 23 Nov 2026: every run green, the export crashing, the site unchanged for 16 days."""
+    now = datetime(2026, 11, 23, 16, 0, tzinfo=timezone.utc)
+    green = FakeActions("2026-11-23T15:50:00Z")
+    r = watchdog.run(green, "o/r", now, site=lambda _now: 390.0)
+    assert r["stopped"] and r["siteHours"] == 390.0 and r["issue"] == "opened", r
+    assert "last generated 390.0 hours ago" in green.issue["body"]
+    # Fresh again: closed; no reading (site=None, or the site cannot be read) decides nothing.
+    assert watchdog.run(green, "o/r", now, site=lambda _now: 0.3)["issue"] == "closed"
+    assert not watchdog.run(FakeActions("2026-11-23T15:50:00Z"), "o/r", now, site=lambda _now: None)["stopped"]
+    assert not watchdog.run(FakeActions("2026-11-23T15:50:00Z"), "o/r", now)["stopped"]
+
+    class Page:
+        def __init__(self, status, payload):
+            self.status_code, self.payload = status, payload
+
+        def json(self):
+            if isinstance(self.payload, Exception):
+                raise self.payload
+            return self.payload
+
+    assert watchdog.site_age(now, get=lambda *a, **k: Page(200, {"generatedAt": "2026-11-07T09:53:17.661885Z"})) == 390.1
+    assert watchdog.site_age(now, get=lambda *a, **k: Page(200, {"generatedAt": "2026-11-23T15:00:00"})) == 1.0
+    assert watchdog.site_age(now, get=lambda *a, **k: Page(404, {})) is None
+    assert watchdog.site_age(now, get=lambda *a, **k: Page(200, ValueError("not json"))) is None
 
 
 def test_watchdog_cancels_a_run_that_is_stuck_and_leaves_normal_ones():
