@@ -21,8 +21,8 @@ export const GET: APIRoute = () => {
   <link>${site}/listen#${e.week || e.date}</link>
   <guid isPermaLink="false">digestai-work-${e.week || e.date}</guid>
   <pubDate>${new Date(e.publishedAt).toUTCString()}</pubDate>
-  <description>${esc(e.description)}</description>
-  <content:encoded><![CDATA[<p>${esc(e.description)}</p><ul>${e.stories.map((s) => `<li><a href="${site}/story/${s.slug}">${esc(s.headline)}</a></li>`).join("")}</ul>${e.week ? `<p><a href="${site}/work/week/${e.week}">The week's playbook</a></p>` : ""}]]></content:encoded>
+  <description>${esc(e.description)} Read by a synthetic voice.</description>
+  <content:encoded><![CDATA[<p>${esc(e.description)} Read by a synthetic voice.</p><ul>${e.stories.map((s) => `<li><a href="${site}/story/${s.slug}">${esc(s.headline)}</a></li>`).join("")}</ul>${e.week ? `<p><a href="${site}/work/week/${e.week}">The week's playbook</a></p>` : ""}]]></content:encoded>
   <enclosure url="${e.url}" length="${e.bytes}" type="audio/mpeg" />
   <itunes:duration>${hms(e.seconds)}</itunes:duration>
   <itunes:episodeType>full</itunes:episodeType>
@@ -35,9 +35,9 @@ export const GET: APIRoute = () => {
   <link>${site}/work</link>
   <atom:link href="${site}/work/podcast.xml" rel="self" type="application/rss+xml" />
   <language>en</language>
-  <description>A few minutes on what changed for marketers and small teams this week: what each thing does, who it helps, what it costs, how long it takes and the one catch. Every Monday. The written version, with links, is at digestai.news/work.</description>
+  <description>A few minutes on what changed for marketers and small teams this week: what each thing does, who it helps, what it costs, how long it takes and the one catch. Every Monday. The written version, with links, is at digestai.news/work. Read by a synthetic voice.</description>
   <itunes:author>Digest AI</itunes:author>
-  <itunes:summary>A few minutes on what changed for marketers and small teams this week, every Monday.</itunes:summary>
+  <itunes:summary>A few minutes on what changed for marketers and small teams this week, every Monday, read by a synthetic voice.</itunes:summary>
   <itunes:owner><itunes:name>Digest AI</itunes:name><itunes:email>hello@digestai.news</itunes:email></itunes:owner>
   <itunes:image href="${site}/podcast-cover.png" />
   <image><url>${site}/podcast-cover.png</url><title>Digest AI: AI at Work</title><link>${site}/work</link></image>
