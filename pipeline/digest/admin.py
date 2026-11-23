@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, not_, or_, select
 
 from . import cache, config, db, history, readers, share
 from . import quality as content_quality
@@ -281,6 +281,16 @@ def source_name(raw: str | None) -> str:
         s = s[4:]
     if not s or s == "direct" or s.endswith("digestai.news"):
         return "Direct"
+    # Our own tags (site/src/lib/passon.ts): a link a reader passed on (?ref=<channel>), the widget
+    # other sites embed (embed-<their host>), the feeds and the home-screen app.
+    if s.startswith("passed-on"):
+        return "Passed on by readers"
+    if s == "embed" or s.startswith("embed-"):
+        return f"Widget on {s[6:]}" if s.startswith("embed-") and len(s) > 6 else "Widget"
+    if s in ("rss", "feed"):
+        return "Feed readers"
+    if s == "pwa":
+        return "Home screen app"
     for keys, name in _SOURCE_NAMES:
         if s in keys or any("." in k and (s == k or s.endswith("." + k)) for k in keys):
             return name
@@ -851,7 +861,10 @@ def work_engagement(conn, since, featured_tool: str | None = None, zones=()) -> 
     rows = conn.execute(
         select(t.type, func.count(), func.avg(t.value))
         .where(t.auto == 0,
-               or_(t.type.in_(db.WORK_EVENT_TYPES),
+               # A story page's own "read next" links send next_click too (detail story-next and so on,
+               # components/StoryNext.astro): those are not AI at Work.
+               or_(and_(t.type.in_(db.WORK_EVENT_TYPES),
+                        or_(t.type != "next_click", t.detail.is_(None), not_(t.detail.like("story-%")))),
                    and_(t.type.in_(("view", "depth")), or_(t.path == "/work", t.path.like("/work/%")))))
         .group_by(t.type)
     ).all()

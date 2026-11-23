@@ -205,6 +205,45 @@ def test_the_done_state_file_is_read_and_counted():
     assert isinstance(share.load_shared()["stories"], dict), "the committed file parses"
 
 
+def test_daily_post_is_one_paste_ready_round_up():
+    stories, briefing, work_briefing = day_of_stories()
+    briefing["stats"] = {"stories": 212, "articles": 1412}
+    post = share.daily_post(stories, briefing, work_briefing, NOW)
+    text = post["text"]
+    assert text.startswith("AI news today, 21 September: the three stories worth your time, picked from 1,412 articles.")
+    for n in ("1. ", "2. ", "3. "):
+        assert f"\n\n{n}" in text
+    assert "4. " not in text
+    # Confirmed stories first: story 1 has one outlet and no lab post, so it drops out of the three.
+    assert "model number 1 " not in text and "model number 2 " in text
+    assert "Coding tools get cheaper for small teams." in text and "More detail follows" not in text
+    assert "For marketers and small teams: Canva adds a brief-to-post writer." in text
+
+
+def test_daily_post_links_to_the_briefing_and_stays_in_the_house_style():
+    stories, briefing, work_briefing = day_of_stories()
+    stories[1]["headline"] = "Lab's revolutionary model is a game-changer!"
+    post = share.daily_post(stories, briefing, work_briefing, NOW)
+    text = post["text"]
+    assert not HYPE.search(text), text
+    assert "—" not in text and len(text) < 1500
+    assert post["link"] in text
+    query = parse_qs(urlparse(post["link"]).query)
+    assert urlparse(post["link"]).path == "/today" and query["utm_campaign"] == ["daily-draft"] and query["utm_source"] == ["linkedin"]
+    assert text.count("#") <= 3
+
+
+def test_daily_post_needs_three_stories():
+    stories, briefing, work_briefing = day_of_stories()
+    briefing["storyIds"] = [2, 3]
+    assert share.daily_post(stories, briefing, work_briefing, NOW) is None
+    assert share.daily_post(stories, None, None, NOW) is None
+    # It rides along with the shortlist in admin.json; the page shows it only when it exists.
+    assert share.build(stories, briefing, work_briefing, {"stories": {}}, NOW)["daily"] is None
+    briefing["storyIds"] = [2, 3, 4]
+    assert share.build(stories, briefing, work_briefing, {"stories": {}}, NOW)["daily"]["slugs"][:3] == ["story-2", "story-3", "story-4"]
+
+
 def test_bluesky_posts_are_counted_per_day():
     import tempfile
     from datetime import datetime, timedelta, timezone

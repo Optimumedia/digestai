@@ -10,7 +10,7 @@ export const GET: APIRoute = () => {
     const sources = s.articles.map((a) => `<a href="${esc(a.url)}">${esc(a.source || a.domain)}</a>`).join(", ");
     return `<item>
   <title>${esc(s.headline)}</title>
-  <link>${link}</link>
+  <link>${link}?utm_source=rss</link>
   <guid isPermaLink="true">${link}</guid>
   <pubDate>${new Date(s.firstPublishedAt || s.updatedAt || Date.now()).toUTCString()}</pubDate>
   <category>${esc(categories[s.category || ""] || "AI")}</category>

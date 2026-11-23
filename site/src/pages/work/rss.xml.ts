@@ -21,7 +21,7 @@ export const GET: APIRoute = () => {
     ].join("");
     return `<item>
   <title>${esc(`${c.tool}: ${c.whatItDoes}`)}</title>
-  <link>${link}</link>
+  <link>${link}?utm_source=rss</link>
   <guid isPermaLink="true">${link}</guid>
   <pubDate>${new Date(s.firstPublishedAt || s.updatedAt || Date.now()).toUTCString()}</pubDate>
   <category>AI at Work</category>

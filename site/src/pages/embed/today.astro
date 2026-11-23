@@ -1,0 +1,16 @@
+---
+import EmbedList from "../../components/EmbedList.astro";
+import { briefing, briefingStories, byScore, meta, formatDate } from "../../lib/data";
+
+// Today's briefing, else (a quiet hour after midnight) the five best-scored stories.
+const list = (briefingStories.length ? briefingStories : byScore).slice(0, 5);
+const day = formatDate(briefing.date + "T12:00:00Z", { day: "numeric", month: "long" });
+---
+
+<EmbedList
+  title="Today in AI"
+  kicker={`Today in AI · ${day}`}
+  items={list.map((s) => ({ slug: s.slug, headline: s.headline, sources: s.articleCount }))}
+  more={{ href: "/today", label: "The full briefing →" }}
+  site={meta.siteUrl}
+/>

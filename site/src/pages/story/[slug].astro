@@ -7,6 +7,8 @@ import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import { storyJsonLdImages, storyOgImage } from "../../lib/data";
 import StoryRedirect from "../../components/StoryRedirect.astro";
 import WorkCard from "../../components/WorkCard.astro";
+import StoryNext from "../../components/StoryNext.astro";
+import KeepUp from "../../components/KeepUp.astro";
 import { toolFor, toolSlug, workCardFor } from "../../lib/work";
 import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, dateTime, shortDate, readingMinutes, related, meta, threadFor, threadStories, hubHref, trackedModelsIn, modelsReleasedIn,storiesInCategory, storyIndexable, storySearchWorthy, storyForSlug, storyRedirects, storyImages, defaultImage, storyModified, clipHeadline } from "../../lib/data";
 
@@ -66,6 +68,9 @@ const giscus = {
   category: import.meta.env.PUBLIC_GISCUS_CATEGORY || "Announcements",
   categoryId: import.meta.env.PUBLIC_GISCUS_CATEGORY_ID || "",
 };
+// The topic a reader can follow from the end of the story: the first one with a topic page (and so a feed).
+const followTopic = entityList.map(({ n }) => ({ n, href: hubHref(n) })).find((t) => t.href?.startsWith("/topic/"));
+const topic = followTopic ? { kind: "topic", slug: followTopic.href!.slice("/topic/".length), name: followTopic.n } : null;
 const typeLabel: Record<string, string> = { primary: "Primary source", press: "Press", newsletter: "Newsletter", community: "Community" };
 
 // Google Discover wants a large image (1200 px wide or more) and, ideally, 16:9, 4:3 and 1:1 versions.
@@ -235,6 +240,8 @@ const jsonLd = {
         <a class="cta" href={shown.url} target="_blank" rel="noopener nofollow" data-source-link>Open source ↗</a>
       </div>
 
+      <StoryNext story={story} />
+
       {full && (
         <section class="ft-section" data-ft-section>
           {figureImages.length > 0 && (
@@ -295,6 +302,8 @@ const jsonLd = {
         Spotted a mistake? <a href="/about#corrections">Tell us</a>.
         Published by <a href={PUBLISHER.page}>{PUBLISHER.name}</a>, who runs Digest AI and handles corrections.
       </p>
+
+      <KeepUp topic={topic} />
 
       {giscus.repo && giscus.repoId && giscus.categoryId && (
         <section class="comments" data-pagefind-ignore>

@@ -488,6 +488,17 @@ def test_source_names_for_social_apps():
         assert source_name(raw) == name, (raw, source_name(raw))
 
 
+def test_source_names_for_our_own_tags():
+    """site/src/lib/passon.ts and public/app.js: passed-on links, the widget, the feeds, the home-screen app."""
+    from digest.admin import source_name
+
+    cases = {"passed-on-whatsapp": "Passed on by readers", "passed-on-email": "Passed on by readers",
+             "embed": "Widget", "embed-blog.example.com": "Widget on blog.example.com", "rss": "Feed readers",
+             "pwa": "Home screen app", "podcast": "Podcast", "embedded.io": "embedded.io"}
+    for raw, name in cases.items():
+        assert source_name(raw) == name, (raw, source_name(raw))
+
+
 def test_events_policy_and_guard_allow_new_reader_events():
     from digest import db
 

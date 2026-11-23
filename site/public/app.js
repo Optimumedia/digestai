@@ -106,12 +106,17 @@
   const articleId = Number(document.body.dataset.articleId) || null;
   let sid = session.get("s");
   if (!sid) { sid = Math.random().toString(36).slice(2, 12); session.set("s", sid); }
-  // Where this visit came from, once per tab: a utm_source tag, else the referring site, else "direct".
+  // Where this visit came from, once per tab: a utm_source tag, else a link a reader passed on
+  // (?ref=whatsapp: lib/passon.ts), else the referring site, else the home-screen app, else "direct".
   let visitSource = session.get("src");
   if (!visitSource) {
     let host = "";
     try { host = document.referrer ? new URL(document.referrer).hostname.replace(/^www[.]/, "") : ""; } catch {}
-    visitSource = new URLSearchParams(location.search).get("utm_source") || (host && host !== location.hostname ? host : "direct");
+    const q = new URLSearchParams(location.search);
+    const ref = (q.get("ref") || "").toLowerCase();
+    let standalone = false;
+    try { standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true; } catch {}
+    visitSource = q.get("utm_source") || (/^[a-z-]{1,20}$/.test(ref) ? `passed-on-${ref}` : "") || (host && host !== location.hostname ? host : "") || (standalone ? "pwa" : "direct");
     session.set("src", visitSource);
   }
   // One anonymous visitor number per browser per UTC day, so a reader with several tabs counts once.
@@ -578,10 +583,51 @@
   }
 
   /* ---------- share ---------- */
+  // The page's own address (no ".html", none of the visit's parameters) with the channel it is passed
+  // on through (?ref=whatsapp), so the visit it brings is counted as passed on (lib/passon.ts).
+  const pageUrl = () => (document.querySelector('link[rel="canonical"]')?.href || location.origin + location.pathname.replace(/\.html$/, "")).split("#")[0].split("?")[0];
+  const viaRef = (url, ref) => `${url}?ref=${ref}`;
+  const clean = (el) => (el ? el.textContent.replace(/\s+/g, " ").trim() : "");
+  const firstSentence = (t) => (t.match(/^.+?[.!?](?=\s|$)/) || [t])[0];
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch {}
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand("copy"); } catch {}
+    ta.remove();
+    return ok;
+  }
+  // A post in the reader's own name, built from what the page shows: on a story the headline, up to
+  // three key points and why it matters; on /today the top three stories with their links.
+  function postText(ref) {
+    const url = viaRef(pageUrl(), ref);
+    const today = document.querySelectorAll(".today-list > li");
+    if (today.length) {
+      const lines = [...today].slice(0, 3).map((li, i) => {
+        const a = li.querySelector("h2 a");
+        return `${i + 1}. ${clean(a)}\n${viaRef(new URL(a.getAttribute("href"), new URL(pageUrl()).origin).href, ref)}`;
+      });
+      const head = clean(document.querySelector(".page-head .eyebrow")).replace(/^Daily briefing · /, "");
+      return `The AI stories that matter today${head ? `, ${head}` : ""}:\n\n${lines.join("\n\n")}\n\nAll of today's briefing, every source linked: ${url}`;
+    }
+    const points = [...document.querySelectorAll(".keypoints li")].slice(0, 3).map((li) => `• ${clean(li)}`);
+    const whyEl = document.querySelector(".why");
+    const why = whyEl ? firstSentence(clean(whyEl).replace(/^Why it matters\s*/i, "")) : "";
+    const sources = Number(document.querySelector("[data-source-count]")?.dataset.sourceCount) || 0;
+    return [clean(document.querySelector("article h1")), points.join("\n"), why && `Why it matters: ${why}`,
+      `${sources > 1 ? `All ${sources} sources on one page` : "The full story and its source"}: ${url}`].filter(Boolean).join("\n\n");
+  }
+  const say = (btn, text) => {
+    const msg = btn.closest(".passon, .toolbar")?.querySelector("[data-passon-msg]");
+    if (msg) { msg.textContent = text; clearTimeout(msg._t); msg._t = setTimeout(() => (msg.textContent = ""), 6000); }
+  };
+  document.querySelectorAll("[data-needs-js]").forEach((el) => (el.hidden = false));
+  if (navigator.share) document.querySelectorAll("[data-needs-share]").forEach((el) => (el.hidden = false));
   document.querySelectorAll("[data-share]").forEach((btn) => btn.addEventListener("click", async () => {
-    // Share the canonical address: no ".html", no tracking parameters from the visit.
-    const url = (document.querySelector('link[rel="canonical"]')?.href || location.href).split("#")[0];
     const title = document.title.replace(/ — Digest AI$/, "");
+    const kind = btn.dataset.share;
+    const url = viaRef(pageUrl(), kind === "native" ? "native" : kind.split("-")[0]);
     const text = encodeURIComponent(title);
     const u = encodeURIComponent(url);
     const targets = {
@@ -591,16 +637,128 @@
       whatsapp: `https://wa.me/?text=${text}%20${u}`,
       hn: `https://news.ycombinator.com/submitlink?u=${u}&t=${text}`,
     };
-    const kind = btn.dataset.share;
     if (kind === "copy") {
-      try { await navigator.clipboard.writeText(url); btn.textContent = "Copied"; setTimeout(() => (btn.textContent = "Copy link"), 1500); } catch {}
+      if (!(await copyText(viaRef(pageUrl(), "copy")))) return;
+      const label = btn.textContent;
+      btn.textContent = "Copied";
+      setTimeout(() => (btn.textContent = label), 1500);
+    } else if (kind === "linkedin-text" || kind === "briefing-text") {
+      const ok = await copyText(postText(kind === "linkedin-text" ? "linkedin" : "text"));
+      say(btn, ok ? (kind === "linkedin-text" ? "Copied. Paste it into a new LinkedIn post and add a line of your own." : "Copied. Paste it into an e-mail, a team chat or a message.") : "Could not copy here: select the text and copy it by hand.");
+      if (!ok) return;
     } else if (kind === "native" && navigator.share) {
       try { await navigator.share({ title, url }); } catch { return; }
     } else if (targets[kind]) {
       open(targets[kind], "_blank", "noopener,width=640,height=560");
-    }
+    } else return;
     send("share", 1);
   }));
+  // The widget page's "Copy HTML" (/embed).
+  document.querySelectorAll("[data-copy-code]").forEach((btn) => {
+    btn.hidden = false;
+    btn.addEventListener("click", async () => {
+      const box = document.getElementById(btn.dataset.copyCode);
+      if (!box || !(await copyText(box.value))) { box?.select(); return; }
+      btn.textContent = "Copied";
+      setTimeout(() => (btn.textContent = "Copy HTML"), 1500);
+    });
+  });
+  // The prepared links (WhatsApp, Telegram, e-mail) work on their own; a click is counted as a share.
+  document.querySelectorAll("[data-passon]").forEach((a) => a.addEventListener("click", () => send("share", 1)));
+
+  /* ---------- what this browser has read: the next story, and today's progress ---------- */
+  // Kept in this browser only (like saves), the last 200 story addresses opened. Used to skip what was
+  // read when offering the next story, and for "You have read 2 of 5" on /today.
+  const readList = store.get("readStories", []);
+  const read = new Set(Array.isArray(readList) ? readList : []);
+  const here = document.querySelector("[data-next]")?.dataset.current || (storyId && (location.pathname.split("/story/")[1] || "").replace(/\.html$/, "")) || "";
+  if (here && !read.has(here)) store.set("readStories", [here, ...read].slice(0, 200));
+  if (here) read.add(here);
+  document.querySelectorAll("[data-next]").forEach((nav) => {
+    let list = [];
+    try { list = JSON.parse(nav.dataset.next || "[]"); } catch {}
+    const unread = list.filter((x) => !read.has(x.s));
+    const link = nav.querySelector("[data-next-link]");
+    if (!link || !list.length) return;
+    if (!unread.length) {
+      nav.querySelector("[data-next-label]").textContent = "You have read today's briefing";
+      nav.querySelector(".nextup-k .muted")?.remove();
+      link.href = "/river";
+      nav.querySelector("[data-next-title]").textContent = "Every story as it comes in, newest first";
+      nav.querySelector("[data-next-meta]")?.remove();
+      return;
+    }
+    if (unread[0].s !== list[0].s) {
+      link.href = `/story/${unread[0].s}`;
+      nav.querySelector("[data-next-title]").textContent = unread[0].h;
+      nav.querySelector("[data-next-meta]")?.remove();
+      nav.querySelector("[data-next-label]").textContent = "Next you have not read";
+    }
+  });
+  {
+    const items = [...document.querySelectorAll(".today-list > li[data-story-slug]")];
+    items.filter((li) => read.has(li.dataset.storySlug)).forEach((li) => li.classList.add("is-read"));
+    let brief = items.map((li) => li.dataset.storySlug);
+    if (!brief.length) { try { brief = JSON.parse(document.querySelector("[data-briefing]")?.dataset.briefing || "[]"); } catch {} }
+    const done = brief.filter((s) => read.has(s)).length;
+    if (done && brief.length) {
+      document.querySelectorAll("[data-today-progress]").forEach((el) => {
+        el.textContent = done >= brief.length ? " · You have read them all" : ` · You have read ${done} of ${brief.length}`;
+        el.hidden = false;
+      });
+    }
+  }
+
+  /* ---------- add to the home screen ---------- */
+  // The browser's own install prompt where there is one (Chrome, Edge, Samsung on Android and
+  // desktop), the Share menu's "Add to Home Screen" on an iPhone. Offered in the "Get this every day"
+  // box, and once in a small bar to a reader on their second day here (dismissed: not again for 60
+  // days). Never in the installed app itself. The app opens on today's briefing (manifest start_url).
+  {
+    let standalone = false;
+    try { standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true; } catch {}
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent || "") && !/crios|fxios|edgios/i.test(navigator.userAgent || "");
+    let prompt = null;
+    const today = new Date().toISOString().slice(0, 10);
+    const days = store.get("visitDays", []);
+    const seen = Array.isArray(days) ? days : [];
+    if (!seen.includes(today)) store.set("visitDays", [today, ...seen].slice(0, 30));
+    const returning = seen.some((d) => d !== today);
+    const install = async (btn) => {
+      if (prompt) {
+        prompt.prompt();
+        try { await prompt.userChoice; } catch {}
+        prompt = null;
+        document.querySelectorAll("[data-install], .installbar").forEach((el) => (el.hidden = true));
+      } else if (ios) {
+        const hint = btn.parentElement.querySelector("[data-install-hint]") || btn.parentElement.querySelector("span");
+        if (hint) hint.textContent = "In Safari, tap the Share button, then Add to Home Screen.";
+      }
+    };
+    const offer = () => {
+      document.querySelectorAll("[data-install]").forEach((li) => {
+        li.hidden = false;
+        li.querySelector("[data-install-btn]")?.addEventListener("click", (e) => install(e.currentTarget), { once: !ios });
+      });
+      const page = location.pathname.replace(/\.html$/, "");
+      const snoozed = Number(store.get("installSnooze", 0)) || 0;
+      if (!returning || Date.now() < snoozed || document.querySelector(".pushbar") || !(page === "/today" || page.startsWith("/story/"))) return;
+      const bar = document.createElement("aside");
+      bar.className = "pushbar installbar";
+      bar.innerHTML = `<span>Open today's briefing from your home screen, like an app. No account, nothing to install from a store.</span><button class="follow" data-install-go>${ios ? "How" : "Add to home screen"}</button><button class="icon-btn" data-install-close aria-label="Not now">×</button>`;
+      document.querySelector("main")?.prepend(bar);
+      bar.querySelector("[data-install-close]").addEventListener("click", () => { store.set("installSnooze", Date.now() + 60 * 864e5); bar.remove(); });
+      bar.querySelector("[data-install-go]").addEventListener("click", () => {
+        if (prompt) install(bar.querySelector("[data-install-go]"));
+        else bar.querySelector("span").textContent = "In Safari, tap the Share button, then Add to Home Screen.";
+        store.set("installSnooze", Date.now() + 60 * 864e5);
+      });
+    };
+    if (!standalone) {
+      addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); prompt = e; offer(); }, { once: true });
+      if (ios) offer();
+    }
+  }
 
   /* ---------- live presence: who is on the site right now (read by the admin page) ---------- */
   // Anonymous and not stored: the page, its title, the traffic source and whether it is a phone.
@@ -782,7 +940,7 @@
     const reads = (store.get("reads", 0) || 0) + 1;
     store.set("reads", reads);
     const snoozed = store.get("pushSnooze", 0) || 0;
-    if (reads >= 3 && Date.now() > snoozed && !document.querySelector("[data-push]")) {
+    if (reads >= 3 && Date.now() > snoozed && !document.querySelector("[data-push], .installbar")) {
       const bar = document.createElement("aside");
       bar.className = "pushbar";
       bar.innerHTML = `<span>Get an alert when AI news breaks, at most three a day.</span><button class="follow" data-push aria-pressed="false">Turn on alerts</button><button class="icon-btn" data-push-close aria-label="Not now">×</button>`;

@@ -5,6 +5,7 @@ import Breadcrumbs from "../components/Breadcrumbs.astro";
 import ListenPlayer from "../components/ListenPlayer.astro";
 import { episodes, meta, formatDate, storiesByDay, noindex, type Episode } from "../lib/data";
 import { workEpisodes } from "../lib/work";
+import { podcastApps } from "../lib/passon";
 
 /* /listen: the two audio shows, explained for someone who has never heard them (what they are, how
    long, how to subscribe), then the latest episodes, each with a one-line description built from its
@@ -18,7 +19,6 @@ const dailyMinutes = average(episodes.slice(0, SHOWN));
 const workMinutes = average(workEpisodes.slice(0, 8));
 const feed = `${meta.siteUrl}/podcast.xml`;
 const workFeed = `${meta.siteUrl}/work/podcast.xml`;
-const bare = (u: string) => u.replace(/^https?:\/\//, "");
 // A day's written briefing, linked from its episode when that day's page exists and is indexable.
 const days = storiesByDay();
 const dayHref = (date: string) => (days.has(date) && !noindex.has(`/daily/${date}`) ? `/daily/${date}` : null);
@@ -133,16 +133,14 @@ const jsonLd = [series, ...(workSeries ? [workSeries] : []), ...(episodes.length
       <section class="podbox" aria-labelledby="sub-h">
         <h2 id="sub-h" class="eyebrow">How to subscribe</h2>
         <ol class="listen-how">
-          <li><b>On a phone:</b> tap your app below. Apple Podcasts, Pocket Casts and Overcast open the show ready to follow.</li>
-          <li><b>Any other app</b> (AntennaPod, Podcast Addict, Castro and others): choose "Add podcast by URL" or "Add RSS feed" and paste the address below. In Apple Podcasts it is "Follow a Show by URL" (in the Library's ⋯ menu on an iPhone, the File menu on a Mac).</li>
+          <li><b>On a phone:</b> tap your app below. Apple Podcasts, Pocket Casts, Overcast and AntennaPod open the show ready to follow.</li>
+          <li><b>Any other app</b> (Podcast Addict, Castro and others): choose "Add podcast by URL" or "Add RSS feed" and paste the address below. In Apple Podcasts it is "Follow a Show by URL" (in the Library's ⋯ menu on an iPhone, the File menu on a Mac).</li>
           <li><b>In an RSS reader:</b> the same address works; new episodes arrive as items with the audio attached. The written stories have their own feed at <a href="/rss.xml">/rss.xml</a>.</li>
         </ol>
         <p>The daily briefing's feed:</p>
         <p><code class="feedurl">{feed}</code></p>
         <div class="taglist">
-          <a href={`podcast://${bare(feed)}`}>Apple Podcasts</a>
-          <a href={`pktc://subscribe/${bare(feed)}`}>Pocket Casts</a>
-          <a href={`overcast://x-callback-url/add?url=${encodeURIComponent(feed)}`}>Overcast</a>
+          {podcastApps(feed, "Digest AI briefing").map((a) => <a href={a.href}>{a.name}</a>)}
           <a href={feed}>RSS feed</a>
         </div>
       </section>
@@ -197,9 +195,7 @@ const jsonLd = [series, ...(workSeries ? [workSeries] : []), ...(episodes.length
             <div class="eyebrow">Subscribe to AI at Work</div>
             <p><code class="feedurl">{workFeed}</code></p>
             <div class="taglist">
-              <a href={`podcast://${bare(workFeed)}`}>Apple Podcasts</a>
-              <a href={`pktc://subscribe/${bare(workFeed)}`}>Pocket Casts</a>
-              <a href={`overcast://x-callback-url/add?url=${encodeURIComponent(workFeed)}`}>Overcast</a>
+              {podcastApps(workFeed, "Digest AI: AI at Work").map((a) => <a href={a.href}>{a.name}</a>)}
               <a href={workFeed}>RSS feed</a>
             </div>
           </section>

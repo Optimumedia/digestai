@@ -1,5 +1,6 @@
 /* Digest AI service worker: offline reading and push alerts.
-   - Pages: network first, falling back to the last copy seen, then /offline.
+   - Pages: network first, falling back to the last copy seen (whatever ?ref= or utm_source= it was
+     opened with, so the home-screen app opens today's briefing offline), then /offline.
    - Built assets, images and fonts: cache first (they are content-addressed or rarely change).
    - Push: shows the story as a notification; a tap opens it. */
 const VERSION = "v1";
@@ -8,7 +9,7 @@ const ASSETS = `assets-${VERSION}`;
 const OFFLINE_URL = "/offline";
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(PAGES).then((c) => c.addAll([OFFLINE_URL, "/"]).catch(() => {})).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(PAGES).then((c) => c.addAll([OFFLINE_URL, "/", "/today"]).catch(() => {})).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (event) => {
@@ -28,7 +29,7 @@ self.addEventListener("fetch", (event) => {
       fetch(req).then((res) => {
         if (res.ok) caches.open(PAGES).then((c) => c.put(req, res.clone())).catch(() => {});
         return res;
-      }).catch(() => caches.match(req).then((hit) => hit || caches.match(OFFLINE_URL)))
+      }).catch(() => caches.match(req, { ignoreSearch: true }).then((hit) => hit || caches.match(OFFLINE_URL)))
     );
     return;
   }
@@ -45,7 +46,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (/^\/(_astro|og|fonts)\//.test(url.pathname) || /\.(png|svg|woff2?|webmanifest)$/.test(url.pathname)) {
+  if (/^\/(_astro|og|fonts)\//.test(url.pathname) || /\.(png|svg|woff2?)$/.test(url.pathname)) {
     event.respondWith(
       caches.match(req).then((hit) => hit || fetch(req).then((res) => {
         if (res.ok) caches.open(ASSETS).then((c) => c.put(req, res.clone())).catch(() => {});

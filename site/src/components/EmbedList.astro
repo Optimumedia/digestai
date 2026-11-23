@@ -1,0 +1,71 @@
+---
+/* The free "Today in AI" widget other sites place in an iframe (documented at /embed). A page of its
+   own, not the site layout: no scripts from us beyond one line, no cookies, no fonts to fetch, no
+   counting, nothing indexed (noindex). Light or dark follows the reader's setting, or ?theme=light /
+   ?theme=dark. Links open on digestai.news in a new tab, tagged utm_source=embed; the one line of
+   script adds the embedding site's host name (from the referrer, which browsers cut to the host) so
+   the admin can tell which sites send readers. The list is rebuilt with the site, every run. */
+interface Props {
+  title: string;
+  kicker: string;
+  items: { slug: string; headline: string; sources: number }[];
+  more: { href: string; label: string };
+  site: string;
+}
+const { title, kicker, items, more, site } = Astro.props;
+const link = (p: string) => `${site}${p}${p.includes("?") ? "&" : "?"}utm_source=embed`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <title>{title} · Digest AI</title>
+    <base target="_blank" />
+    <style is:inline>
+      :root { --bg: #ffffff; --ink: #14181f; --ink-2: #4a5361; --line: #e3e6eb; --accent: #3b5bdb; color-scheme: light; }
+      @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0e1116; --ink: #eef1f5; --ink-2: #a3acb9; --line: #262c36; --accent: #8397ff; color-scheme: dark; } }
+      :root[data-theme="dark"] { --bg: #0e1116; --ink: #eef1f5; --ink-2: #a3acb9; --line: #262c36; --accent: #8397ff; color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+      .w { padding: 14px 16px 12px; border: 1px solid var(--line); border-radius: 6px; min-height: 100vh; display: flex; flex-direction: column; }
+      .k { font: 600 11px/1.2 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin: 0 0 8px; }
+      ol { margin: 0; padding: 0; list-style: none; counter-reset: n; flex: 1; }
+      li { counter-increment: n; display: grid; grid-template-columns: 18px 1fr; gap: 6px; padding: 8px 0; border-top: 1px solid var(--line); }
+      li:first-child { border-top: 0; }
+      li::before { content: counter(n); color: var(--ink-2); font-weight: 600; }
+      a { color: var(--ink); text-decoration: none; }
+      a:hover, a:focus-visible { color: var(--accent); text-decoration: underline; }
+      .s { display: block; font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+      .f { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 13px; padding-top: 8px; border-top: 1px solid var(--line); }
+      .f a { color: var(--accent); font-weight: 600; }
+      .b { font-weight: 700; color: var(--ink); }
+    </style>
+    <script is:inline>
+      (function () {
+        var t = new URLSearchParams(location.search).get("theme");
+        if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+        document.addEventListener("DOMContentLoaded", function () {
+          var host = "";
+          try { host = document.referrer ? new URL(document.referrer).hostname.replace(/^www\./, "") : ""; } catch (e) {}
+          if (!/^[a-z0-9.-]{3,50}$/.test(host) || /digestai\.news$/.test(host)) return;
+          document.querySelectorAll("a[href*='utm_source=embed']").forEach(function (a) { a.href = a.href.replace("utm_source=embed", "utm_source=embed-" + host); });
+        });
+      })();
+    </script>
+  </head>
+  <body>
+    <div class="w">
+      <p class="k">{kicker}</p>
+      <ol>
+        {items.map((s) => (
+          <li><div><a href={link(`/story/${s.slug}`)}>{s.headline}</a><span class="s">{s.sources} {s.sources === 1 ? "source" : "sources"}</span></div></li>
+        ))}
+      </ol>
+      <div class="f"><a href={link(more.href)}>{more.label}</a><a class="b" href={link("/")}>Digest AI</a></div>
+    </div>
+  </body>
+</html>

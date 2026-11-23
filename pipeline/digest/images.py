@@ -9,7 +9,8 @@ downloads without an image type, which Facebook and LinkedIn refuse as a link pr
 cards of stories from the last OG_PAGES_DAYS days (when links get shared) are also kept in
 site/public/og and served by Pages; older stories fall back to the default card. Thread and topic
 cards live there too, re-rendered when their counts change. site/public/og is kept between runs
-by a cache the workflow saves once a day; anything missing is rendered again.
+by a cache the workflow saves once a day; anything missing is rendered again. The day's briefing has a
+card of its own there too (today_card below), for links to /today.
 
 When a story's primary source is the company's own announcement and its picture is at least 1200 px
 wide, the story page uses that picture as its share image instead of the card (primary_images below).
@@ -45,6 +46,7 @@ VARIANT_DAYS = 3
 MAX_VARIANTS_PER_RUN = 150   # variant files per run, a budget of their own so share cards never wait
 CARD_COLORS = 64
 MAX_CARDS_PER_RUN = 300      # thread and topic cards, re-rendered every run
+TODAY_CARDS_KEPT = 7         # days of /today cards kept in Pages, for links already shared
 MAX_THUMBS_PER_RUN = 40      # publisher pictures fetched per run
 THUMB_TIME_BUDGET_SECONDS = 60
 THUMB_WIDTH = 600
@@ -181,6 +183,75 @@ def render_card(kind: str, title: str, subtitle: str, footer: str, color: str, p
     d.text((80, H - 70), footer, font=mono, fill="#78828f")
     path.parent.mkdir(parents=True, exist_ok=True)
     _save_card(img, path)
+
+
+def today_path(date: str) -> Path:
+    """The day's briefing card. The date is in the name because LinkedIn and others cache a preview by
+    image address: a card that kept one name would show yesterday's headlines for days."""
+    return OUT / f"today-{date}.png"
+
+
+def render_today(date_label: str, headlines: list[str], footer: str, path: Path) -> None:
+    """The /today share card: the day and its top three headlines, so a link to the briefing shows
+    what is in it. The same dark card as a story's, numbered like the page."""
+    img = Image.new("RGB", (W, H), "#0e1116")
+    d = ImageDraw.Draw(img)
+    color = "#8397ff"
+    d.rectangle([0, 0, 16, H], fill=color)
+    mono = _font("JetBrainsMono.ttf", 24, 500)
+    brand_serif = _font("Newsreader.ttf", 44, 600, 72)
+    d.text((80, 62), f"AI NEWS TODAY  ·  {date_label.upper()}", font=mono, fill=color)
+    d.text((W - 80 - d.textlength("Digest AI", font=brand_serif), 48), "Digest", font=brand_serif, fill="#e6eaf0")
+    d.text((W - 80 - d.textlength(" AI", font=brand_serif), 48), " AI", font=brand_serif, fill="#8397ff")
+    shown = headlines[:3]
+    for size in (46, 42, 38, 34):
+        font = _font("Newsreader.ttf", size, 500, 72)
+        wrapped = [_wrap(d, h, font, W - 220) for h in shown]
+        step = int(size * 1.18)
+        if sum(min(len(w), 2) * step + 22 for w in wrapped) <= H - 210:
+            break
+    y = 136
+    for n, lines in enumerate(wrapped, 1):
+        d.text((80, y + 2), str(n), font=font, fill=color)
+        if len(lines) > 2:
+            last = lines[1]
+            while " " in last and d.textlength(last + "…", font=font) > W - 220:
+                last = last.rsplit(" ", 1)[0]
+            lines = [lines[0], last.rstrip(" ,;:") + "…"]
+        for line in lines:
+            d.text((140, y), line, font=font, fill="#f2f4f7")
+            y += step
+        y += 22
+    d.text((80, H - 70), footer, font=mono, fill="#78828f")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _save_card(img, path)
+
+
+def today_card(data_dir: Path | None = None) -> bool:
+    """Draw today's briefing card when the briefing's stories have changed. False when there is
+    nothing to draw or the card is current. Reads only the export's files."""
+    d = data_dir or config.SITE_DATA_DIR
+    try:
+        briefing = json.loads((d / "briefing.json").read_text(encoding="utf-8"))
+        stories = {s["id"]: s for s in json.loads((d / "stories.json").read_text(encoding="utf-8"))}
+    except (OSError, ValueError):
+        return False
+    top = [stories[i] for i in briefing.get("storyIds") or [] if i in stories]
+    if len(top) < 3 or not briefing.get("date"):
+        return False
+    date = briefing["date"]
+    path = today_path(date)
+    stamp = path.with_suffix(f".{'-'.join(str(s['id']) for s in top[:3])}.stamp")
+    if path.exists() and stamp.exists():
+        return False
+    for old in OUT.glob(f"today-{date}.*.stamp"):
+        old.unlink(missing_ok=True)
+    day = datetime.strptime(date, "%Y-%m-%d")
+    stats = briefing.get("stats") or {}
+    footer = f"{len(top)} stories from {stats.get('articles')} articles  ·  digestai.news/today" if stats.get("articles") else "digestai.news/today"
+    render_today(f"{day.day} {day.strftime('%B')}", [s["headline"] for s in top], footer, path)
+    stamp.touch()
+    return True
 
 
 # ---- thumbnails -----------------------------------------------------------------------
@@ -495,9 +566,19 @@ def run(fetch=None, now: datetime | None = None) -> dict:
             log.warning("share image failed for %s: %s", slug, exc)
     # Story cards older than the window leave Pages (the store keeps them).
     for f in OUT.glob("*.png"):
-        if not f.name.startswith(("thread-", "topic-")) and f.name not in recent:
+        if not f.name.startswith(("thread-", "topic-", "today-")) and f.name not in recent:
             f.unlink(missing_ok=True)
             stats["pruned"] += 1
+    # The briefing's own card: today's, and the last few so shared links keep their preview for a while.
+    try:
+        stats["today"] = int(today_card())
+    except Exception as exc:  # noqa: BLE001 - /today falls back to the default card
+        log.warning("briefing card failed: %s", exc)
+    cards = sorted(OUT.glob("today-*.png"))
+    for f in cards[:-TODAY_CARDS_KEPT]:
+        f.unlink(missing_ok=True)
+        for stale in OUT.glob(f"{f.stem}.*.stamp"):
+            stale.unlink(missing_ok=True)
 
     stats["thumbs"] = make_thumbnails(stories, fetch)
     media.save_manifest()

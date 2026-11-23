@@ -3,7 +3,10 @@ import Base from "../layouts/Base.astro";
 import Coverage from "../components/Coverage.astro";
 import Rail from "../components/Rail.astro";
 import ListenPlayer from "../components/ListenPlayer.astro";
-import { briefing, briefingStories, briefingAlso, newsletters, renderMarkdown, categories, formatDate, shortDate, sourceNames, meta, episodes } from "../lib/data";
+import KeepUp from "../components/KeepUp.astro";
+import path from "node:path";
+import { shareLinks } from "../lib/passon";
+import { pngSize, briefing, briefingStories, briefingAlso, newsletters, renderMarkdown, categories, formatDate, shortDate, sourceNames, meta, episodes } from "../lib/data";
 
 const episode = episodes.find((e) => e.date === briefing.date) || episodes[0];
 const pretty = formatDate(briefing.date + "T00:00:00Z", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -22,6 +25,15 @@ const updatedTime = new Date(updated).toLocaleTimeString("en-GB", { hour: "2-dig
 const archive = Object.entries(newsletters).filter(([, n]) => n.publicUrl).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 7);
 const kitForm = import.meta.env.PUBLIC_KIT_FORM_URL || "";
 const url = `${meta.siteUrl}/today`;
+// The day's own share card (pipeline/digest/images.py today_card): its top headlines, so a link to
+// /today shows what is in it. Without it in this build the page keeps the default card.
+const cardFile = `og/today-${briefing.date}.png`;
+const cardSize = pngSize(path.resolve(process.cwd(), "public", cardFile));
+const card = cardSize ? { url: `${meta.siteUrl}/${cardFile}`, ...cardSize } : null;
+// Passing the briefing on: a message with the top headlines, as plain links that work without JavaScript.
+const shareTitle = `AI news today, ${dayMonth}`;
+const briefLine = briefingStories.slice(0, 3).map((s, i) => `${i + 1}. ${s.headline}`).join("\n");
+const briefLinks = shareLinks(url, shareTitle, briefLine);
 const jsonLd = [
   {
     "@context": "https://schema.org",
@@ -53,7 +65,7 @@ const jsonLd = [
 ];
 ---
 
-<Base title={title} description={description} canonical={url} jsonLd={jsonLd}>
+<Base title={title} description={description} canonical={url} jsonLd={jsonLd} image={card?.url} imageWidth={card?.width} imageHeight={card?.height}>
   <div class="grid">
     <div>
       <header class="page-head">
@@ -63,7 +75,7 @@ const jsonLd = [
           {count > 0 ? <>The {words[count] || count} AI {count === 1 ? "story" : "stories"} that matter today, </> : <>Today's AI news, </>}
           picked from {briefing.stats.stories} stories and {briefing.stats.articles} articles; about {briefing.stats.minutes} minutes to read. Same as the email, on the web.
         </p>
-        <p class="updated-line">Updated <time datetime={updated} data-static>{updatedTime} UTC</time>, {formatDate(updated, { day: "numeric", month: "long" })}</p>
+        <p class="updated-line">Updated <time datetime={updated} data-static>{updatedTime} UTC</time>, {formatDate(updated, { day: "numeric", month: "long" })}<span class="today-progress" data-today-progress hidden></span></p>
       </header>
 
       {episode && (
@@ -78,7 +90,7 @@ const jsonLd = [
         {briefingStories.map((s) => {
           const { names, more } = sourceNames(s, 5);
           return (
-            <li data-published={s.updatedAt}>
+            <li data-published={s.updatedAt} data-story-slug={s.slug}>
               <div class="meta-row">
                 <a class="chip" href={`/category/${s.category}`}>{categories[s.category || ""] || "AI"}</a>
                 <time datetime={s.firstPublishedAt || s.updatedAt || undefined}>{shortDate(s.firstPublishedAt || s.updatedAt)}</time>
@@ -98,6 +110,18 @@ const jsonLd = [
         })}
       </ol>
 
+      {count > 0 && (
+        <div class="passon passon-today" role="group" aria-label="Pass today's briefing on" data-pagefind-ignore>
+          <span class="passon-k">Send today's stories to someone</span>
+          <button type="button" class="tb" data-share="briefing-text" data-needs-js hidden>Copy as text</button>
+          <a class="tb" href={briefLinks.email} data-passon="email">Email</a>
+          <a class="tb" href={briefLinks.whatsapp} target="_blank" rel="noopener nofollow" data-passon="whatsapp">WhatsApp</a>
+          <button type="button" class="tb" data-share="linkedin-text" data-needs-js hidden>Copy for LinkedIn</button>
+          <button type="button" class="tb" data-share="native" data-needs-share hidden>Share…</button>
+          <p class="passon-msg muted" data-passon-msg aria-live="polite"></p>
+        </div>
+      )}
+
       {briefingAlso.length > 0 && (
         <section>
           <div class="dayhead"><h2>Also today</h2></div>
@@ -112,18 +136,18 @@ const jsonLd = [
         </section>
       )}
 
-      <section class="newsletter" style="margin-top: 32px">
-        <h3>Get this briefing by email</h3>
-        <p>Every morning at 07:00. One click to leave.</p>
-        {kitForm ? (
+      {kitForm ? (
+        <section class="newsletter" style="margin-top: 32px">
+          <h3>Get this briefing by email</h3>
+          <p>Every morning at 07:00. One click to leave.</p>
           <form action={kitForm} method="post"><input type="email" name="email_address" placeholder="you@example.com" required aria-label="Email address" /><button type="submit">Subscribe</button></form>
-        ) : (
-          <p class="muted">Sign-up opens shortly. The <a href="/rss.xml">RSS feed</a> carries every story meanwhile.</p>
-        )}
-        {archive.length > 0 && (
-          <p class="muted" style="margin-top: 10px">Past briefings: {archive.map(([d, n]) => <a href={n.publicUrl!} rel="noopener">{d}</a>).reduce((acc: any[], el, i) => (i ? [...acc, " · ", el] : [el]), [])}</p>
-        )}
-      </section>
+          {archive.length > 0 && (
+            <p class="muted" style="margin-top: 10px">Past briefings: {archive.map(([d, n]) => <a href={n.publicUrl!} rel="noopener">{d}</a>).reduce((acc: any[], el, i) => (i ? [...acc, " · ", el] : [el]), [])}</p>
+          )}
+        </section>
+      ) : (
+        <KeepUp heading="Get this briefing every day" />
+      )}
     </div>
     <Rail />
   </div>

@@ -1,10 +1,13 @@
 ---
 import Base from "../layouts/Base.astro";
 import Rail from "../components/Rail.astro";
+import { dailyFeed, feedReaders, podcastApps } from "../lib/passon";
+import { meta } from "../lib/data";
 // The daily email switches on when the Kit form is configured (PUBLIC_KIT_FORM_URL, SETUP.md section 3).
 // Until then this page says so plainly and offers the ways to follow that already work.
 const kitForm = import.meta.env.PUBLIC_KIT_FORM_URL || "";
 const bluesky = "https://bsky.app/profile/digestai.bsky.social";
+const podcastFeed = `${meta.siteUrl}/podcast.xml`;
 ---
 
 <Base
@@ -38,14 +41,26 @@ const bluesky = "https://bsky.app/profile/digestai.bsky.social";
         <p class="muted" data-push-status></p>
       </section>
 
-      <section style="margin-top: 32px">
-        <div class="eyebrow">Podcast</div>
-        <p>The morning briefing read aloud in about five minutes. <a href="/listen">Listen here</a> or add <a href="/podcast.xml">the podcast feed</a> to your podcast app.</p>
+      <section style="margin-top: 32px" id="daily">
+        <div class="eyebrow">The daily briefing, in a feed reader</div>
+        <p>One post a day with the AI stories that matter, each linked to its sources. Add it in one click to <a href={feedReaders(dailyFeed)[0].href} target="_blank" rel="noopener nofollow">Feedly</a> or <a href={feedReaders(dailyFeed)[1].href} target="_blank" rel="noopener nofollow">Inoreader</a>, or paste this address into any feed reader:</p>
+        <p><code class="feedurl">{dailyFeed}</code></p>
       </section>
 
       <section style="margin-top: 24px">
-        <div class="eyebrow">Feeds</div>
-        <p>Every story flows through <a href="/rss.xml">the main RSS feed</a>, and each section has its own feed on its category page. Follow a topic and its stories appear on your <a href="/">front page</a>.</p>
+        <div class="eyebrow">Podcast</div>
+        <p>The morning briefing read aloud in about five minutes. <a href="/listen">Listen here</a> or open it in your podcast app:</p>
+        <div class="taglist">{podcastApps(podcastFeed, "Digest AI briefing").map((a) => <a href={a.href}>{a.name}</a>)}<a href="/podcast.xml">Any app: the feed</a></div>
+      </section>
+
+      <section style="margin-top: 24px" data-install hidden>
+        <div class="eyebrow">Home screen</div>
+        <p>Put Digest AI on your phone's home screen: it opens on today's briefing, like an app, with nothing to download from a store. <button type="button" class="linkish" data-install-btn>Add to home screen</button> <span class="muted" data-install-hint></span></p>
+      </section>
+
+      <section style="margin-top: 24px">
+        <div class="eyebrow">Every story</div>
+        <p>Every story as it is published flows through <a href="/rss.xml">the main RSS feed</a>, and each section has its own feed on its category page. Follow a topic and its stories appear on your <a href="/">front page</a>.</p>
       </section>
 
       <section style="margin-top: 24px">
