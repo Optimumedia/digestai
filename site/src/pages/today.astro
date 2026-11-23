@@ -6,7 +6,7 @@ import ListenPlayer from "../components/ListenPlayer.astro";
 import KeepUp from "../components/KeepUp.astro";
 import path from "node:path";
 import { shareLinks } from "../lib/passon";
-import { pngSize, briefing, briefingStories, briefingAlso, newsletters, renderMarkdown, categories, formatDate, shortDate, sourceNames, meta, episodes } from "../lib/data";
+import { pngSize, briefing, briefingStories, briefingAlso, newsletters, renderMarkdown, categories, formatDate, shortDate, sourceNames, meta, episodes, storiesByDay } from "../lib/data";
 
 const episode = episodes.find((e) => e.date === briefing.date) || episodes[0];
 const pretty = formatDate(briefing.date + "T00:00:00Z", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -34,6 +34,12 @@ const card = cardSize ? { url: `${meta.siteUrl}/${cardFile}`, ...cardSize } : nu
 const shareTitle = `AI news today, ${dayMonth}`;
 const briefLine = briefingStories.slice(0, 3).map((s, i) => `${i + 1}. ${s.headline}`).join("\n");
 const briefLinks = shareLinks(url, shareTitle, briefLine);
+// The answer to "what is the AI news today?" in one sentence at the top, dated, which is the part of a
+// page assistants quote; and the day's permanent address, since /today changes every 20 minutes and a
+// citation of it goes stale by tomorrow.
+const answerLead = briefingStories.slice(0, 3);
+const dayPage = storiesByDay().has(briefing.date) ? `/daily/${briefing.date}` : null;
+const longDate = formatDate(briefing.date + "T00:00:00Z");
 const jsonLd = [
   {
     "@context": "https://schema.org",
@@ -66,16 +72,22 @@ const jsonLd = [
 ---
 
 <Base title={title} description={description} canonical={url} jsonLd={jsonLd} image={card?.url} imageWidth={card?.width} imageHeight={card?.height}>
+  <link slot="head" rel="alternate" type="text/markdown" title="Today's briefing as Markdown" href={`${meta.siteUrl}/today.md`} />
   <div class="grid">
     <div>
       <header class="page-head">
         <div class="eyebrow">Daily briefing · {pretty}</div>
         <h1>AI news today</h1>
+        {answerLead.length > 0 && (
+          <p class="intro latest-line">
+            The main AI news on {longDate}: {answerLead.map((s, i) => <>{i > 0 && "; "}<a href={`/story/${s.slug}`}>{s.headline}</a></>)}.
+          </p>
+        )}
         <p>
           {count > 0 ? <>The {words[count] || count} AI {count === 1 ? "story" : "stories"} that matter today, </> : <>Today's AI news, </>}
           picked from {briefing.stats.stories} stories and {briefing.stats.articles} articles; about {briefing.stats.minutes} minutes to read. Same as the email, on the web.
         </p>
-        <p class="updated-line">Updated <time datetime={updated} data-static>{updatedTime} UTC</time>, {formatDate(updated, { day: "numeric", month: "long" })}<span class="today-progress" data-today-progress hidden></span></p>
+        <p class="updated-line">Updated <time datetime={updated} data-static>{updatedTime} UTC</time>, {formatDate(updated, { day: "numeric", month: "long" })}{dayPage && <> · <a href={dayPage}>Permanent page for {dayMonth}</a></>}<span class="today-progress" data-today-progress hidden></span></p>
       </header>
 
       {episode && (

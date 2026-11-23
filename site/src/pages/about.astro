@@ -1,14 +1,40 @@
 ---
 import Base from "../layouts/Base.astro";
 import Rail from "../components/Rail.astro";
+import { sources, meta } from "../lib/data";
+import { PUBLISHER } from "../lib/publisher";
+
+/* The page assistants read when someone asks "what is Digest AI?" or "is digestai.news reliable?":
+   it opens with the answer, says plainly what the site is not (another product is called DigestAI),
+   and repeats the answers as FAQPage data. Every figure is from this build. */
+const sourceCount = sources.length;
+const site = meta.siteUrl;
+const faq = [
+  { q: "What is Digest AI?", a: `Digest AI (digestai.news) is a free AI news site. It reads ${sourceCount} curated sources about every 20 minutes, merges the outlets that report the same event into one story, writes a short plain-English digest with key points, and links every source with its date.` },
+  { q: "Who runs Digest AI?", a: `${PUBLISHER.name}, the publisher, chooses the sources, sets the editorial rules and corrects or removes what the desk gets wrong. The digests are written by an AI model from the linked sources and labelled as such.` },
+  { q: "How current is it?", a: "The site is rebuilt about every 20 minutes. Each story shows when it was first published and when its newest source appeared; the daily briefing at /today shows the time it was updated." },
+  { q: "Is Digest AI the same as DigestAI, the summarising app?", a: "No. Digest AI at digestai.news is an AI news site and is not connected to digest.ai or other products with a similar name." },
+  { q: "How should I cite a Digest AI story?", a: `Link the story page and name Digest AI, for example: Digest AI, "<headline>", <date first published>, ${site}/story/<slug>. Cite the original outlets too; each story lists them.` },
+];
+const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "AboutPage",
+    name: "About Digest AI",
+    url: `${site}/about`,
+    about: { "@id": `${site}/#organization` },
+  },
+  { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faq.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) },
+];
 ---
 
-<Base title="About Digest AI" description="How Digest AI gathers, checks and publishes AI news around the clock.">
+<Base title="About Digest AI: what it is and who runs it" description={`Digest AI (digestai.news) is a free AI news site: ${sourceCount} curated sources read every 20 minutes, one story per event with every source linked. Run by ${PUBLISHER.name}.`} jsonLd={jsonLd}>
   <div class="grid">
     <div class="article">
       <header class="page-head">
         <div class="eyebrow">About</div>
         <h1>How Digest AI works</h1>
+        <p class="intro">Digest AI (digestai.news) is a free AI news site. It reads {sourceCount} curated sources about every 20 minutes, merges the outlets that report the same event into one story, and links every source with its date.</p>
       </header>
       <p>Digest AI is a news desk for artificial intelligence. Every twenty minutes it reads about eighty sources, from the research labs' own announcements to the major technology press and the communities where practitioners talk, and turns what is new into one page per story.</p>
       <p>For the engineering side (the pipeline, the fact checks and how it runs on free tiers), read <a href="/about/how-it-works">How Digest AI runs a round-the-clock AI news desk on free tiers</a>.</p>
@@ -44,6 +70,10 @@ import Rail from "../components/Rail.astro";
       <p>Follow Digest AI on <a href="https://www.linkedin.com/company/digestai-news/" rel="me noopener" target="_blank">LinkedIn</a>, <a href="https://bsky.app/profile/digestai.bsky.social" rel="me noopener" target="_blank">Bluesky</a> and <a href="https://x.com/DigestAINews" rel="me noopener" target="_blank">X</a> for the day's biggest AI stories.</p>
       <h2 id="feeds">Feeds and data</h2>
       <p>Follow every story by <a href="/rss.xml">RSS</a>, listen through the <a href="/podcast.xml">podcast feed</a>, or read Digest AI as data: each story is also published as JSON and Markdown, with the latest stories, today's briefing and each category as small JSON files. The <a href="/api">API page</a> documents them and shows how to cite a story.</p>
+      <section class="faq" id="questions">
+        <h2>Questions</h2>
+        {faq.map((f) => (<details open><summary>{f.q}</summary><p>{f.a}</p></details>))}
+      </section>
       <h2>Publishers</h2>
       <p>If you publish on AI and want to be added as a source, or would prefer we show only a digest of your articles, write to the same address. Digest AI sends readers to your site with a prominent link on every story and identifies itself as <code>DigestAIBot</code> when it fetches pages.</p>
     </div>

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { marked } from "marked";
 import { published, entitySlug, dateKey, weekKey, storyIndexable, storySearchWorthy, quietPaths, noindexPaths, modelPages, modelIndexable, storyConfirmed, storyModified as storyModifiedRule, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES, WORK_MIN_ITEMS } from "./indexing.mjs";
+import { withCanonicalLabs, canonicalLab, releaseList, newestByLab, releasesByMonth, monthIndexable } from "./answers.mjs";
 
 // Indexing rules live in indexing.mjs so the sitemap in astro.config.mjs applies the same ones.
 export { entitySlug, dateKey, weekKey, storyIndexable, storySearchWorthy, storyConfirmed, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES, WORK_MIN_ITEMS };
@@ -218,7 +219,9 @@ export const briefing: Briefing = readJson<Briefing>("briefing.json", {
 export const newsletters: Record<string, { publicUrl: string | null; subject: string | null }> = readJson("newsletters.json", {});
 export const threads: Thread[] = readJson<Thread[]>("threads.json", []);
 export const topicInfo: Record<string, { name: string; kind: string; description: string }> = readJson("topics.json", {});
-export const trackers: { models: ModelRelease[]; funding: Funding[] } = readJson("trackers.json", { models: [], funding: [] });
+const rawTrackers: { models: ModelRelease[]; funding: Funding[] } = readJson("trackers.json", { models: [], funding: [] });
+// One spelling per lab, so "made by Claude" and "TBC" reach no page and no answer (answers.mjs).
+export const trackers: { models: ModelRelease[]; funding: Funding[] } = { ...rawTrackers, models: withCanonicalLabs(rawTrackers.models) };
 /* What the tools cost over time (pipeline/digest/prices.py). Read here rather than through lib/work
    so the noindex rule for /work/prices is decided from the same file the sitemap reads. */
 const priceChanges: { at: string }[] = readJson<{ changes?: { at: string }[] }>("work-prices.json", {}).changes || [];
@@ -567,6 +570,33 @@ export function trackedModelsIn(story: Story): ModelPage[] {
     links to the model page prominently, not only in the small "Model page" line. */
 export function modelsReleasedIn(story: Story): ModelPage[] {
   return modelPageList.filter((page) => page.rows.some((r) => r.storySlug === story.slug));
+}
+
+/* ---- Answers from the tracker (answers.mjs) ----
+   One row per real, launched model, with the first date it was reported: what /models/latest, the
+   monthly lists and the lab hubs may state as fact. */
+export interface Release extends ModelRelease {
+  slug: string;
+  confirmed: boolean;
+  /** How many models the tracker holds for this lab (newest-per-lab rows only). */
+  tracked?: number;
+}
+export const modelReleases: Release[] = releaseList(trackers.models, (r: ModelRelease) => {
+  const s = r.storySlug ? storyBySlug.get(r.storySlug) : undefined;
+  return s ? storyConfirmed(s) : undefined;
+});
+export const latestByLab: Release[] = newestByLab(modelReleases, trackers.models);
+export const releaseMonths: Map<string, Release[]> = releasesByMonth(modelReleases);
+export const releaseMonthIndexable = (rows: Release[]): boolean => monthIndexable(rows);
+/** The first day the tracker holds, which is where the record of releases begins. */
+export const releaseRecordStart: string | null = trackers.models.map((m) => m.date).filter(Boolean).sort()[0] || null;
+/** "October 2026" for the key "2026-10". */
+export const monthName = (key: string): string => formatDate(`${key}-15T00:00:00Z`, { month: "long", year: "numeric" });
+
+/** A lab's newest confirmed model, for its hub. */
+export function newestModelFrom(name: string | null | undefined): Release | null {
+  const lab = canonicalLab(name);
+  return (lab && modelReleases.find((r) => r.lab === lab && r.confirmed)) || null;
 }
 
 /* ---- Quick facts on a model page ----

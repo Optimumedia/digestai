@@ -1,9 +1,15 @@
 ---
 import Base from "../layouts/Base.astro";
-import { trackers, formatDate, money, entitySlug, topicSlugs, topicInfo } from "../lib/data";
+import { trackers, formatDate, money, entitySlug, topicSlugs, meta } from "../lib/data";
 
-const intro = topicInfo["page-funding"]?.description || "";
 const rows = trackers.funding;
+// The answer to "what are the biggest AI funding rounds right now?": the largest deals first reported
+// in the last 30 days, from the rows themselves (amounts as the sources state them). It replaces a
+// written intro that only described the table.
+const asOf = formatDate(meta.generatedAt);
+const since = Date.parse(meta.generatedAt) - 30 * 864e5;
+const largest = rows.filter((r) => r.amount_usd && Date.parse(r.date || "0") >= since).sort((a, b) => (b.amount_usd || 0) - (a.amount_usd || 0)).slice(0, 5);
+const roundWords: Record<string, string> = { seed: "seed round", series_a: "Series A", series_b: "Series B", series_c: "Series C", series_d_plus: "late-stage round", acquisition: "acquisition", ipo: "IPO", debt: "debt financing", other: "deal" };
 const rounds: Record<string, string> = { seed: "Seed", series_a: "Series A", series_b: "Series B", series_c: "Series C", series_d_plus: "Series D+", acquisition: "Acquisition", ipo: "IPO", debt: "Debt", other: "" };
 const total = rows.reduce((n, r) => n + (r.amount_usd || 0), 0);
 const jsonLd = {
@@ -12,6 +18,7 @@ const jsonLd = {
   name: "AI funding tracker",
   description: "Funding rounds, acquisitions and valuations of AI companies as reported in the news, with amounts, investors and sources.",
   url: "https://digestai.news/funding",
+  dateModified: rows.map((r) => r.date).filter(Boolean).sort().pop() || meta.generatedAt,
 };
 ---
 
@@ -19,7 +26,11 @@ const jsonLd = {
   <header class="page-head">
     <div class="eyebrow">Tracker</div>
     <h1>AI funding and deals</h1>
-    {intro && <p class="intro">{intro}</p>}
+    {largest.length > 0 && (
+      <p class="intro latest-line">
+        The largest AI deals reported in the 30 days to {asOf}: {largest.map((r, i) => <>{i > 0 && "; "}<a href={`/story/${r.storySlug}`}>{r.company}, {money(r.amount_usd)} {roundWords[r.round] || "deal"}</a> ({formatDate(r.date, { day: "numeric", month: "short" })})</>)}.
+      </p>
+    )}
     <p>Rounds, acquisitions and valuations as reported, newest first. Amounts are as stated by the sources; each row links to the story. {rows.length > 0 && <span>{rows.length} deals, {money(total)} in total.</span>}</p>
   </header>
   {rows.length === 0 && <p class="muted" style="padding: 24px 0">No deals recorded yet. Rows appear as funding stories are published.</p>}

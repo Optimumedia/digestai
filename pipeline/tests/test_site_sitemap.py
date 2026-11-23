@@ -203,9 +203,11 @@ def test_templates_and_robots_keep_publishers_text_out_of_the_html():
     assert "/ft/" in (SITE / "public" / "app.js").read_text(encoding="utf-8")
     robots = (SITE / "public" / "robots.txt").read_text(encoding="utf-8")
     # Every group blocks /ft/ (a crawler with its own group ignores the * group) and nothing new besides.
-    groups = [g for g in re.split(r"\n(?=User-agent:)", robots) if g.startswith("User-agent:")]
+    # A group is consecutive User-agent lines and the rules under them (the AI crawlers share one).
+    groups = re.findall(r"(?:^User-agent:[^\n]*\n)+(?:(?!User-agent:)[^\n]*\n?)*", robots, re.M)
     assert groups and all("Disallow: /ft/" in g for g in groups), robots
-    assert sorted(re.findall(r"Disallow: (\S+)", robots)) == ["/admin", "/ft/", "/ft/", "/search"]
+    # Nothing is blocked besides search, admin and publishers' text.
+    assert set(re.findall(r"Disallow: (\S+)", robots)) == {"/admin", "/ft/", "/search"}
 
 
 def test_search_quiet_rules():

@@ -1,0 +1,121 @@
+---
+/* /models/latest answers "what is the newest AI model?" and "what is the newest model from <lab>?":
+   the newest confirmed launch from each lab with a track record, the first date it was reported and
+   the story that reports it. Only rows answers.mjs lets us state as fact: no rumours, no apps, no
+   story that only uses the model; a launch is confirmed by the lab's own document or two publishers.
+   The page leads with the answer in one sentence, because assistants quote the top of a page. */
+import Base from "../../layouts/Base.astro";
+import Rail from "../../components/Rail.astro";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
+import { latestByLab, modelReleases, releaseMonths, monthName, hubHref, formatDate, meta } from "../../lib/data";
+
+const asOf = meta.generatedAt;
+const asOfDate = formatDate(asOf);
+const kinds: Record<string, string> = { llm: "Language", multimodal: "Multimodal", image: "Image", video: "Video", audio: "Audio", code: "Code", embedding: "Embedding", robotics: "Robotics", other: "Model" };
+const labels: Record<string, string> = { api: "API", open_weights: "Open weights", consumer: "Consumer app", research: "Research", unknown: "" };
+const rows = latestByLab;
+// The lead sentence names the labs with the longest track record, newest first.
+const leaders = [...rows].sort((a, b) => (b.tracked || 0) - (a.tracked || 0)).slice(0, 4).sort((a, b) => ((a.date || "") < (b.date || "") ? 1 : -1));
+const day = (iso: string | null | undefined) => formatDate(iso, { day: "numeric", month: "long" });
+const lead = leaders.map((r) => `${r.name} from ${r.lab} (${day(r.date)})`);
+const leadText = lead.length > 1 ? `${lead.slice(0, -1).join(", ")} and ${lead[lead.length - 1]}` : lead[0] || "";
+const newest = modelReleases.find((r) => r.confirmed);
+const weekAgo = Date.parse(asOf) - 7 * 864e5;
+const thisWeek = modelReleases.filter((r) => r.confirmed && Date.parse(r.date || "0") >= weekAgo);
+const months = [...releaseMonths.keys()];
+
+const title = `Latest AI models: the newest release from each lab, ${day(asOf)}`;
+const description = (leadText
+  ? `The newest AI models as of ${asOfDate}: ${leadText}. The newest confirmed release from ${rows.length} labs, each with its launch story and sources.`
+  : `The newest confirmed AI model release from each lab, with the launch story and its sources.`).slice(0, 300);
+const faq = rows.slice(0, 12).map((r) => ({
+  q: `What is the newest model from ${r.lab}?`,
+  a: `As of ${asOfDate}, the newest ${r.lab} model Digest AI has confirmed is ${r.name}, first reported on ${formatDate(r.date)}.`,
+}));
+if (newest) faq.unshift({ q: "What is the newest AI model?", a: `As of ${asOfDate}, the most recently reported confirmed AI model launch is ${newest.name} from ${newest.lab}, first reported on ${formatDate(newest.date)}.` });
+const url = `${meta.siteUrl}/models/latest`;
+const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: title,
+    description,
+    url,
+    dateModified: rows[0]?.date || asOf,
+    isPartOf: { "@type": "WebSite", name: "Digest AI", url: meta.siteUrl },
+    mainEntity: {
+      "@type": "ItemList",
+      name: "Newest AI model from each lab",
+      numberOfItems: rows.length,
+      itemListElement: rows.map((r, i) => ({ "@type": "ListItem", position: i + 1, name: `${r.name} (${r.lab})`, url: `${meta.siteUrl}/models/${r.slug}` })),
+    },
+  },
+  ...(faq.length ? [{ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faq.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) }] : []),
+];
+---
+
+<Base title={title} description={description} canonical={url} jsonLd={jsonLd} thin={rows.length < 3} modifiedAt={rows[0]?.date || asOf}>
+  <link slot="head" rel="alternate" type="text/markdown" title="This page as Markdown" href={`${meta.siteUrl}/models/latest.md`} />
+  <div class="grid">
+    <div>
+      <Breadcrumbs items={[{ name: "Models", href: "/models" }, { name: "Latest" }]} />
+      <header class="page-head">
+        <div class="eyebrow">Tracker · as of {asOfDate}</div>
+        <h1>Latest AI models</h1>
+        {leadText && <p class="intro">As of {asOfDate}, the newest models from the labs with the most releases are {leadText}.</p>}
+        <p>The newest launch from each of {rows.length} labs, with the date it was first reported and the story that reports it. A launch is listed once the lab's own announcement or two publishers confirm it. Rumours, plans, apps and stories that only use a model are left out. Taken from the coverage, not from our own testing.</p>
+      </header>
+
+      {rows.length === 0 && <p class="muted" style="padding: 24px 0">No confirmed launches recorded yet.</p>}
+      {rows.length > 0 && (
+        <div class="tablewrap">
+          <table class="tracker">
+            <thead><tr><th>Lab</th><th>Newest model</th><th>First reported</th><th>Type</th><th>Availability</th><th>Launch story</th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr>
+                  <td>{hubHref(r.lab) ? <a href={hubHref(r.lab)!}>{r.lab}</a> : r.lab}</td>
+                  <td><b>{hubHref(r.name) ? <a href={hubHref(r.name)!}>{r.name}</a> : r.name}</b>{r.link && <a class="mono muted" href={r.link} rel="noopener nofollow" target="_blank" title="Official page"> ↗</a>}</td>
+                  <td class="num"><time datetime={r.date || undefined} data-static>{formatDate(r.date, { day: "numeric", month: "short", year: "numeric" })}</time></td>
+                  <td>{kinds[r.kind] || ""}</td>
+                  <td>{labels[r.availability] ?? ""}</td>
+                  <td>{r.storySlug ? <a href={`/story/${r.storySlug}`}>{r.storyHeadline}</a> : r.storyHeadline}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {thisWeek.length > 0 && (
+        <section aria-labelledby="week-h">
+          <div class="dayhead"><h2 id="week-h">Confirmed launches in the last seven days</h2><span class="eyebrow">{thisWeek.length}</span></div>
+          <ul class="coverage">
+            {thisWeek.map((r) => (
+              <li>
+                <a class="t" href={r.storySlug ? `/story/${r.storySlug}` : `/models/${r.slug}`}>{r.name}</a>
+                <span class="mono muted">{r.lab} · {formatDate(r.date, { day: "numeric", month: "short" })}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {months.length > 0 && (
+        <section style="margin-top: 28px">
+          <div class="eyebrow" style="margin-bottom: 8px">Every release, month by month</div>
+          <div class="taglist">{months.map((m) => <a href={`/models/released/${m}`}>{monthName(m)}</a>)}</div>
+        </section>
+      )}
+
+      {faq.length > 0 && (
+        <section class="faq">
+          <div class="dayhead"><h2>Questions</h2></div>
+          {faq.map((f) => (<details open><summary>{f.q}</summary><p>{f.a}</p></details>))}
+        </section>
+      )}
+      <p class="muted" style="margin-top: 20px">Also as <a href="/models/latest.md">Markdown</a> and <a href="/api/models.json">JSON</a>. <a href="/models">All tracked models →</a></p>
+    </div>
+    <Rail />
+  </div>
+</Base>

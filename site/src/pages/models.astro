@@ -1,9 +1,18 @@
 ---
 import Base from "../layouts/Base.astro";
-import { trackers, formatDate, entitySlug, hubHref, topicInfo } from "../lib/data";
+import { trackers, formatDate, entitySlug, hubHref, latestByLab, releaseMonths, monthName, meta } from "../lib/data";
 
-const intro = topicInfo["page-models"]?.description || "";
-const rows = trackers.models;
+// The table shows the newest TABLE_ROWS rows; every earlier launch is on its month's page
+// (/models/released/<month>), so the page stays within what a crawler or an assistant reads.
+const TABLE_ROWS = 150;
+const all = trackers.models;
+const rows = all.slice(0, TABLE_ROWS);
+// The lead is built from the checked answers (answers.mjs), not from a written intro: the written
+// one called Claude Haiku "a consumer-grade model released by Claude".
+const leaders = [...latestByLab].sort((a, b) => (b.tracked || 0) - (a.tracked || 0)).slice(0, 3);
+const asOf = formatDate(meta.generatedAt);
+const day = (iso: string | null | undefined) => formatDate(iso, { day: "numeric", month: "long" });
+const months = [...releaseMonths.keys()];
 const labels: Record<string, string> = { api: "API", open_weights: "Open weights", consumer: "Consumer app", research: "Research", unknown: "" };
 const kinds: Record<string, string> = { llm: "Language", multimodal: "Multimodal", image: "Image", video: "Video", audio: "Audio", code: "Code", embedding: "Embedding", robotics: "Robotics", other: "" };
 const jsonLd = {
@@ -12,15 +21,21 @@ const jsonLd = {
   name: "AI model release tracker",
   description: "Every AI model release covered by Digest AI, with lab, availability, license and context window.",
   url: "https://digestai.news/models",
+  dateModified: all[0]?.date || meta.generatedAt,
 };
 ---
 
-<Base title="AI model release tracker" description={`${rows.length} model releases with lab, availability, license and context window, updated every 20 minutes from the news.`} jsonLd={jsonLd}>
+<Base title="AI model release tracker" description={`${all.length} model releases with lab, availability, license and context window, updated every 20 minutes from the news.`} jsonLd={jsonLd}>
   <header class="page-head">
     <div class="eyebrow">Tracker</div>
     <h1>AI model releases</h1>
-    {intro && <p class="intro">{intro}</p>}
-    <p>Every model launch or new version the news desk covered, newest first. Each model has its own page with its specs and every story about it; each row also links to the launch story and its sources. Extracted automatically; corrections welcome.</p>
+    {leaders.length > 0 && (
+      <p class="intro latest-line">
+        As of {asOf}, the newest confirmed models from the busiest labs are {leaders.map((r, i) => <>{i > 0 && (i === leaders.length - 1 ? " and " : ", ")}<a href={`/models/${r.slug}`}>{r.name}</a> from {r.lab} ({day(r.date)})</>)}. <a href="/models/latest">The newest model from each lab →</a>
+      </p>
+    )}
+    <p>Every model launch or new version the news desk covered, newest first. Each model has its own page with its specs and every story about it; each row also links to the launch story and its sources. Extracted automatically; corrections welcome.{all.length > rows.length && ` This page shows the newest ${rows.length} of ${all.length}; the months below list every one.`}</p>
+    {months.length > 0 && <div class="taglist" style="margin-top: 12px">{months.map((m) => <a href={`/models/released/${m}`}>Released in {monthName(m)}</a>)}</div>}
   </header>
   {rows.length === 0 && <p class="muted" style="padding: 24px 0">No releases recorded yet. Rows appear as stories about new models are published.</p>}
   <div class="tablewrap">
