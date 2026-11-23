@@ -28,6 +28,9 @@ interface Props {
   /** A numbered older page of a long list (/topic/openai/2, lib/paging.ts): "noindex, follow" like a
       thin page, and left out of the site's own search, which would otherwise list every page of it. */
   paged?: boolean;
+  /** Search-quiet (indexing.mjs quietPaths): readable and indexable for AI assistants and every other
+      crawler, but "noindex, follow" for Google and Bing, and out of the sitemaps and Google News. */
+  quiet?: boolean;
   /** A section with its own look (AI at Work): set as data-section on <body>, where its tokens live. */
   section?: "work";
 }
@@ -49,6 +52,7 @@ const {
   noindex = false,
   thin: thinProp = false,
   paged = false,
+  quiet = false,
   section,
 } = Astro.props;
 const thin = thinProp || paged;
@@ -63,7 +67,11 @@ const url = canonical || new URL(cleanPath, site).toString();
 const ogImage = image || `${site}/og-default.png`;
 // The home page owns the brand; /today owns "AI news today" (its title and H1 lead with it), so the
 // two never compete for the same search.
-const fullTitle = title === "Digest AI" ? "Digest AI: Cut through the AI noise. AI news, sourced every 20 minutes" : `${title} — Digest AI`;
+// The brand goes after a plain bar (no em dash in anything a reader sees). A long title would be cut
+// before the brand anyway, and search results show the site name on their own line, so it is left off.
+const fullTitle = title === "Digest AI" ? "Digest AI: Cut through the AI noise. AI news, sourced every 20 minutes" : title.length > 58 ? title : `${title} | Digest AI`;
+// Search results show about 160 characters: longer descriptions are cut at a word, never mid-word.
+const metaDescription = description.length <= 160 ? description : description.slice(0, 159).replace(/[\s,;:–—-]+\S*$/, "").replace(/[.,;:]$/, "") + "…";
 // Broadcast-style ticker: the hottest stories interleaved with the newest, no repeats. Eight links,
 // rendered after the main content (CSS puts it back under the masthead) so the first thing a
 // crawler reads on every page is the page itself, not the same eight headlines.
@@ -94,11 +102,13 @@ const clientConfig = {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{fullTitle}</title>
-    <meta name="description" content={description} />
+    <meta name="description" content={metaDescription} />
     <meta name="google-site-verification" content="1HVcSBsyJYBfZLnj_r85TRK8n70zv2rexCrkXu6Bbyw" />
     {indexable && <link rel="canonical" href={url} />}
     <meta name="robots" content={noindex ? "noindex, nofollow" : thin ? "noindex, follow" : "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"} />
-    <meta name="googlebot-news" content={indexable ? "index" : "noindex"} />
+    {indexable && quiet && <meta name="googlebot" content="noindex, follow" />}
+    {indexable && quiet && <meta name="bingbot" content="noindex, follow" />}
+    <meta name="googlebot-news" content={indexable && !quiet ? "index" : "noindex"} />
     <meta name="theme-color" content="#0e1116" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -109,7 +119,7 @@ const clientConfig = {
     <meta property="og:site_name" content="Digest AI" />
     <meta property="og:type" content={type} />
     <meta property="og:title" content={title} />
-    <meta property="og:description" content={description} />
+    <meta property="og:description" content={metaDescription} />
     <meta property="og:url" content={url} />
     <meta property="og:image" content={ogImage} />
     <meta property="og:image:width" content={String(image && imageWidth ? imageWidth : 1200)} />
@@ -121,7 +131,7 @@ const clientConfig = {
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@DigestAINews" />
     <meta name="twitter:title" content={title} />
-    <meta name="twitter:description" content={description} />
+    <meta name="twitter:description" content={metaDescription} />
     <meta name="twitter:image" content={ogImage} />
     <meta name="twitter:image:alt" content={title} />
     {publishedAt && <meta property="article:published_time" content={publishedAt} />}

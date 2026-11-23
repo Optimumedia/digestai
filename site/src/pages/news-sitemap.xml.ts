@@ -1,7 +1,8 @@
 import type { APIRoute } from "astro";
-import { byRecency, meta, storyIndexable, storyImages } from "../lib/data";
+import { byRecency, meta, storySearchWorthy, storyImages } from "../lib/data";
 
-// Google News sitemap: only indexable stories from the last 48 hours, max 1,000. Each entry carries
+// Google News sitemap: stories from the last 48 hours that search engines are offered (two or more
+// publishers, or the day's most important; indexing.mjs storySearchWorthy), max 1,000. Each entry carries
 // the story's own share cards as image:image, the same absolute URLs as its og:image and NewsArticle
 // image (data.ts storyImages); the site-wide default card is left out, since it says nothing about
 // the story.
@@ -11,7 +12,7 @@ export const GET: APIRoute = () => {
   const esc = (s: string) =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
   const urls = byRecency
-    .filter((s) => storyIndexable(s) && Date.parse(s.firstPublishedAt || s.updatedAt || "0") > cutoff)
+    .filter((s) => storySearchWorthy(s) && Date.parse(s.firstPublishedAt || s.updatedAt || "0") > cutoff)
     .slice(0, 1000)
     .map((s) => {
       const images = storyImages(s)

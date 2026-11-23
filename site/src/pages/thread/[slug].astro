@@ -2,7 +2,8 @@
 import Base from "../../layouts/Base.astro";
 import Rail from "../../components/Rail.astro";
 import Coverage from "../../components/Coverage.astro";
-import { threads, threadStories, categories, plain, formatDate, meta, hubHref, shareImage } from "../../lib/data";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
+import { threads, threadStories, categories, plain, formatDate, meta, hubHref, shareImage, isQuiet } from "../../lib/data";
 
 export function getStaticPaths() {
   return threads.map((thread) => ({ params: { slug: thread.slug }, props: { thread } }));
@@ -14,11 +15,34 @@ const latest = list[list.length - 1];
 const description = `${thread.storyCount} stories since ${formatDate(thread.firstAt, { day: "numeric", month: "short" })}: ${thread.summary || plain(latest?.summaryMd, 140)}`;
 const entityList = Object.values(thread.entities || {}).flat().slice(0, 12);
 const follow = JSON.stringify({ kind: "thread", slug: thread.slug, name: thread.title.slice(0, 60) });
+const site = meta.siteUrl;
+// The thread as a collection of its episodes, oldest first, the order the timeline reads in.
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "CollectionPage",
+  name: thread.title,
+  description,
+  url: `${site}/thread/${thread.slug}`,
+  inLanguage: "en",
+  ...(thread.updatedAt ? { dateModified: thread.updatedAt } : {}),
+  isPartOf: { "@type": "WebSite", name: "Digest AI", url: site },
+  mainEntity: {
+    "@type": "ItemList",
+    itemListOrder: "https://schema.org/ItemListOrderAscending",
+    numberOfItems: list.length,
+    itemListElement: list.slice(0, 30).map((s, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      item: { "@type": "NewsArticle", headline: s.headline, url: `${site}/story/${s.slug}`, datePublished: s.firstPublishedAt },
+    })),
+  },
+};
 ---
 
-<Base title={thread.named ? thread.title : `${thread.title}: the story so far`} description={description} currentCategory={thread.category} image={thread.ogImage ? `${meta.siteUrl}${thread.ogImage}` : latest ? shareImage(latest) : `${meta.siteUrl}/og-default.png`}>
+<Base title={thread.named ? thread.title : `${thread.title}: the story so far`} description={description} currentCategory={thread.category} image={thread.ogImage ? `${meta.siteUrl}${thread.ogImage}` : latest ? shareImage(latest) : `${meta.siteUrl}/og-default.png`} jsonLd={jsonLd} modifiedAt={thread.updatedAt} quiet={isQuiet(`/thread/${thread.slug}`)}>
   <div class="grid">
     <div>
+      <Breadcrumbs items={[{ name: "Developing stories", href: "/threads" }, { name: thread.title }]} />
       <header class="page-head">
         <div class="eyebrow">Developing story · {thread.storyCount} episodes · {formatDate(thread.firstAt, { day: "numeric", month: "short" })} to {formatDate(thread.updatedAt, { day: "numeric", month: "short" })}</div>
         <div class="head-row">

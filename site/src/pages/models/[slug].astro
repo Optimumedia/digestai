@@ -11,7 +11,7 @@ import StoryRow from "../../components/StoryRow.astro";
 import Rail from "../../components/Rail.astro";
 import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import Pager from "../../components/Pager.astro";
-import { modelPageList, modelPageIndexable, modelsByLab, modelStories, modelQuickFacts, topicInfo, hubHref, formatDate, dateTime, meta, type ModelPage } from "../../lib/data";
+import { modelPageList, modelPageIndexable, modelsByLab, modelStories, modelQuickFacts, topicInfo, hubHref, formatDate, dateTime, meta, isQuiet, type ModelPage } from "../../lib/data";
 import { pageSlice } from "../../lib/paging";
 
 export function getStaticPaths() {
@@ -87,7 +87,7 @@ if (facts.length) {
 }
 ---
 
-<Base title={title} description={description} image={ogImage} jsonLd={jsonLd} thin={!modelPageIndexable(page)}>
+<Base title={title} description={description} image={ogImage} jsonLd={jsonLd} thin={!modelPageIndexable(page)} quiet={isQuiet(base)}>
   <div class="grid">
     <div>
       <Breadcrumbs items={[{ name: "Models", href: "/models" }, { name }]} />
