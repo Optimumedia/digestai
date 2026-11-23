@@ -17,6 +17,9 @@ A story shared on an earlier day (either network) drops off; one shared today st
 The posts are rules only, from the story's own headline, key points and "why it matters": nothing is
 added that the story does not say, hype words are swapped out (checks.py), and the headline goes
 through checks.discipline_headline. The X text fits in 280 characters counting the link as 23 (t.co).
+
+Above the list sits one round-up for LinkedIn (daily_post): the day's top three in a single post, for a
+day when there is time for only one.
 """
 from __future__ import annotations
 
@@ -36,6 +39,8 @@ MIN_ITEMS, MAX_ITEMS = 5, 8
 BRIEFING_TAKE = 4
 FRESH_HOURS = 96  # the briefing's widest window; nothing older is offered
 CAMPAIGN = "share-today"
+DAILY_CAMPAIGN = "daily-draft"  # the one round-up post (daily_post), told apart from the single-story posts
+DAILY_STORIES = 3
 SOURCE_IMAGES = 3  # source pictures offered per item in the admin (download by hand, never auto-posted)
 
 # One tag for the category, then the story's main company when it is a single word. At most three on
@@ -326,6 +331,35 @@ def x_post(story: dict) -> str:
     return hook + tail
 
 
+def daily_post(stories: list[dict], briefing: dict | None, work_briefing: dict | None, now: datetime) -> dict | None:
+    """The day's one LinkedIn post, for the owner to paste: the briefing's top three, each with the
+    reason it matters, and the AI at Work pick for the readers this site is mainly for. It links to
+    /today, the page that keeps a new reader longest, rather than to one story. Like every post here it
+    is rules only, from the stories' own fields, and None on a day without three stories to show."""
+    by_id = {s["id"]: s for s in stories}
+    top = [by_id[i] for i in (briefing or {}).get("storyIds") or [] if i in by_id]
+    top = ([s for s in top if confirmed(s)] + [s for s in top if not confirmed(s)])[:DAILY_STORIES]
+    if len(top) < DAILY_STORIES:
+        return None
+    day = f"{now.day} {now.strftime('%B')}"
+    articles = ((briefing or {}).get("stats") or {}).get("articles")
+    hook = f"AI news today, {day}: the {'three' if len(top) == 3 else len(top)} stories worth your time"
+    hook += f", picked from {articles:,} articles." if articles else "."
+    blocks = []
+    for n, s in enumerate(top, 1):
+        why = _stop(_sentence(s.get("whyItMatters"), 200)) if s.get("whyItMatters") else ""
+        blocks.append(f"{n}. {_stop(headline(s))}" + (f"\n{why}" if why else ""))
+    wb = work_briefing or {}
+    taken = {s["id"] for s in top}
+    pick = next((by_id[i] for i in ([wb["featuredId"]] if wb.get("featuredId") else []) + list(wb.get("storyIds") or [])
+                 if i in by_id and i not in taken), None)
+    if pick:
+        blocks.append(f"For marketers and small teams: {_stop(headline(pick))}")
+    link = f"{config.SITE_URL}/today?utm_source=linkedin&utm_medium=social&utm_campaign={DAILY_CAMPAIGN}"
+    text = "\n\n".join([hook, *blocks, f"The full briefing, with every source linked: {link}", "#AI #Marketing #SmallBusiness"])
+    return {"text": text, "link": link, "slugs": [s["slug"] for s in top] + ([pick["slug"]] if pick else [])}
+
+
 def source_images(story: dict, limit: int = SOURCE_IMAGES) -> list[dict]:
     """The pictures the story's sources declare, for the admin's "Source image" control: the company's
     own announcement first, then the lead, then the rest, one per URL, https only (the admin page is https).
@@ -366,7 +400,7 @@ def build(stories: list[dict], briefing: dict | None, work_briefing: dict | None
             "sourceImages": source_images(s),
         })
     return {"day": now.date().isoformat(), "items": items, "week": week_counts(shared, now),
-            "file": "pipeline/digest/shared.json"}
+            "daily": daily_post(stories, briefing, work_briefing, now), "file": "pipeline/digest/shared.json"}
 
 
 def run_from_files(now: datetime, data_dir: Path | None = None, shared_path: Path | None = None) -> dict:

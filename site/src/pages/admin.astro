@@ -198,7 +198,9 @@ type ShareItem = { id: number; slug: string; headline: string; category: string;
   done: Record<string, { at: string; url: string }>;
   /** Pictures the story's sources declare (share.source_images): shown for downloading by hand. */
   sourceImages?: { url: string; outlet: string; domain: string; articleUrl: string; primary: boolean }[] };
-const shareToday: { day: string; items: ShareItem[]; week: Record<string, number>; file: string; bluesky?: Record<string, number> } | null = admin?.share?.items?.length ? admin.share : null;
+const shareToday: { day: string; items: ShareItem[]; week: Record<string, number>; file: string; bluesky?: Record<string, number>;
+  /** The day's one LinkedIn round-up (share.daily_post), when there are three stories to show. */
+  daily?: { text: string; link: string; slugs: string[] } | null } | null = admin?.share?.items?.length ? admin.share : null;
 const shareData = JSON.stringify(shareToday ? { day: shareToday.day, file: shareToday.file, week: shareToday.week, bluesky: shareToday.bluesky || {},
   items: shareToday.items.map((i) => ({ id: i.id, slug: i.slug, links: i.links, done: i.done })) } : null).replace(/</g, "\\u003c");
 const LEVEL: Record<string, string> ={ critical: "Needs you now", warning: "Worth a look", info: "For your information" };
@@ -455,6 +457,21 @@ const homeData = JSON.stringify({
                 </div>
                 <p class="share-sub">Stories worth posting on LinkedIn and X today, with the text ready. You post them from your own accounts; nothing here posts for you.</p>
                 <p class="share-sub"><span data-share-week>Shared this week: {shareToday.week.linkedin || 0} on LinkedIn, {shareToday.week.x || 0} on X</span> · <span data-share-store>Checking where your ticks are kept…</span></p>
+                {shareToday.daily && (
+                  <div class="share-item share-daily" data-share-daily>
+                    <div class="share-head">
+                      <h3 class="share-hl">Today's LinkedIn post</h3>
+                      <p class="share-why">One post with the day's top stories, for a day with time for only one. It links to the briefing.</p>
+                    </div>
+                    <label class="sr-only" for="share-daily-text">LinkedIn post text</label>
+                    <textarea id="share-daily-text" class="share-box" rows="14" data-daily-text spellcheck="true">{shareToday.daily.text}</textarea>
+                    <div class="share-btns">
+                      <button type="button" class="tb share-btn" data-daily-copy>Copy text</button>
+                      <button type="button" class="tb primary share-btn" data-daily-open>Post on the page ↗</button>
+                    </div>
+                    <p class="share-msg" data-daily-msg aria-live="polite"></p>
+                  </div>
+                )}
                 <ol class="share-list">
                   {shareToday.items.map((it) => (
                     <li class="share-item" data-share-id={it.id}>
@@ -1637,7 +1654,20 @@ const homeData = JSON.stringify({
       // Your own profile: LinkedIn fills the post box from shareActive + text (a company page has no such link).
       const personalLinkedIn = (text) => `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(text)}`;
 
-      root.querySelectorAll(".share-item").forEach((li) => {
+      // The day's one round-up post: copy it, or copy it and open the page's post box.
+      const daily = root.querySelector("[data-share-daily]");
+      if (daily) {
+        const box = daily.querySelector("[data-daily-text]"), msg = daily.querySelector("[data-daily-msg]");
+        const tell = (ok, text) => { msg.textContent = ok ? text : "Could not copy: select the text and copy it by hand."; msg.classList.toggle("bad", !ok); };
+        daily.querySelector("[data-daily-copy]").addEventListener("click", async () => tell(await copy(box.value), "Copied."));
+        daily.querySelector("[data-daily-open]").addEventListener("click", () => {
+          const copied = copy(box.value);
+          window.open(LINKEDIN_PAGE_COMPOSER, "_blank", "noopener");
+          copied.then((ok) => tell(ok, "Copied. In the page's post box press Ctrl+V (phone: long-press, Paste), wait for the link preview, post."));
+        });
+      }
+
+      root.querySelectorAll(".share-item:not([data-share-daily])").forEach((li) => {
         const item = items[li.dataset.shareId];
         li.querySelectorAll("[data-tab-net]").forEach((tab) => tab.addEventListener("click", () => {
           li.querySelectorAll("[data-tab-net]").forEach((t) => t.setAttribute("aria-selected", t === tab ? "true" : "false"));

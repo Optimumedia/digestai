@@ -3,10 +3,11 @@
 Two kinds of post, both built from the data the export step just wrote:
 - the daily briefing, once a day from SOCIAL_BRIEFING_HOUR_UTC: the top headlines and a link card
   to /today (which also carries the audio version);
-- breaking stories, at most one per run and SOCIAL_MAX_PER_DAY a day, using the same bar as the
-  browser alerts: first published in the last few hours and covered by at least two outlets with
-  real importance, or very important on its own. Each link card shows the article's own photo when it
-  can be fetched, and falls back to our share image.
+- stories, at most one per run and SOCIAL_MAX_PER_DAY a day, using the same bar as the browser alerts:
+  first published in the last few hours and covered by at least two outlets with real importance, or
+  very important on its own. A very important story goes out at once; the others wait for the evening
+  window, when news posts do best, and go out spaced apart. Each link card shows the article's own
+  photo when it can be fetched, and falls back to our share image.
 
 Every post is recorded in social_posts, so nothing is posted twice. SOCIAL_DRY_RUN=1 prints the
 posts instead of publishing them. Failures are logged and never stop the pipeline.
@@ -24,13 +25,18 @@ import requests
 from PIL import Image
 from sqlalchemy import func, insert, select
 
-from . import config, db, media
+from . import config, db, images, media, share
 
 log = logging.getLogger("digest.social")
 
 API = "https://bsky.social/xrpc"
 TEXT_LIMIT = 290  # Bluesky allows 300 graphemes; keep a margin
+TARGET_CHARS = 240  # the study's line: posts of 240 characters or more beat shorter ones
 FRESH_HOURS = 6
+EVENING_FRESH_HOURS = 12  # in the evening window, so the day's earlier news is not lost by waiting
+EVENING_UTC = (17, 21)  # the study's strongest window was 18:00-21:00; the first hour clears the queue
+URGENT_IMPORTANCE = 8  # at this importance a story goes out at once, whatever the hour
+MIN_GAP_MINUTES = 35  # between two story posts, so the evening does not become a burst
 UTM = "utm_source=bluesky&utm_medium=social"
 THUMB_MAX_BYTES = 950_000  # Bluesky rejects blobs over 1 MB
 THUMB_SIZE = (1200, 630)
@@ -100,26 +106,56 @@ def _tag_facets(text: str, tags: list[str]) -> list[dict]:
 _SOURCE_VOICE = re.compile(r"\b(the author|the writer|this (article|post|piece|essay|newsletter|video)|in this|I|I'm|I've|we|we're|our|my)\b", re.I)
 
 
-def _lede(story: dict, limit: int = 280) -> str:
-    """The news itself: the digest's opening sentence, or the headline plus its first key point.
+def _stop(text: str) -> str:
+    text = re.sub(r"\s+", " ", text or "").strip()
+    return text if not text or text[-1] in ".?!" else text + "."
 
-    The opening sentence is used only when it is a full news sentence of at least 140 characters and
-    does not speak in the source writer's voice ("the author", "I", "this article")."""
-    first = _first_sentence(story.get("summaryMd") or "", limit)
-    if 140 <= len(first) <= limit and not first.endswith("…") and not _SOURCE_VOICE.search(first):
-        return first
-    head = _clip(story["headline"], 140).rstrip(".")
-    points = story.get("keyPoints") or []
-    return _clip(f"{head}. {points[0]}", limit) if points else head
+
+def _words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if len(w) > 3}
+
+
+def _repeats(sentence: str, said: list[str]) -> bool:
+    """True when the sentence mostly says what an earlier one said: the digest's opening sentence and
+    the first key point are often the same fact in other words."""
+    words = _words(sentence)
+    return any(len(words & _words(s)) >= 0.5 * max(1, min(len(words), len(_words(s)))) for s in said)
+
+
+def _lede(story: dict, limit: int = 280) -> str:
+    """The news itself, in whole sentences: the digest's opening sentence, or the headline when that
+    sentence is short, cut off or in the source writer's voice ("the author", "I", "this article");
+    then key points, or the digest's next sentences, until the post reaches TARGET_CHARS. A sentence
+    that does not fit is left out rather than cut, so a post never ends in the middle of a thought."""
+    summary = re.sub(r"[*_`#>\[\]]", "", story.get("summaryMd") or "")
+    summary = re.sub(r"\(https?://[^)]*\)", "", summary)
+    sentences = re.findall(r".+?[.!?](?=\s|$)", re.sub(r"\s+", " ", summary).strip())
+    first = _first_sentence(summary, limit)
+    if 100 <= len(first) <= limit and not first.endswith("…") and not _SOURCE_VOICE.search(first):
+        said = [first]
+    else:
+        said = [_stop(_clip(story["headline"], min(140, limit)).rstrip("."))]
+    target = min(TARGET_CHARS, limit - 30)
+    for extra in [*(story.get("keyPoints") or []), *sentences[1:]]:
+        text = " ".join(said)
+        if len(text) >= target:
+            break
+        extra = _stop(extra)
+        if extra and not _SOURCE_VOICE.search(extra) and not _repeats(extra, said) and len(text) + 1 + len(extra) <= limit:
+            said.append(extra)
+    return share.calm(" ".join(said))
 
 
 def _card_description(story: dict, text: str) -> str:
-    """Something the post text does not already say: why it matters, else another key point."""
+    """Something the post text does not already say: why it matters, else another key point. The card
+    closes with what the click gets the reader that a post cannot: every source in one place."""
+    n = story.get("articleCount") or 1
+    tail = f" {n} sources on one page." if n >= 2 else ""
     for candidate in [story.get("whyItMatters") or "", *(story.get("keyPoints") or [])]:
-        candidate = _clip(candidate, 280)
-        if candidate and candidate[:40] not in text:
-            return candidate
-    return _clip(story["headline"], 280)
+        candidate = _clip(candidate, 280 - len(tail))
+        if candidate and candidate[:40] not in text and not _repeats(candidate, [text]):
+            return (candidate if candidate.endswith("…") else _stop(candidate)) + tail
+    return _clip(story["headline"], 280 - len(tail)) + tail
 
 
 def _story_post(story: dict) -> dict:
@@ -140,15 +176,29 @@ def _story_post(story: dict) -> dict:
     }
 
 
-def _briefing_post(briefing: dict, by_id: dict, date_label: str) -> dict | None:
-    """Evening recap: lead with the day's biggest story in a sentence, point to the rest."""
+def _episode_minutes(date: str) -> int | None:
+    """How long that day's spoken briefing runs, or None when there is no episode to promise."""
+    try:
+        episodes = json.loads((config.SITE_DATA_DIR / "episodes.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    for e in episodes:
+        if e.get("date") == date and e.get("seconds"):
+            return max(1, round(e["seconds"] / 60))
+    return None
+
+
+def _briefing_post(briefing: dict, by_id: dict, date_label: str, listen_minutes: int | None = None) -> dict | None:
+    """Evening recap: lead with the day's biggest story in a sentence, point to the rest. The link
+    card is the day's own share card (its headlines) when it has been drawn."""
     top = [by_id[i] for i in briefing.get("storyIds", []) if i in by_id]
     if len(top) < 3:
         return None
-    minutes = max(3, (briefing.get("stats") or {}).get("minutes", 5))
-    tail = f"\n\nPlus {len(top) - 1} more stories that mattered today, and a {minutes}-minute listen."
+    listen = f", and a {listen_minutes}-minute listen" if listen_minutes else ""
+    tail = f"\n\nPlus {len(top) - 1} more stories that mattered today{listen}."
     intro = "Today in AI: "
     text = intro + _lede(top[0], TEXT_LIMIT - len(tail) - len(intro)) + tail
+    card = images.today_path(briefing["date"])
     return {
         "kind": "briefing",
         "key": briefing["date"],
@@ -157,9 +207,34 @@ def _briefing_post(briefing: dict, by_id: dict, date_label: str) -> dict | None:
         "link": f"{config.SITE_URL}/today?{UTM}",
         "title": f"Today's AI briefing · {date_label}",
         "description": " · ".join(_clip(s["headline"], 90) for s in top[1:4]),
-        "photo": top[0].get("imageUrl"),
-        "image": config.ROOT / "site" / "public" / "og-default.png",
+        "photo": None if card.exists() else top[0].get("imageUrl"),
+        "image": card if card.exists() else config.ROOT / "site" / "public" / "og-default.png",
     }
+
+
+def _worth_posting(story: dict) -> bool:
+    importance = story.get("importance") or 0
+    return (story.get("articleCount", 1) >= 2 and importance >= 6) or importance >= URGENT_IMPORTANCE
+
+
+def _next_story(stories: list[dict], done: set, now: datetime, last_post: datetime | None, posted_today: int,
+                briefing_due: bool = False) -> dict | None:
+    """The one story this run should post, or None. A very important story from the last FRESH_HOURS
+    goes at once. The rest wait for the evening window, where the look-back is wider so the day's
+    earlier news is still eligible, and stay MIN_GAP_MINUTES apart. The recap's run posts nothing else
+    unless a very important story cannot wait."""
+    if posted_today >= config.SOCIAL_MAX_PER_DAY:
+        return None
+    stamp = lambda hours: (now - timedelta(hours=hours)).isoformat().replace("+00:00", "Z")  # noqa: E731
+    evening = EVENING_UTC[0] <= now.hour < EVENING_UTC[1]
+    fresh = [s for s in stories
+             if (s.get("firstPublishedAt") or "") >= stamp(EVENING_FRESH_HOURS if evening else FRESH_HOURS)
+             and ("story", s["slug"]) not in done and _worth_posting(s)]
+    urgent = [s for s in fresh if (s.get("importance") or 0) >= URGENT_IMPORTANCE
+              and (s.get("firstPublishedAt") or "") >= stamp(FRESH_HOURS)]
+    too_soon = last_post is not None and now - last_post < timedelta(minutes=MIN_GAP_MINUTES)
+    pool = fresh if evening and not too_soon and not briefing_due and not urgent else urgent
+    return max(pool, key=lambda s: s.get("score") or 0) if pool else None
 
 
 class Bluesky:
@@ -224,6 +299,8 @@ def _plan(now: datetime) -> list[dict]:
         stories_today = conn.execute(select(func.count()).select_from(db.social_posts).where(
             db.social_posts.c.network == "bluesky", db.social_posts.c.kind == "story",
             db.social_posts.c.created_at >= day_start)).scalar() or 0
+        last_post = conn.execute(select(func.max(db.social_posts.c.created_at)).where(
+            db.social_posts.c.network == "bluesky", db.social_posts.c.kind == "story")).scalar()
         # stories.json already leaves out held and unpublished stories; check the database as well, so
         # a stale file can never put a story on Bluesky that is now waiting for approval.
         live = {r.id for r in conn.execute(select(db.stories.c.id).where(
@@ -231,24 +308,19 @@ def _plan(now: datetime) -> list[dict]:
     stories = [s for s in stories if s["id"] in live]
     by_id = {s["id"]: s for s in stories}
 
+    if last_post is not None and last_post.tzinfo is None:
+        last_post = last_post.replace(tzinfo=timezone.utc)
     plan: list[dict] = []
     today = now.date().isoformat()
     if now.hour >= config.SOCIAL_BRIEFING_HOUR_UTC and briefing.get("date") == today and ("briefing", today) not in done:
         label = now.strftime("%a %d %b").replace(" 0", " ")
-        item = _briefing_post(briefing, by_id, label)
+        item = _briefing_post(briefing, by_id, label, _episode_minutes(today))
         if item:
             plan.append(item)
 
-    if stories_today < config.SOCIAL_MAX_PER_DAY:
-        cutoff = (now - timedelta(hours=FRESH_HOURS)).isoformat().replace("+00:00", "Z")
-        fresh = [
-            s for s in stories
-            if (s.get("firstPublishedAt") or "") >= cutoff and ("story", s["slug"]) not in done
-            and ((s.get("articleCount", 1) >= 2 and (s.get("importance") or 0) >= 6) or (s.get("importance") or 0) >= 8)
-        ]
-        fresh.sort(key=lambda s: -(s.get("score") or 0))
-        if fresh:
-            plan.append(_story_post(fresh[0]))
+    story = _next_story(stories, done, now, last_post, stories_today, briefing_due=bool(plan))
+    if story:
+        plan.append(_story_post(story))
     return plan
 
 
