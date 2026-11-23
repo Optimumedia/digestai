@@ -25,7 +25,9 @@ const updated = task.lastmod || meta.generatedAt;
 const others = evergreen.tasks.filter((t: any) => t.slug !== task.slug && t.indexable);
 const plural = (n: number, w: string) => `${n} ${n === 1 ? w : `${w}s`}`;
 
-const title = task.free ? `${task.heading}: ${plural(tools.length, "tool")} that cost nothing to start` : `${task.heading}: ${plural(tools.length, "tool")} with cost and catch`;
+// A count only when there is something to count: "0 tools" in a title reads as a broken page.
+const title = !tools.length ? `${task.heading}: cost, effort and the catch`
+  : task.free ? `${task.heading}: ${plural(tools.length, "tool")} that cost nothing to start` : `${task.heading}: ${plural(tools.length, "tool")} with cost and catch`;
 const description = (tools.length
   ? `${task.heading}, from the news: ${plural(tools.length, "tool")} with what each does, who it is for, what it costs and the catch.${task.free ? "" : ` ${freeCount} can be started without paying.`} Latest: ${tools.slice(0, 3).map((t) => t.tool).join(", ")}.`
   : `${task.heading}: what each tool does, what it costs and the catch, from the news.`).slice(0, 300);
