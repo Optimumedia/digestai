@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from datetime import datetime
 
 from sqlalchemy import insert, select, update
@@ -24,6 +25,9 @@ from .textutil import slugify
 log = logging.getLogger("digest.topics")
 
 MAX_PER_RUN = 5
+# Describing stops after this many seconds: a model that answers slowly must not take the time the
+# run's last steps need (run.py keeps it for them).
+DESCRIBE_SECONDS = 90
 MIN_STORIES = 3
 MAX_STORIES_IN_PROMPT = 12
 SUMMARY_CHARS = 240
@@ -150,10 +154,14 @@ def run() -> dict:
         m = merged.setdefault(slug, {"name": e["name"], "kind": e["kind"], "ids": set()})
         m["ids"].update(e["storyIds"])
     with eng.begin() as conn:
-        existing = {t.slug for t in conn.execute(select(db.topics.c.slug)).all()}
+        # Only the counts that changed are written: all 3,400 topics, one round trip each, took six
+        # minutes of a 20-minute run on 23 Nov 2026.
+        existing = {t.slug: t.story_count for t in conn.execute(select(db.topics.c.slug, db.topics.c.story_count)).all()}
         for slug, m in merged.items():
             if slug in existing:
-                conn.execute(update(db.topics).where(db.topics.c.slug == slug).values(story_count=len(m["ids"]), updated_at=now))
+                if existing[slug] != len(m["ids"]):
+                    conn.execute(update(db.topics).where(db.topics.c.slug == slug).values(story_count=len(m["ids"]), updated_at=now))
+                    stats["updated"] = stats.get("updated", 0) + 1
             else:
                 conn.execute(insert(db.topics).values(slug=slug, name=m["name"], kind=m["kind"], story_count=len(m["ids"]), described_at_count=0, updated_at=now))
     stats["topics"] = len(merged)
@@ -171,8 +179,12 @@ def run() -> dict:
         ).all()
         allowance = enrich.allowance(conn, provider)
     budget = min(MAX_PER_RUN, allowance)
+    stop = time.monotonic() + DESCRIBE_SECONDS
     for t in due:
         if stats["described"] + stats["templated"] >= budget:
+            break
+        if time.monotonic() > stop:
+            stats["stopped"] = "time"
             break
         # Describe once at 3 stories, refresh when the count has doubled since (a templated line
         # counts as described, so the model is not asked again until the hub has grown).

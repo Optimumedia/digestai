@@ -110,6 +110,9 @@ MAX_ENRICH_PER_RUN = int(os.environ.get("MAX_ENRICH_PER_RUN") or "20")
 # Stop summarising after this many seconds and leave the rest for the next run. Rate-limited
 # providers once stretched the step past the workflow's 28-minute limit and got runs cancelled.
 ENRICH_TIME_BUDGET_SECONDS = int(os.environ.get("ENRICH_TIME_BUDGET_SECONDS") or "600")
+# The whole run's time (run.py): the workflow stops "Run pipeline" at 20 minutes, so steps that can wait
+# are skipped once the time left would not also cover the last steps (admin, the team, the backup).
+RUN_BUDGET_SECONDS = int(os.environ.get("RUN_BUDGET_SECONDS") or "1080")
 RUNS_PER_DAY = int(os.environ.get("RUNS_PER_DAY") or "48")
 # Minutes past the hour the workflow's schedule starts a run (the dashboard's "next run due").
 RUN_MINUTES = [int(m) for m in (os.environ.get("RUN_MINUTES") or ("0,30" if RUNS_PER_DAY >= 48 else "7")).split(",") if m.strip()]
