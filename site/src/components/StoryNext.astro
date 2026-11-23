@@ -1,0 +1,64 @@
+---
+/* Where a story leads: the next story worth reading, and a way to pass this one on. It sits right
+   under the digest (before the publisher's full text), where a reader who has the gist decides
+   whether to leave.
+
+   Next: the following story in today's briefing when this one is in it (with its place, "2 of 5"),
+   else the briefing's lead; and, when there is one, a related story on the same subject. Without
+   JavaScript the links are what the build chose; app.js then skips stories this browser has already
+   opened (data-next carries the briefing's order). A click records next_click with the detail
+   story-next, story-related or story-today (public/app.js, data-work-next).
+
+   Pass it on: WhatsApp, Telegram and e-mail are plain links that work without JavaScript; the
+   system share sheet, "Copy for LinkedIn" and "Copy link" appear when the browser can do them. Every
+   link carries ?ref=<channel> (lib/passon.ts), so a visit it brings is counted as passed on. */
+import { briefingStories, briefingAlso, related, categories, type Story } from "../lib/data";
+import { shareLine, shareLinks, storyUrl } from "../lib/passon";
+
+interface Props {
+  story: Story;
+}
+const { story } = Astro.props;
+
+const brief = briefingStories;
+const at = brief.findIndex((s) => s.id === story.id);
+const order = at >= 0 ? [...brief.slice(at + 1), ...brief.slice(0, at)] : brief;
+const candidates = [...order, ...briefingAlso].filter((s) => s.id !== story.id);
+const next = candidates[0];
+const near = related(story, 3).find((s) => s.id !== next?.id && (s.firstPublishedAt || "") >= (story.firstPublishedAt || "").slice(0, 7));
+const label = at >= 0 ? `Next in today's briefing` : brief.length ? "Today's top story" : "Read next";
+const place = at >= 0 ? `Story ${at + 1} of ${brief.length}` : "";
+const list = JSON.stringify(candidates.slice(0, 8).map((s) => ({ s: s.slug, h: s.headline })));
+const url = storyUrl(story);
+const line = shareLine(story);
+const links = shareLinks(url, story.headline, line);
+---
+
+<div class="nextup-wrap" data-pagefind-ignore>
+  {next && (
+    <nav class="nextup" aria-label="What to read next" data-next={list} data-current={story.slug} data-briefing={JSON.stringify(brief.map((s) => s.slug))}>
+      <div class="nextup-k"><span data-next-label>{label}</span>{place && <span class="muted"> · {place}</span>}</div>
+      <a class="nextup-link" href={`/story/${next.slug}`} data-work-next="story-next" data-next-link>
+        <span data-next-title>{next.headline}</span><span aria-hidden="true"> →</span>
+      </a>
+      <p class="nextup-meta muted" data-next-meta>{categories[next.category || ""] || "AI"} · {next.articleCount} {next.articleCount === 1 ? "source" : "sources"}</p>
+      {near && (
+        <p class="nextup-also">On the same subject: <a href={`/story/${near.slug}`} data-work-next="story-related">{near.headline}</a></p>
+      )}
+      {brief.length > 0 && (
+        <p class="nextup-also"><a href="/today" data-work-next="story-today">All {brief.length} stories that matter today →</a> <span class="muted" data-today-progress hidden></span></p>
+      )}
+    </nav>
+  )}
+
+  <div class="passon" role="group" aria-label="Pass this story on" data-source-count={story.articleCount}>
+    <span class="passon-k">Pass it on</span>
+    <button type="button" class="tb" data-share="native" data-needs-share hidden>Share…</button>
+    <button type="button" class="tb" data-share="linkedin-text" data-needs-js hidden>Copy for LinkedIn</button>
+    <a class="tb" href={links.whatsapp} target="_blank" rel="noopener nofollow" data-passon="whatsapp">WhatsApp</a>
+    <a class="tb" href={links.telegram} target="_blank" rel="noopener nofollow" data-passon="telegram">Telegram</a>
+    <a class="tb" href={links.email} data-passon="email">Email</a>
+    <button type="button" class="tb" data-share="copy" data-needs-js hidden>Copy link</button>
+    <p class="passon-msg muted" data-passon-msg aria-live="polite"></p>
+  </div>
+</div>

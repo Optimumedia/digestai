@@ -1,0 +1,31 @@
+---
+/* "Get this every day": the ways to come back that work today with no account and no e-mail. Shown at
+   the end of a story and on /today while the daily e-mail is not open. Every item is a working link;
+   "Add to home screen" appears only when the browser can do it (public/app.js, data-install). A topic
+   the story is about can be followed from here: it then leads the reader's own front page. */
+import { dailyFeed, feedReaders } from "../lib/passon";
+
+interface Props {
+  heading?: string;
+  /** A topic to follow from here: the follow button's JSON, as on the topic page. */
+  topic?: { kind: string; slug: string; name: string } | null;
+}
+const { heading = "Get the stories that matter, every day", topic } = Astro.props;
+const readers = feedReaders(dailyFeed);
+---
+
+<section class="newsletter keepup" aria-labelledby="keepup-h" data-pagefind-ignore>
+  <h3 id="keepup-h">{heading}</h3>
+  <p>No account and no e-mail address. Pick the way that suits you.</p>
+  <ul class="follow-ways">
+    <li>
+      <a href="/today.xml">The daily briefing feed</a> <span class="muted">one post a day with the top stories, for any feed reader. Add it in one click: {readers.map((r, i) => <>{i > 0 && " · "}<a href={r.href} target="_blank" rel="noopener nofollow">{r.name}</a></>)}</span>
+    </li>
+    <li><a href="/listen">The podcast</a> <span class="muted">the same stories read aloud in about five minutes, in any podcast app</span></li>
+    <li><a href="/subscribe#alerts">Browser alerts</a> <span class="muted">only when a big story breaks, at most three a day</span></li>
+    <li data-install hidden><button type="button" class="linkish" data-install-btn>Add Digest AI to your home screen</button> <span class="muted" data-install-hint>opens on today's briefing, like an app</span></li>
+    {topic && (
+      <li class="keepup-topic"><span>Follow <b>{topic.name}</b> <span class="muted">its new stories lead your front page</span></span> <button class="follow" data-follow={JSON.stringify(topic)} aria-pressed="false">Follow</button></li>
+    )}
+  </ul>
+</section>
