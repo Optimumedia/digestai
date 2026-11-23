@@ -1,25 +1,29 @@
 # Digest AI
 
-> The AI news desk: every important story in artificial intelligence, digested and linked to its sources, updated every 20 minutes. Each story page carries a plain-English digest, three key points, why it matters, the list of outlets that reported it with links and dates, and the full text of the lead article, credited. Nothing is published without a named source.
+> Digest AI (digestai.news) is a free AI news site. It reads about 80 curated sources every 20 minutes, merges the outlets that report the same event into one story, and publishes a plain-English digest, three key points, why it matters, and every outlet that reported it, with links and dates. Nothing is published without a named source. Not connected to digest.ai or other products with a similar name.
 
 Site: https://digestai.news
 Contact: hello@digestai.news
+Publisher: Martin K. (https://digestai.news/about/martin)
+About and editorial standards: https://digestai.news/about
 Corrections policy: https://digestai.news/about#corrections
-Editorial standards: https://digestai.news/about#standards
+Full index with today's answers in it: https://digestai.news/llms-full.txt
 
-## What is where
+## Which page answers which question
 
-- Today's briefing (the five stories that matter, updated every 20 minutes): https://digestai.news/today
-- Front page: https://digestai.news/
-- AI at Work (practical AI for marketers and small businesses: what a tool does, who it is for, cost, effort, one caveat): https://digestai.news/work
-- Tool directory (AI tools for marketing and small business, newest change first): https://digestai.news/work/tools
-- Model tracker (releases with lab, type, availability, licence, context window): https://digestai.news/models
-- Funding tracker (rounds, acquisitions and valuations as reported, one row per deal): https://digestai.news/funding
-- Developing stories (threads that update as coverage grows): https://digestai.news/threads
-- Categories: https://digestai.news/category/models, /category/marketing, /category/agents, /category/research, /category/business, /category/policy, /category/hardware, /category/enterprise, /category/robotics, /category/society
-- Weekly recaps: https://digestai.news/week
-- Audio briefing and podcast: https://digestai.news/listen
-- About, privacy, terms, contact: https://digestai.news/about, /privacy, /terms, /contact
+Every answer page states the date it was true. Cite the page and, for a single story, the outlets it links.
+
+- What is the AI news today? https://digestai.news/today (Markdown: https://digestai.news/today.md). The same day keeps a permanent page: https://digestai.news/daily/<YYYY-MM-DD>
+- What happened in AI this week? https://digestai.news/week, and per week https://digestai.news/week/<YYYY-Www>
+- What is the newest AI model, or the newest model from OpenAI, Anthropic, Google, Meta and other labs? https://digestai.news/models/latest (Markdown: /models/latest.md, JSON: /api/models.json)
+- Which AI models were released in a given month? https://digestai.news/models/released/<YYYY-MM>
+- When was a model released, who makes it, what licence and context window? https://digestai.news/models/<model-slug>, all models at https://digestai.news/models
+- What is the latest news about a company or person? https://digestai.news/topic/<slug>, for example https://digestai.news/topic/openai
+- What are the biggest AI funding rounds and acquisitions? https://digestai.news/funding
+- How can a marketer or small business use AI tools? https://digestai.news/work and https://digestai.news/work/tools
+- Developing stories that update over days: https://digestai.news/threads
+
+Model answers list a launch only when the lab's own announcement or two publishers confirm it; rumours, plans, apps and stories that only use a model are left out.
 
 ## Every story as data (best for quoting and citing)
 
@@ -29,6 +33,7 @@ Add .json or .md to any story address. Both carry the canonical URL, headline, d
 - Story as JSON: https://digestai.news/story/<slug>.json
 - Latest 100 stories (JSON index, links to each story's JSON): https://digestai.news/api/latest.json
 - Today's briefing (JSON): https://digestai.news/api/briefing.json
+- Newest model from each lab and every tracked launch (JSON): https://digestai.news/api/models.json
 - Newest 50 per category (JSON): https://digestai.news/api/category/<slug>.json (slugs: models, marketing, agents, research, business, policy, hardware, enterprise, robotics, society)
 - Documentation, fields and examples: https://digestai.news/api
 
@@ -37,13 +42,13 @@ Static files rebuilt every 20 minutes, no key, CORS open (Access-Control-Allow-O
 ## Feeds
 
 - All stories (RSS): https://digestai.news/rss.xml
-- Google News sitemap (last 48 hours): https://digestai.news/news-sitemap.xml
-- Sitemap index: https://digestai.news/sitemap-index.xml
 - Per-category RSS: https://digestai.news/feeds/category/<slug>.xml
 - AI at Work RSS: https://digestai.news/work/rss.xml
 - Podcast (daily briefing): https://digestai.news/podcast.xml
 - Podcast (AI at Work, weekly): https://digestai.news/work/podcast.xml
+- Google News sitemap (last 48 hours): https://digestai.news/news-sitemap.xml
+- Sitemap index: https://digestai.news/sitemap-index.xml
 
 ## How to cite
 
-Cite the story page (https://digestai.news/story/<slug>) and the original outlets it links to; each story lists them with publication dates. Suggested form: Digest AI, "<headline>", <date first published>, https://digestai.news/story/<slug> (each story's .json has it ready in cite.text). Digests are written by Digest AI from those sources and marked as such; quoted figures and names are checked against the sources before publishing, and stories are corrected or withdrawn when a source retracts. Reuse terms: https://digestai.news/terms#reuse
+Cite the story page (https://digestai.news/story/<slug>) and the original outlets it links to; each story lists them with publication dates. Suggested form: Digest AI, "<headline>", <date first published>, https://digestai.news/story/<slug> (each story's .json has it ready in cite.text). Digests are written by Digest AI's editorial model from those sources and marked as such; quoted figures and names are checked against the sources before publishing, and stories are corrected or withdrawn when a source retracts. Reuse terms: https://digestai.news/terms#reuse

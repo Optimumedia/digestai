@@ -8,6 +8,27 @@ Disallow: /ft/
 Sitemap: https://digestai.news/sitemap-index.xml
 Sitemap: https://digestai.news/news-sitemap.xml
 
+# AI search and answer assistants are welcome: every story, hub, tracker and the files listed in
+# /llms.txt. A crawler with its own group ignores the * group, so the same three rules are repeated.
+User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: GPTBot
+User-agent: Claude-SearchBot
+User-agent: Claude-User
+User-agent: ClaudeBot
+User-agent: PerplexityBot
+User-agent: Perplexity-User
+User-agent: Google-Extended
+User-agent: Applebot-Extended
+User-agent: Amazonbot
+User-agent: DuckAssistBot
+User-agent: MistralAI-User
+User-agent: meta-externalagent
+Allow: /
+Disallow: /search
+Disallow: /admin
+Disallow: /ft/
+
 # Extra crawl hints. A crawler with its own group ignores the * group, so /ft/ is repeated here.
 User-agent: Googlebot-News
 Allow: /

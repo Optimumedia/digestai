@@ -38,9 +38,11 @@ const categoryList = Object.keys(categories);
         <li><a href={`/story/${exampleSlug}.md`}><code>/story/&lt;slug&gt;.md</code></a> — the same story as Markdown, the easiest form for a language model to read and quote.</li>
         <li><a href="/api/latest.json"><code>/api/latest.json</code></a> — the 100 newest stories by first publication, one light row each with a link to the story's JSON.</li>
         <li><a href="/api/briefing.json"><code>/api/briefing.json</code></a> — today's briefing: the five stories that matter, with key points and why they matter, and the also-list.</li>
+        <li><a href="/api/models.json"><code>/api/models.json</code></a>: the newest confirmed model from each lab, the months with their release pages, and the newest launches, each with the date it was first reported and its launch story. Also as Markdown: <a href="/models/latest.md"><code>/models/latest.md</code></a>.</li>
+        <li><a href="/today.md"><code>/today.md</code></a>: today's briefing as Markdown, dated.</li>
         <li><code>/api/category/&lt;slug&gt;.json</code> — the 50 newest stories in one category: {categoryList.map((k, i) => <>{i > 0 && ", "}<a href={`/api/category/${k}.json`}>{k}</a></>)}.</li>
       </ul>
-      <p>Older stories keep their JSON and Markdown after they leave the front pages; those files are marked <code>"archived": true</code> and carry the headline, digest, key points and sources. For feed readers there is <a href="/rss.xml">RSS</a> (and one feed per category at <code>/feeds/category/&lt;slug&gt;.xml</code>); <a href="/llms.txt">llms.txt</a> lists everything.</p>
+      <p>Older stories keep their JSON and Markdown after they leave the front pages; those files are marked <code>"archived": true</code> and carry the headline, digest, key points and sources. For feed readers there is <a href="/rss.xml">RSS</a> (and one feed per category at <code>/feeds/category/&lt;slug&gt;.xml</code>); <a href="/llms.txt">llms.txt</a> lists everything, and <a href="/llms-full.txt">llms-full.txt</a> adds today's answers.</p>
 
       <h2 id="fields">Story fields</h2>
       <ul>
