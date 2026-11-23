@@ -349,6 +349,10 @@ def publish_archive(store: Store, now: datetime, every_hours: float = 20) -> boo
     src = archive.path()
     if not src.exists() or (last and (now - datetime.fromisoformat(last)).total_seconds() < every_hours * 3600):
         return False
+    # Only a copy that reads back with stories in it: on 23 Nov 2026 the published copy, made on
+    # 13 Oct, held no stories, and the runner's own copy was damaged, so nothing could be restored.
+    if not archive._load().get("stories"):
+        return False
     rel = store.release(archive.RELEASE_TAG, "Story archive", "Stories older than the export window, as the site's archive pages "
                         "show them (pipeline/digest/archive.py). Not a software release.")
     if rel.get("asset_id"):

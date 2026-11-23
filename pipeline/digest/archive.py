@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import zlib
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -49,8 +50,11 @@ def _load() -> dict:
             data = json.load(f)
         if data.get("format") == FORMAT and isinstance(data.get("stories"), dict):
             return data
-    except (OSError, ValueError, EOFError):
-        pass
+    except (OSError, ValueError, EOFError, zlib.error) as exc:
+        # A damaged copy is a missing one: from 7 to 23 Nov 2026 a corrupt runner copy ("invalid
+        # block type", a zlib.error) crashed the export every run, and the site did not change.
+        if path().exists():
+            log.warning("archive copy unreadable, taking it as missing: %s", str(exc)[:120])
     return {"format": FORMAT, "windowStart": None, "stories": {}}
 
 
@@ -69,7 +73,7 @@ def _download() -> dict | None:
     raw = media.content_at(media.asset_url(RELEASE_TAG, ASSET))
     try:
         data = json.loads(gzip.decompress(raw).decode("utf-8")) if raw else None
-    except (OSError, ValueError, EOFError):
+    except (OSError, ValueError, EOFError, zlib.error):
         return None
     if data and data.get("format") == FORMAT and isinstance(data.get("stories"), dict) and data.get("windowStart"):
         log.info("archive taken from the published copy: %d stories", len(data["stories"]))

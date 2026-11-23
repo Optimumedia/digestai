@@ -6,6 +6,10 @@ without repository activity. This checks, from outside the pipeline:
 
 - when the last successful "Ingest and publish" run finished; older than MAX_AGE_HOURS opens one
   issue labelled "pipeline-stopped" (updated, never duplicated) and closes it once runs succeed;
+- when the live site was last generated (SITE_URL): a run can finish "successfully" without
+  publishing. From 7 to 23 Nov 2026 the export crashed every run, the build was skipped, every run
+  was green and the site did not change for 16 days. A site older than SITE_MAX_AGE_HOURS opens the
+  same issue;
 - once a week (or when it is found disabled), re-enables the pipeline workflow and this one
   through the API. That counts as activity for the 60-day rule without a commit, so nothing is
   rebuilt or redeployed;
@@ -31,6 +35,8 @@ SELF = "watchdog.yml"
 LABEL = "pipeline-stopped"
 TITLE = "The pipeline has stopped publishing"
 MAX_AGE_HOURS = float(os.environ.get("WATCHDOG_MAX_AGE_HOURS") or 3)
+SITE_URL = "https://digestai.news/api/latest.json"
+SITE_MAX_AGE_HOURS = float(os.environ.get("WATCHDOG_SITE_MAX_AGE_HOURS") or 3)
 KEEPALIVE_WEEKDAY = 0  # Monday
 # A stuck run holds the "pipeline" concurrency group: every later run queues behind it and is
 # cancelled by the next one to arrive. From 6 to 13 Oct 2026 one run sat "waiting" on the
@@ -111,8 +117,27 @@ def decide(last: dict | None, now: datetime, max_age_hours: float = MAX_AGE_HOUR
     return hours > max_age_hours, round(hours, 1)
 
 
-def body(last: dict | None, hours: float | None, state: str, repo: str, now: datetime) -> str:
+def site_age(now: datetime, get=requests.get) -> float | None:
+    """Hours since the live site's data was generated, from its public API file; None when it cannot
+    be read (the check then decides nothing). A plain request: the GitHub token never goes there."""
+    try:
+        r = get(SITE_URL, timeout=20, headers={"Cache-Control": "no-cache"})
+        at = _parse(r.json().get("generatedAt")) if r.status_code == 200 else None
+    except (requests.RequestException, ValueError, AttributeError):
+        return None
+    if at is None:
+        return None
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=timezone.utc)
+    return round((now - at).total_seconds() / 3600, 1)
+
+
+def body(last: dict | None, hours: float | None, state: str, repo: str, now: datetime, site_hours: float | None = None) -> str:
     lines = [f"Checked automatically at {now.strftime('%Y-%m-%d %H:%M')} UTC by the watchdog workflow.", ""]
+    if site_hours is not None and site_hours > SITE_MAX_AGE_HOURS:
+        lines += [f"The live site was last generated {site_hours:.1f} hours ago, although runs may be finishing.",
+                  "A run that finishes without publishing has a crashed step or a skipped build: open the latest run's "
+                  "\"Run pipeline\" log and look for \"crashed\", and at \"Check exported data\".", ""]
     if last:
         lines.append(f"The last successful run finished {hours:.1f} hours ago: {last.get('html_url')}")
     else:
@@ -161,7 +186,8 @@ def sync_issue(s, repo: str, stopped: bool, text: str) -> str:
     return "none"
 
 
-def run(s, repo: str, now: datetime | None = None, force_keepalive: bool = False) -> dict:
+def run(s, repo: str, now: datetime | None = None, force_keepalive: bool = False, site=None) -> dict:
+    """`site`: a function giving the live site's age in hours (site_age; left out in tests)."""
     now = now or datetime.now(timezone.utc)
     states = {n: workflow_state(s, repo, n) for n in (PIPELINE, SELF)}
     enabled = keepalive(s, repo, now, states, force_keepalive)
@@ -169,9 +195,12 @@ def run(s, repo: str, now: datetime | None = None, force_keepalive: bool = False
     kicked = kick(s, repo, now)
     last = last_success(s, repo)
     stopped, hours = decide(last, now)
+    site_hours = site(now) if site else None
+    stale = site_hours is not None and site_hours > SITE_MAX_AGE_HOURS
     state = "enabled" if states.get(PIPELINE) == "active" or PIPELINE in enabled else states.get(PIPELINE, "unknown")
-    action = sync_issue(s, repo, stopped, body(last, hours, state, repo, now))
-    return {"stopped": stopped, "hours": hours, "issue": action, "reenabled": enabled, "unstuck": unstuck, "kicked": kicked, "states": states}
+    action = sync_issue(s, repo, stopped or stale, body(last, hours, state, repo, now, site_hours))
+    return {"stopped": stopped or stale, "hours": hours, "siteHours": site_hours, "issue": action, "reenabled": enabled,
+            "unstuck": unstuck, "kicked": kicked, "states": states}
 
 
 def main() -> int:
@@ -180,7 +209,7 @@ def main() -> int:
     if not token or not repo:
         print("GH_TOKEN and GITHUB_REPOSITORY are needed")
         return 2
-    result = run(session(token), repo, force_keepalive=os.environ.get("KEEPALIVE") == "1")
+    result = run(session(token), repo, force_keepalive=os.environ.get("KEEPALIVE") == "1", site=site_age)
     print(json.dumps(result))
     return 0
 
