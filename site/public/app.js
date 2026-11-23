@@ -18,6 +18,10 @@
   // the page has loaded, whichever comes first, so find-in-page and a quick scroll both find it.
   // The box keeps its data-read="full_text" mark, which the read-depth measure below looks for.
   {
+    // The page's HTML holds only the empty box. The heading above the text and the note on who
+    // published it are built here once the text has arrived, so a visitor that cannot load it (a
+    // search engine, which may not fetch /ft/, or a dropped connection) sees a page that never
+    // mentions it; the "Open source" link above the box always leads to the original.
     const slot = document.querySelector("[data-fulltext]");
     if (slot) {
       let state = "idle";
@@ -25,29 +29,56 @@
         state = "failed";
         slot.removeAttribute("aria-busy");
         slot.classList.add("ft-done");
-        const p = document.createElement("p");
-        p.className = "ft-status";
-        p.append("The full article did not load. ");
+        slot.replaceChildren();
+      };
+      const sourceLink = (d, text) => {
         const a = document.createElement("a");
-        a.href = slot.dataset.sourceUrl || "#";
+        a.href = d.url;
         a.target = "_blank";
         a.rel = "noopener nofollow";
-        a.textContent = `Read it at ${slot.dataset.sourceName || "the source"} ↗`;
-        p.append(a);
-        slot.replaceChildren(p);
+        a.setAttribute("data-source-link", "");
+        a.textContent = text;
+        return a;
+      };
+      const show = (d) => {
+        slot.innerHTML = d.html;
+        slot.removeAttribute("aria-busy");
+        slot.classList.add("ft-done");
+        const section = slot.closest("[data-ft-section]") || slot.parentElement;
+        if (d.title && d.url) {
+          const head = document.createElement("div");
+          head.className = "fulltext-head";
+          const h2 = document.createElement("h2");
+          h2.textContent = d.title;
+          const eyebrow = document.createElement("span");
+          eyebrow.className = "eyebrow";
+          eyebrow.textContent = [d.source, d.date].filter(Boolean).join(" · ");
+          head.append(h2, eyebrow);
+          section.prepend(head);
+          const note = document.createElement("p");
+          note.className = "ai-note";
+          const b = document.createElement("b");
+          b.textContent = d.source || "the publisher";
+          const named = sourceLink(d, "");
+          named.append(b);
+          note.append("This text was published by ", named,
+            `${d.author ? ` and written by ${d.author}` : ""}. It is reproduced here with attribution so you can read it in full; the rights remain with the publisher. `,
+            sourceLink(d, "Read it at the source ↗"));
+          slot.after(note);
+        }
+        state = "done";
       };
       const load = () => {
         if (state !== "idle") return;
         state = "loading";
+        const status = document.createElement("p");
+        status.className = "ft-status";
+        status.setAttribute("role", "status");
+        status.textContent = "Loading the full article…";
+        slot.replaceChildren(status);
         fetch(slot.dataset.fulltext)
           .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-          .then((d) => {
-            if (!d || typeof d.html !== "string" || !d.html) return fail();
-            slot.innerHTML = d.html;
-            slot.removeAttribute("aria-busy");
-            slot.classList.add("ft-done");
-            state = "done";
-          })
+          .then((d) => (d && typeof d.html === "string" && d.html ? show(d) : fail()))
           .catch(fail);
       };
       if ("IntersectionObserver" in window) {
@@ -235,7 +266,8 @@
     });
     addEventListener("pagehide", flush);
     // A source click credits a story's article (the ranker reads it); /work has its own "try" event.
-    if (storyId) document.querySelectorAll("a[data-source-link]").forEach((a) => a.addEventListener("click", () => send("click_source", 1)));
+    // Delegated, so the links in the full article's note (added once its text loads) count too.
+    if (storyId) document.addEventListener("click", (e) => { if (e.target instanceof Element && e.target.closest("a[data-source-link]")) send("click_source", 1); });
 
     // How far the story was read: the deepest point that reached the bottom of the screen, as a
     // percent of the story (headline to the end of the full text, or of the summary when there is
