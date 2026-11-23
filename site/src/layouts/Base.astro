@@ -77,7 +77,7 @@ for (let i = 0; i < Math.max(hot.length, fresh.length); i++) {
 const footerColumns: { title: string; links: [string, string][] }[] = [
   { title: "Read", links: [["Today's briefing", "/today"], ["AI at Work", "/work"], ["Developing stories", "/threads"], ["River", "/river"], ["Weekly recaps", "/week"], ["Archive", "/daily"]] },
   { title: "Trackers & tools", links: [["AI tools for work", "/work/tools"], ["Model tracker", "/models"], ["Funding tracker", "/funding"], ["Sources", "/sources"], ["Search", "/search"]] },
-  { title: "Listen & follow", links: [["Listen", "/listen"], ["Podcast feed", "/podcast.xml"], ["RSS feed", "/rss.xml"], ["API and JSON", "/api"], ["Browser alerts", "/subscribe"]] },
+  { title: "Listen & follow", links: [["Listen", "/listen"], ["Podcast feed", "/podcast.xml"], ["RSS feed", "/rss.xml"], ["API and JSON", "/api"], ["Ways to follow", "/subscribe"], ["Add to your site", "/embed"]] },
   { title: "About", links: [["About Digest AI", "/about"], ["Editorial standards", "/about#standards"], ["Corrections", "/about#corrections"], ["Contact", "/contact"], ["Privacy", "/privacy"], ["Terms", "/terms"]] },
 ];
 const footerYear = new Date(meta.generatedAt || Date.now()).getUTCFullYear();
@@ -102,7 +102,10 @@ const clientConfig = {
     <meta name="theme-color" content="#0e1116" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Digest AI" />
     <link rel="alternate" type="application/rss+xml" title="Digest AI" href={`${site}/rss.xml`} />
+    <link rel="alternate" type="application/rss+xml" title="Digest AI: the daily briefing" href={`${site}/today.xml`} />
     <link rel="alternate" type="application/rss+xml" title="Digest AI: AI at Work" href={`${site}/work/rss.xml`} />
     <link rel="alternate" type="application/rss+xml" title="Digest AI briefing (podcast)" href={`${site}/podcast.xml`} />
     <link rel="alternate" type="application/rss+xml" title="Digest AI: AI at Work (podcast)" href={`${site}/work/podcast.xml`} />

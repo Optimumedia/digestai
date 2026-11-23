@@ -12,7 +12,7 @@ export const GET: APIRoute = () => {
   <guid isPermaLink="false">digestai-briefing-${e.date}</guid>
   <pubDate>${new Date(e.publishedAt).toUTCString()}</pubDate>
   <description>${esc(e.description)}</description>
-  <content:encoded><![CDATA[<p>${esc(e.description)}</p><ul>${e.stories.map((s) => `<li><a href="${site}/story/${s.slug}">${esc(s.headline)}</a></li>`).join("")}</ul>]]></content:encoded>
+  <content:encoded><![CDATA[<p>${esc(e.description)}</p><ul>${e.stories.map((s) => `<li><a href="${site}/story/${s.slug}?utm_source=podcast">${esc(s.headline)}</a></li>`).join("")}</ul>]]></content:encoded>
   <enclosure url="${e.url}" length="${e.bytes}" type="audio/mpeg" />
   <itunes:duration>${hms(e.seconds)}</itunes:duration>
   <itunes:episodeType>full</itunes:episodeType>

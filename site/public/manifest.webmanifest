@@ -2,7 +2,7 @@
   "name": "Digest AI",
   "short_name": "Digest AI",
   "description": "Cut through the AI noise. Every story sourced, updated every 20 minutes.",
-  "start_url": "/?source=pwa",
+  "start_url": "/today?utm_source=pwa",
   "display": "standalone",
   "background_color": "#0e1116",
   "theme_color": "#0e1116",
@@ -17,6 +17,30 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    }
+  ],
+  "id": "/?source=pwa",
+  "scope": "/",
+  "shortcuts": [
+    {
+      "name": "Today's briefing",
+      "short_name": "Today",
+      "url": "/today?utm_source=pwa"
+    },
+    {
+      "name": "AI at Work",
+      "short_name": "AI at Work",
+      "url": "/work?utm_source=pwa"
+    },
+    {
+      "name": "Listen",
+      "short_name": "Listen",
+      "url": "/listen?utm_source=pwa"
+    },
+    {
+      "name": "Saved stories",
+      "short_name": "Saved",
+      "url": "/saved?utm_source=pwa"
     }
   ]
 }
