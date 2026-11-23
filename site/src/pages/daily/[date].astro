@@ -22,7 +22,7 @@ const newer = idx > 0 ? days[idx - 1] : null;
 const older = idx < days.length - 1 ? days[idx + 1] : null;
 ---
 
-<Base title={`AI news for ${pretty}`} description={`The ${list.length} AI stories Digest AI covered on ${pretty}, ranked by importance.`} thin={list.length < DAILY_MIN_STORIES}>
+<Base title={`AI news for ${pretty}`} description={`The ${list.length} AI stories Digest AI covered on ${pretty}, ranked by importance.`} thin={list.length < DAILY_MIN_STORIES} quiet={true}>
   <div class="grid">
     <div>
       <header class="page-head">

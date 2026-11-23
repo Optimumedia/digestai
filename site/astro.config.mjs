@@ -33,6 +33,8 @@ try {
     archived,
     // /work/prices is indexable only once enough tools have actually moved (WORK_PRICES_MIN_ENTRIES).
     priceChanges: read("work-prices.json", {}).changes || [],
+    // Topic introductions: a hub with its own written intro is offered to search with fewer stories.
+    topics: read("topics.json", {}),
   });
 } catch {}
 

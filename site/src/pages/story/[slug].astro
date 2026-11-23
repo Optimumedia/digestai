@@ -8,7 +8,7 @@ import { storyJsonLdImages, storyOgImage } from "../../lib/data";
 import StoryRedirect from "../../components/StoryRedirect.astro";
 import WorkCard from "../../components/WorkCard.astro";
 import { toolFor, toolSlug, workCardFor } from "../../lib/work";
-import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, dateTime, shortDate, readingMinutes, related, meta, threadFor, threadStories, hubHref, trackedModelsIn, modelsReleasedIn,storiesInCategory, storyIndexable, storyForSlug, storyRedirects, storyImages, defaultImage, storyModified, clipHeadline } from "../../lib/data";
+import { stories, categories, leadArticle, fullTextArticle, renderMarkdown, plain, formatDate, dateTime, shortDate, readingMinutes, related, meta, threadFor, threadStories, hubHref, trackedModelsIn, modelsReleasedIn,storiesInCategory, storyIndexable, storySearchWorthy, storyForSlug, storyRedirects, storyImages, defaultImage, storyModified, clipHeadline } from "../../lib/data";
 
 export function getStaticPaths() {
   return [
@@ -24,16 +24,34 @@ const full = fullTextArticle(story);
 const shown = full || lead;
 const others = story.articles.filter((a) => a.id !== shown.id);
 const description = plain(story.summaryMd || story.keyPoints.join(" "), 160);
+/* The standfirst is the digest's opening, whole sentences up to about 320 characters; the rest of the
+   first paragraph opens the body. It used to be the first paragraph clipped at 400 characters with
+   the remainder never shown, which cut 74% of story pages mid-sentence (30 Oct 2026). */
+const paragraphs = (story.summaryMd || "").split("\n\n").map((p) => p.trim()).filter(Boolean);
+// A sentence ends at . ! or ? (and any closing quote or bracket) followed by a space and a capital,
+// digit or opening quote, so "GPT-5.5" and "U.S. law" stay whole. Joining the pieces gives the text back.
+const sentences = (paragraphs[0] || "").split(/(?<=[.!?]["'”’)]*)\s+(?=["“‘(]?[A-Z0-9])/);
+let cut = 0;
+let opening = "";
+while (cut < sentences.length && (!opening || opening.length + 1 + sentences[cut].length <= 320)) {
+  opening = opening ? `${opening} ${sentences[cut]}` : sentences[cut];
+  cut += 1;
+}
+const standfirst = plain(opening, 2000);
+const bodyMd = [sentences.slice(cut).join(" "), ...paragraphs.slice(1)].filter(Boolean).join("\n\n");
 const site = meta.siteUrl;
 const entityList = Object.entries(story.entities || {}).flatMap(([kind, names]) => names.map((n) => ({ kind, n })));
-const rel = related(story, 5);
+// Related reading leads with stories several publishers reported: they are the site's strongest pages
+// for readers and for search engines alike, so the links point there first.
+const strongFirst = (list: typeof stories) => [...list.filter(storySearchWorthy), ...list.filter((s) => !storySearchWorthy(s))];
+const rel = strongFirst(related(story, 12)).slice(0, 5);
 // A model release (the tracker took the model from this story) links to the model's page in a box
 // under the key points; other tracked models the story is about get the one small line further down.
 const released = modelsReleasedIn(story).slice(0, 2);
 const releasedSlugs = new Set(released.map((m) => m.slug));
 const modelLinks = trackedModelsIn(story).filter((m) => !releasedSlugs.has(m.slug)).slice(0, 3);
 const relIds = new Set(rel.map((s) => s.id));
-const moreInCategory = storiesInCategory(story.category || "").filter((s) => s.id !== story.id && !relIds.has(s.id)).slice(0, 5);
+const moreInCategory = strongFirst(storiesInCategory(story.category || "").filter((s) => s.id !== story.id && !relIds.has(s.id)).slice(0, 15)).slice(0, 5);
 const discussions = story.discussions || [];
 // AI at Work: when the story carries a practical card it goes above the digest, because a reader
 // who came for the tool wants the tool, not the news write-up.
@@ -86,6 +104,8 @@ const jsonLd = {
   about: entityList.map(({ n }) => ({ "@type": "Thing", name: n })),
   articleSection: categories[story.category || ""],
   discussionUrl: discussions[0]?.url,
+  inLanguage: "en",
+  isAccessibleForFree: true,
 };
 ---
 
@@ -104,6 +124,7 @@ const jsonLd = {
   storyId={story.id}
   articleId={shown.id}
   thin={!storyIndexable(story)}
+  quiet={!storySearchWorthy(story)}
 >
   {/* The same story as data and as Markdown, for assistants that cite it (/api). */}
   <Fragment slot="head">
@@ -121,7 +142,7 @@ const jsonLd = {
           {full && <span>{readingMinutes(full.wordCount)} min read</span>}
         </div>
         <h1>{story.headline}</h1>
-        {story.summaryMd && <p class="standfirst">{plain(story.summaryMd.split("\n\n")[0], 400)}</p>}
+        {standfirst && <p class="standfirst">{standfirst}</p>}
         <div class="story-tools">
           <Coverage story={story} />
           <div class="toolbar" role="group" aria-label="Save and share">
@@ -167,9 +188,7 @@ const jsonLd = {
         </aside>
       ))}
 
-      {story.summaryMd && story.summaryMd.includes("\n\n") && (
-        <div class="article" set:html={renderMarkdown(story.summaryMd.split("\n\n").slice(1).join("\n\n"))} />
-      )}
+      {bodyMd && <div class="article" set:html={renderMarkdown(bodyMd)} />}
 
       {story.whyItMatters && <aside class="why"><b>Why it matters</b>{story.whyItMatters}</aside>}
 
@@ -217,37 +236,28 @@ const jsonLd = {
       </div>
 
       {full && (
-        <section>
-          <div class="fulltext-head">
-            <h2>{full.title}</h2>
-            <span class="eyebrow">{full.source || full.domain} · {formatDate(full.publishedAt)}</span>
-          </div>
+        <section class="ft-section" data-ft-section>
           {figureImages.length > 0 && (
             <figure class="figure" data-images={JSON.stringify(figureImages)}><img src={figureImages[0]} alt="" loading="lazy" referrerpolicy="no-referrer" /></figure>
           )}
           {/* The publisher's text is not in this page. It is a separate file, /ft/<slug>.json (written by
               pages/ft/[slug].json.ts, blocked in robots.txt), that app.js puts in this box as the reader
-              nears it, so to a search engine the page is our own digest and never a copy of the article.
-              The box reserves roughly the article's height (global.css .ft-slot), so nothing jumps. */}
+              nears it, together with the article's heading and the note on who published it. The HTML
+              holds only the empty box: a search engine, which does not fetch /ft/, reads our digest and
+              the link to the source above, not a "loading" line, a failure message, or a note about
+              reproduced text it was never shown (on 30 Oct 2026, 84% of sampled story pages rendered
+              that way for crawlers). The box reserves roughly the article's height (global.css .ft-slot)
+              so nothing jumps, takes no room without JavaScript, and closes if the text cannot load. */}
           <div
             class="article ft-slot"
             data-read="full_text"
             data-nosnippet
             data-fulltext={`/ft/${story.slug}.json`}
-            data-source-url={full.url}
-            data-source-name={full.source || full.domain}
             data-pagefind-ignore
             style={`--ft-words: ${Math.min(Math.max(full.wordCount || 400, 100), 3000)}`}
             aria-busy="true"
-          >
-            <p class="ft-status" role="status">Loading the full article…</p>
-            <noscript><p class="ft-status">The full article needs JavaScript. <a href={full.url} rel="noopener nofollow" target="_blank">Read it at {full.source || full.domain} ↗</a></p></noscript>
-          </div>
-          <p class="ai-note">
-            This text was published by <a href={full.url} rel="noopener nofollow" target="_blank" data-source-link><b>{full.source || full.domain}</b></a>
-            {full.author && ` and written by ${full.author}`}. It is reproduced here with attribution so you can read it in full; the rights remain with the publisher.
-            <a href={full.url} rel="noopener nofollow" target="_blank" data-source-link>Read it at the source ↗</a>
-          </p>
+          ></div>
+          <noscript><style is:inline>{".ft-slot { display: none; }"}</style></noscript>
         </section>
       )}
 

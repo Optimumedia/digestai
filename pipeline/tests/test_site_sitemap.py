@@ -56,6 +56,7 @@ ENTITIES = [
     {"name": "Small Co", "kind": "companies", "storyIds": [6]},
 ]
 THREADS = [
+    {"slug": "long-thread", "storyCount": 5, "updatedAt": "2026-09-21T00:00:00Z"},
     {"slug": "big-thread", "storyCount": 3, "updatedAt": "2026-09-21T00:00:00Z"},
     {"slug": "small-thread", "storyCount": 2, "updatedAt": "2026-09-21T00:00:00Z"},
 ]
@@ -73,7 +74,7 @@ def _plan(paths: list[str]) -> dict:
         f"const plan = lib.sitemapIndex({json.dumps(data)});\n"
         f"const paths = {json.dumps(paths)};\n"
         "console.log(JSON.stringify({listed: paths.filter((p) => plan.include(p)), lastmod: Object.fromEntries(plan.lastmod),"
-        f" noindex: [...plan.noindex], confirmed: {json.dumps([s['slug'] for s in STORIES])}.map((slug, i) => lib.storyConfirmed({json.dumps(STORIES)}[i]))}}));")
+        f" noindex: [...plan.noindex], quiet: [...plan.quiet], confirmed: {json.dumps([s['slug'] for s in STORIES])}.map((slug, i) => lib.storyConfirmed({json.dumps(STORIES)}[i]))}}));")
 
 
 def test_sitemap_lists_confirmed_or_important_stories_and_hubs():
@@ -82,26 +83,33 @@ def test_sitemap_lists_confirmed_or_important_stories_and_hubs():
         return
     stories = [f"/story/{s['slug']}" for s in STORIES] + ["/story/old-confirmed", "/story/old-single"]
     hubs = ["", "/today", "/week", "/category/policy", "/category/marketing", "/work", "/models", "/funding", "/api", "/about",
-            "/listen", "/thread/big-thread", "/thread/small-thread", "/topic/anthropic", "/topic/small-co"]
+            "/listen", "/thread/long-thread", "/thread/big-thread", "/thread/small-thread", "/topic/anthropic", "/topic/small-co"]
     others = ["/daily/2026-09-20", "/week/2026-W38", "/threads", "/contact", "/privacy", "/terms", "/sources", "/subscribe"]
     out = _plan(stories + hubs + others)
     listed = set(out["listed"])
-    # Stories: confirmed (two publishers by registrable domain, a primary source, pinned) or importance 6+.
+    # Stories offered to search: two or more publishers (by registrable domain), pinned, or importance 8+.
     assert out["confirmed"] == [True, False, True, True, False, False, False, True]
-    for slug in ("two-publishers", "primary-source", "pinned-single", "important-single", "future-dated"):
+    for slug in ("two-publishers", "pinned-single", "future-dated"):
         assert f"/story/{slug}" in listed, slug
-    # One publisher under two host names is one source; a middling single-source story is unlisted...
-    assert "/story/same-publisher-twice" not in listed and "/story/middling-single" not in listed
-    # ...but not noindex: it stays indexable and linked. The thin one keeps its noindex, as before.
-    assert "/story/middling-single" not in out["noindex"] and "/story/thin-single" in out["noindex"]
+    # One publisher, even under two host names, even the company's own announcement, even at
+    # importance 6: search-quiet (noindex for Google and Bing only), unlisted, still indexable for others.
+    quiet = set(out["quiet"])
+    for slug in ("same-publisher-twice", "primary-source", "important-single", "middling-single"):
+        assert f"/story/{slug}" not in listed and f"/story/{slug}" in quiet and f"/story/{slug}" not in out["noindex"], slug
+    # The thin one keeps its noindex for every crawler, as before, and is not repeated as quiet.
+    assert "/story/thin-single" in out["noindex"] and "/story/thin-single" not in quiet
     assert "/story/thin-single" not in listed
     # Archive pages: listed only when two publishers covered the story.
     assert "/story/old-confirmed" in listed and "/story/old-single" not in listed
-    # Hubs: the fixed ones, every category, threads of three or more, topics above the threshold.
+    # Hubs: the fixed ones, every category, threads of five or more.
     for p in ("", "/today", "/week", "/category/policy", "/category/marketing", "/models", "/funding", "/api",
-              "/about", "/listen", "/threads", "/thread/big-thread", "/topic/anthropic"):
+              "/about", "/listen", "/threads", "/thread/long-thread"):
         assert p in listed, p
-    assert "/thread/small-thread" not in listed and "/topic/small-co" not in listed
+    # A three-story thread or topic hub is a list of headlines: quiet and unlisted. Under three stories
+    # a topic is noindex for everyone (not repeated as quiet); a short thread is quiet.
+    assert {"/thread/big-thread", "/thread/small-thread", "/topic/anthropic"} <= quiet
+    assert not listed & {"/thread/big-thread", "/thread/small-thread", "/topic/anthropic", "/topic/small-co"}
+    assert "/topic/small-co" in out["noindex"] and "/topic/small-co" not in quiet
     # Everything else stays out of the sitemap (still built, linked and indexable).
     # Weekly recaps with enough stories are listed too (they carry their own intro).
     assert not listed & set(others) - {p for p in others if p.startswith("/week/") or p == "/threads"}, listed & set(others)
@@ -137,7 +145,7 @@ def test_older_list_pages_stay_out_of_the_sitemap():
     out = _plan(older + firsts)
     listed = set(out["listed"])
     assert not listed & set(older), listed & set(older)
-    for p in ("/topic/anthropic", "/category/policy", "/threads", "/week"):
+    for p in ("/category/policy", "/threads", "/week"):
         assert p in listed, p
     probe = _run(
         "console.log(JSON.stringify({size: lib.LIST_PAGE_SIZE, counts: [0, 1, 60, 61, 845].map((n) => lib.listPageCount(n)),"
@@ -200,6 +208,87 @@ def test_templates_and_robots_keep_publishers_text_out_of_the_html():
     assert sorted(re.findall(r"Disallow: (\S+)", robots)) == ["/admin", "/ft/", "/ft/", "/search"]
 
 
+def test_search_quiet_rules():
+    """Topic hubs need depth, the sitemap lists at most SITEMAP_MAX_STORIES stories (strongest first),
+    the daily archive is never listed, and a one-story model page is quiet."""
+    if not shutil.which("node"):
+        print("SKIP node not installed")
+        return
+    out = _run(
+        "const intro = {description: 'Anthropic is an AI safety company that makes the Claude models.'};"
+        "const placeholder = {description: '7 stories since 1 October 2026, most recently X'};"
+        "const topics = [[11, null], [12, null], [5, intro], [6, intro], [6, placeholder]].map(([n, i]) => lib.topicSearchWorthy(n, i));"
+        "const threads = [4, 5].map((n) => lib.threadSearchWorthy({storyCount: n}));"
+        "const daily = ['/daily', '/daily/2026-10-20', '/daily/2026-10-20/2', '/category/policy'].map(lib.isDailyArchive);"
+        "const art = (d, t) => ({domain: d, url: 'https://' + d + '/a', publishedAt: t});"
+        "const many = [];"
+        "for (let i = 0; i < lib.SITEMAP_MAX_STORIES + 20; i++) {"
+        "  const t = new Date(Date.UTC(2026, 9, 1) + i * 6e5).toISOString();"
+        "  many.push({id: i, slug: 's' + i, importance: 5, articleCount: 2, articles: [art('a.com', t), art('b.com', t)], firstPublishedAt: t, updatedAt: t});"
+        "}"
+        "const old = '2026-01-01T00:00:00Z';"
+        "many.push({id: 9001, slug: 'old-wide', importance: 5, articleCount: 3, articles: [art('a.com', old), art('b.com', old), art('c.com', old)], firstPublishedAt: old, updatedAt: old});"
+        "const plan = lib.sitemapIndex({stories: many});"
+        "const listed = many.filter((s) => plan.include('/story/' + s.slug)).map((s) => s.slug);"
+        "const models = [{name: 'Solo 1', lab: 'X', license: 'MIT', storySlug: 's1', date: '2026-10-01'}, {name: 'Duo 2', lab: 'X', storySlug: 's2', date: '2026-10-01'}];"
+        "const ents = [{name: 'Duo 2', kind: 'models', storyIds: [2, 3]}];"
+        "const q = lib.quietPaths({stories: many.slice(0, 10), entities: ents, models});"
+        "console.log(JSON.stringify({topics, threads, daily, n: listed.length, max: lib.SITEMAP_MAX_STORIES,"
+        " oldWide: listed.includes('old-wide'), newest: listed.includes('s' + (lib.SITEMAP_MAX_STORIES + 19)), oldest: listed.includes('s0'),"
+        " dailyListed: plan.include('/daily/2026-10-20'), soloQuiet: q.has('/models/solo-1'), duoQuiet: q.has('/models/duo-2')}));")
+    assert out["topics"] == [False, True, False, True, False], out["topics"]
+    assert out["threads"] == [False, True]
+    assert out["daily"] == [True, True, False, False]
+    assert out["n"] == out["max"]
+    # Three publishers beat two however old; among equals the newest win.
+    assert out["oldWide"] and out["newest"] and not out["oldest"]
+    assert not out["dailyListed"]
+    assert out["soloQuiet"] and not out["duoQuiet"]
+
+
+def test_indexnow_submits_what_the_site_offers():
+    """pipeline/digest/indexnow.py applies the same rule as indexing.mjs storySearchWorthy."""
+    if not shutil.which("node"):
+        print("SKIP node not installed")
+        return
+    from digest import indexnow
+
+    extra = [_story(20, "hot-single", 8, [_art("example.com")]), _story(21, "no-articles", 9, [])]
+    stories = STORIES + extra
+    js = _run(f"console.log(JSON.stringify({json.dumps(stories)}.map(lib.storySearchWorthy)));")
+    assert js == [indexnow.search_worthy(s) for s in stories], js
+    assert js == [True, False, False, True, False, False, False, True, True, True], js
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "stories.json"
+        path.write_text(json.dumps(stories), encoding="utf-8")
+        wanted = indexnow.story_filter(path)
+        # Offered stories go; quiet ones do not; a slug no longer exported (merged, now a redirect) goes.
+        assert wanted("two-publishers") and wanted("hot-single") and wanted("merged-away")
+        assert not wanted("middling-single") and not wanted("primary-source")
+        assert indexnow.story_filter(Path(tmp) / "missing.json")("anything")
+
+
+def test_pages_carry_the_quiet_tags_and_no_full_text_stub():
+    base = (SITE / "src" / "layouts" / "Base.astro").read_text(encoding="utf-8")
+    assert '<meta name="googlebot" content="noindex, follow" />' in base and '<meta name="bingbot" content="noindex, follow" />' in base
+    assert "— Digest AI" not in base and "| Digest AI" in base
+    story = (SITE / "src" / "pages" / "story" / "[slug].astro").read_text(encoding="utf-8")
+    assert "quiet={!storySearchWorthy(story)}" in story
+    # The HTML holds the empty box only; the heading, loading line and attribution come from app.js.
+    for text in ("Loading the full article", "reproduced here", "needs JavaScript", "{full.title}"):
+        assert text not in story, text
+    app = (SITE / "public" / "app.js").read_text(encoding="utf-8")
+    assert "Loading the full article" in app and "reproduced here with attribution" in app
+    assert "did not load" not in app
+    for page, mark in (("topic/[slug].astro", "quiet={isQuiet(base)}"), ("models/[slug].astro", "quiet={isQuiet(base)}"),
+                       ("thread/[slug].astro", "quiet={isQuiet("), ("daily/[date].astro", "quiet={true}"),
+                       ("story/[...archived].astro", '<meta name="googlebot" content="noindex, follow" />')):
+        assert mark in (SITE / "src" / "pages" / page).read_text(encoding="utf-8"), page
+    assert "storySearchWorthy(s)" in (SITE / "src" / "pages" / "news-sitemap.xml.ts").read_text(encoding="utf-8")
+
+
 def test_built_site():
     dist = SITE / "dist"
     data = SITE / "src" / "data" / "stories.json"
@@ -223,7 +312,14 @@ def test_built_site():
             probe = re.sub(r"[*_`#>\[\]()]", "", ln)[20:70]
             assert probe not in html, (s["slug"], probe)
         ft = json.loads((dist / "ft" / f"{s['slug']}.json").read_text(encoding="utf-8"))
-        assert ft["html"] and f'data-fulltext="/ft/{s["slug"]}.json"' in html
+        assert ft["html"] and ft["title"] and ft["url"] and f'data-fulltext="/ft/{s["slug"]}.json"' in html
+        assert "Loading the full article" not in html and "reproduced here" not in html, s["slug"]
+        # A page offered to search is in no robots tag's noindex; a quiet one is noindex for Google
+        # and Bing only, keeps its canonical, and is not in the sitemap.
+        quiet = '<meta name="googlebot" content="noindex, follow"' in html
+        assert quiet == ('<meta name="bingbot" content="noindex, follow"' in html), s["slug"]
+        if quiet:
+            assert f"/story/{s['slug']}" not in locs and 'rel="canonical"' in html, s["slug"]
         checked += 1
     assert checked, "no story with full text in the build"
     assert not any(p.startswith("/ft/") for p in locs)

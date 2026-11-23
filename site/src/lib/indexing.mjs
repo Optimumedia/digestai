@@ -185,16 +185,14 @@ export function noindexPaths(stories, entities, models = [], priceChanges = []) 
 
 /* ---- The sitemap: the best pages only ----
    Indexable is not the same as listed. Every page above that is not noindex can be indexed and is
-   linked from the site, but the sitemap names only the pages we most want crawled: stories that are
-   confirmed or important, and the hubs that lead to them. With 1,800 URLs listed and almost no
-   backlinks, Google crawled most of them and indexed few; a shorter list of stronger pages spends its
-   crawl where it counts. A single-source story of middling importance stays indexable and linked,
-   and Google can still find it from the category, topic and daily pages. */
+   linked from the site, but the sitemap names only the pages we most want crawled: the stories search
+   engines are offered (storySearchWorthy below, at most SITEMAP_MAX_STORIES of them) and the hubs
+   that lead to them. With 1,800 URLs listed and almost no backlinks, Google crawled most of them and
+   indexed few, and by November 2026 the list had grown to 7,298; a short list of strong pages spends
+   the crawl where it counts. Search-quiet pages (below) are never listed. */
 
-/** A story below this importance is listed only when it is confirmed. */
-export const SITEMAP_MIN_IMPORTANCE = 6;
-/** A developing-story thread is listed from this many stories. */
-export const THREAD_SITEMAP_MIN = 3;
+/** Threads are listed from this many stories (the same number as THREAD_SEARCH_MIN). */
+export const THREAD_SITEMAP_MIN = 5;
 /** Fixed hub pages that are listed (when not noindex). Categories, topics, models, threads and the
     AI at Work subpages are matched by the rules in sitemapIndex. */
 export const SITEMAP_HUBS = ["", "/today", "/week", "/work", "/work/tools", "/work/prices", "/models", "/funding", "/api", "/cite", "/about", "/listen", "/threads", "/about/how-it-works", "/about/martin"];
@@ -224,9 +222,97 @@ export function storyConfirmed(s) {
   return publishers.size >= 2;
 }
 
-/** Whether a story's page goes in the sitemap: indexable, and confirmed or important. */
+/* ---- Search-quiet pages: for readers and AI assistants, not for Google and Bing ----
+   Measured on the live site on 30 Oct 2026: of the 4,112 stories in the sitemap, 2,707 (66%) came
+   from a single publisher, and 1,035 topic hubs listed 3 to 11 stories with no text of their own.
+   Google had crawled the key pages and declined to index them, and Bing judged every page too low in
+   quality to show. A rewrite of one outlet's article, or a list of three headlines, is the kind of
+   page that pulls a whole site down. Digest AI's own value is the story that merges several
+   publishers, so those, and the hubs with real depth, are what search engines are offered.
+
+   A search-quiet page is still built, linked, readable and in the site search. It carries
+   <meta name="googlebot"> and <meta name="bingbot"> "noindex, follow" (Base.astro `quiet`), while
+   the general robots tag stays "index": assistants that cite the site (ChatGPT is the biggest
+   referrer) keep every page. It is left out of every sitemap and of IndexNow. */
+
+/** Distinct publishers (registrable domains) that reported a story. */
+export function storyPublishers(s) {
+  return new Set((s.articles || []).map((a) => registrable(a.domain || hostOf(a.url))).filter(Boolean)).size;
+}
+
+/** A single-publisher story is offered to search engines only from this importance (the "hot" chip). */
+export const SEARCH_SINGLE_SOURCE_IMPORTANCE = 8;
+
+/** Whether search engines are offered a story: indexable, and reported by two or more publishers, or
+    one of the most important stories of the day, or pinned by the owner. A company's own announcement
+    alone does not count: the company's page outranks a summary of it. */
+export function storySearchWorthy(s) {
+  if (!storyIndexable(s)) return false;
+  return Boolean(s.pinned) || storyPublishers(s) >= 2 || (s.importance ?? 0) >= SEARCH_SINGLE_SOURCE_IMPORTANCE;
+}
+
+/** Whether a story's page goes in the sitemap (the sitemap also caps how many, SITEMAP_MAX_STORIES). */
 export function storyInSitemap(s) {
-  return storyIndexable(s) && (storyConfirmed(s) || (s.importance ?? 0) >= SITEMAP_MIN_IMPORTANCE);
+  return storySearchWorthy(s);
+}
+
+/** At most this many live stories are listed, strongest first (most publishers, then newest). */
+export const SITEMAP_MAX_STORIES = 1000;
+
+/** A topic hub is offered to search engines from this many stories, or from TOPIC_SEARCH_MIN_WITH_INTRO
+    when it has its own written introduction (topics.json); below that it is a list of headlines. */
+export const TOPIC_SEARCH_MIN = 12;
+export const TOPIC_SEARCH_MIN_WITH_INTRO = 6;
+/** A developing-story thread is offered from this many stories. */
+export const THREAD_SEARCH_MIN = 5;
+
+/** Whether a topic's written introduction is a real one (the pipeline's placeholder is a count line). */
+export function topicHasIntro(info) {
+  const d = String(info?.description || "").trim();
+  return Boolean(d) && !/^\d+ stor(y|ies) since /.test(d);
+}
+
+export function topicSearchWorthy(count, info) {
+  return count >= TOPIC_SEARCH_MIN || (count >= TOPIC_SEARCH_MIN_WITH_INTRO && topicHasIntro(info));
+}
+
+export function threadSearchWorthy(t) {
+  return (t?.storyCount || t?.storyIds?.length || 0) >= THREAD_SEARCH_MIN;
+}
+
+/** A model page built on its launch story alone repeats that story; from two stories it is a page. */
+export function modelSearchWorthy(page) {
+  return modelIndexable(page) && page.storyIds.size >= 2;
+}
+
+/** An archive page is offered when two or more publishers covered the story. */
+export function archivedSearchWorthy(a) {
+  return archivedInSitemap(a);
+}
+
+/** True for the daily archive (/daily and /daily/<date>): lists of headlines that the category pages,
+    the weekly recaps and the stories themselves already carry. */
+export function isDailyArchive(path) {
+  return /^\/daily(?:\/[^/]+)?$/.test(String(path || "").replace(/\.html$/, "").replace(/\/$/, ""));
+}
+
+/** Every search-quiet path, from the exported data (pages already noindex are not repeated). */
+export function quietPaths({ stories = [], entities = [], models = [], threads = [], archived = [], topics = {} } = {}) {
+  const out = new Set();
+  for (const s of stories) if (storyIndexable(s) && !storySearchWorthy(s)) out.add(`/story/${s.slug}`);
+  const live = new Set(stories.map((s) => s.slug));
+  for (const a of archived) if (a.slug && !live.has(a.slug) && !archivedSearchWorthy(a)) out.add(`/story/${a.slug}`);
+  const modelSlugs = new Set();
+  for (const page of modelPages(stories, entities, models).values()) {
+    modelSlugs.add(page.slug);
+    if (modelIndexable(page) && !modelSearchWorthy(page)) out.add(`/models/${page.slug}`);
+  }
+  for (const [slug, ids] of topicStoryIds(stories, entities)) {
+    if (modelSlugs.has(slug) || ids.size < TOPIC_MIN_STORIES) continue; // a redirect or already noindex
+    if (!topicSearchWorthy(ids.size, topics[slug])) out.add(`/topic/${slug}`);
+  }
+  for (const t of threads) if (!threadSearchWorthy(t)) out.add(`/thread/${t.slug}`);
+  return out;
 }
 
 /** When a story last changed as its page shows it: first published, or the newest source the page
@@ -255,24 +341,30 @@ export function archivedInSitemap(a) {
 /** The sitemap plan from the exported data: `include(path)` says whether a built page is listed and
     `lastmod` holds each listed page's last change (a story's as its page states it, a hub's as its
     newest story's). Paths have no trailing slash; the home page is "". */
-export function sitemapIndex({ stories = [], entities = [], models = [], threads = [], archived = [], priceChanges = [] } = {}) {
+export function sitemapIndex({ stories = [], entities = [], models = [], threads = [], archived = [], priceChanges = [], topics = {} } = {}) {
   const noindex = noindexPaths(stories, entities, models, priceChanges);
+  const quiet = quietPaths({ stories, entities, models, threads, archived, topics });
   const listed = new Set(SITEMAP_HUBS);
   const lastmod = new Map();
   const modById = new Map(stories.map((s) => [s.id, storyModified(s)]));
   const newest = (values) => [...values].filter(Boolean).sort().pop();
   const newestOf = (ids) => newest([...ids].map((id) => modById.get(id)));
 
-  for (const s of stories) {
-    const p = `/story/${s.slug}`;
-    lastmod.set(p, modById.get(s.id));
-    if (storyInSitemap(s)) listed.add(p);
-  }
+  for (const s of stories) lastmod.set(`/story/${s.slug}`, modById.get(s.id));
+  // The strongest stories first (most publishers, then newest), at most SITEMAP_MAX_STORIES: older
+  // ones stay indexable and linked from their hubs, and the list no longer grows with every run.
+  const strength = (s) => (s.pinned || (s.importance ?? 0) >= SEARCH_SINGLE_SOURCE_IMPORTANCE ? 3 : Math.min(storyPublishers(s), 3));
+  stories
+    .filter(storyInSitemap)
+    .map((s) => ({ s, k: strength(s), t: s.firstPublishedAt || s.updatedAt || "" }))
+    .sort((a, b) => b.k - a.k || (a.t < b.t ? 1 : a.t > b.t ? -1 : 0))
+    .slice(0, SITEMAP_MAX_STORIES)
+    .forEach(({ s }) => listed.add(`/story/${s.slug}`));
   const live = new Set(stories.map((s) => s.slug));
   for (const a of archived) {
     if (!a.slug || live.has(a.slug)) continue;
     lastmod.set(`/story/${a.slug}`, a.updatedAt);
-    if (archivedInSitemap(a)) listed.add(`/story/${a.slug}`);
+    if (archivedSearchWorthy(a)) listed.add(`/story/${a.slug}`);
   }
   const all = newest(modById.values());
   // /week leads with the current week's stories, so it changes whenever a story does.
@@ -282,11 +374,11 @@ export function sitemapIndex({ stories = [], entities = [], models = [], threads
   for (const [cat, ids] of byCategory) lastmod.set(`/category/${cat}`, newestOf(ids));
   for (const t of threads) {
     lastmod.set(`/thread/${t.slug}`, t.updatedAt);
-    if ((t.storyCount || t.storyIds?.length || 0) >= THREAD_SITEMAP_MIN) listed.add(`/thread/${t.slug}`);
+    if (threadSearchWorthy(t)) listed.add(`/thread/${t.slug}`);
   }
   for (const [slug, ids] of topicStoryIds(stories, entities)) {
     lastmod.set(`/topic/${slug}`, newestOf(ids));
-    listed.add(`/topic/${slug}`); // thin ones and model slugs are noindex, checked in include()
+    listed.add(`/topic/${slug}`); // thin, quiet and model slugs are left out in include()
   }
   for (const page of modelPages(stories, entities, models).values()) {
     lastmod.set(`/models/${page.slug}`, newestOf(page.storyIds));
@@ -319,8 +411,8 @@ export function sitemapIndex({ stories = [], entities = [], models = [], threads
 
   const include = (path) => {
     const p = String(path || "").replace(/\/$/, "");
-    if (noindex.has(p) || isOlderListPage(p)) return false;
+    if (noindex.has(p) || quiet.has(p) || isOlderListPage(p) || isDailyArchive(p)) return false;
     return listed.has(p) || /^\/category\/[^/]+$/.test(p) || /^\/(?:work\/)?week\/[^/]+$/.test(p);
   };
-  return { include, lastmod, noindex };
+  return { include, lastmod, noindex, quiet };
 }

@@ -7,6 +7,7 @@
 import Analytics from "../../components/Analytics.astro";
 import "../../styles/global.css";
 import { archived, stories, meta, formatDate, categories } from "../../lib/data";
+import { archivedSearchWorthy } from "../../lib/indexing.mjs";
 
 export function getStaticPaths() {
   const live = new Set(stories.map((s) => s.slug));
@@ -17,6 +18,11 @@ const { story } = Astro.props;
 const site = meta.siteUrl.replace(/\/$/, "");
 const url = `${site}/story/${story.slug}`;
 const description = (story.summary || story.keyPoints.join(" ")).slice(0, 160);
+// One publisher's report in short form is kept for readers and assistants, not offered to Google and
+// Bing (the same rule as the live stories, indexing.mjs).
+const quiet = !archivedSearchWorthy(story);
+const keyPoints = story.keyPoints.map((k) => k.replace(/\*\*(.+?)\*\*/g, "$1").replace(/\*\*/g, ""));
+const pageTitle = story.headline.length > 58 ? story.headline : `${story.headline} | Digest AI`;
 const category = categories[story.category || ""] || story.categoryName || "AI";
 const jsonLd = {
   "@context": "https://schema.org",
@@ -39,10 +45,12 @@ const jsonLd = {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{`${story.headline} — Digest AI`}</title>
+    <title>{pageTitle}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={url} />
     <meta name="robots" content="index, follow, max-snippet:-1" />
+    {quiet && <meta name="googlebot" content="noindex, follow" />}
+    {quiet && <meta name="bingbot" content="noindex, follow" />}
     <meta name="theme-color" content="#0e1116" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="alternate" type="application/json" title="This story as JSON" href={`${url}.json`} />
@@ -77,10 +85,10 @@ const jsonLd = {
           <h1>{story.headline}</h1>
           {story.summary && <p class="standfirst">{story.summary}</p>}
         </header>
-        {story.keyPoints.length > 0 && (
+        {keyPoints.length > 0 && (
           <section class="keypoints">
             <h2>Key points</h2>
-            <ul>{story.keyPoints.map((k) => <li>{k}</li>)}</ul>
+            <ul>{keyPoints.map((k) => <li>{k}</li>)}</ul>
           </section>
         )}
         {story.sources.length > 0 && (

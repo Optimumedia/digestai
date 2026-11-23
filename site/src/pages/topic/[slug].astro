@@ -5,7 +5,7 @@ import Rail from "../../components/Rail.astro";
 import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import StoryRedirect from "../../components/StoryRedirect.astro";
 import Pager from "../../components/Pager.astro";
-import { topicPages, topicStories, meta, topicInfo, companyFunding, modelsByLab, hubHref, formatDate, money, modelPageFor, storyModified, firstSentence, TOPIC_MIN_STORIES } from "../../lib/data";
+import { topicPages, topicStories, meta, topicInfo, companyFunding, modelsByLab, hubHref, formatDate, money, modelPageFor, storyModified, firstSentence, isQuiet, TOPIC_MIN_STORIES } from "../../lib/data";
 import { clip } from "../../lib/category";
 import { pageSlice } from "../../lib/paging";
 
@@ -92,7 +92,7 @@ const labModels = modelsByLab(entity.name);
 {modelPage ? (
   <StoryRedirect to={modelPage.slug} href={`/models/${modelPage.slug}`} headline={modelPage.name} site={meta.siteUrl} lead="Everything about this model is on its page:" />
 ) : (
-<Base title={title} description={description} image={`${meta.siteUrl}${ogImage}`} jsonLd={jsonLd} thin={thin} modifiedAt={modified}>
+<Base title={title} description={description} image={`${meta.siteUrl}${ogImage}`} jsonLd={jsonLd} thin={thin} quiet={isQuiet(base)} modifiedAt={modified}>
   <div class="grid">
     <div>
       <Breadcrumbs items={[crumb, { name: entity.name }]} />

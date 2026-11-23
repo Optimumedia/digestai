@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { marked } from "marked";
-import { published, entitySlug, dateKey, weekKey, storyIndexable, noindexPaths, modelPages, modelIndexable, storyConfirmed, storyModified as storyModifiedRule, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES, WORK_MIN_ITEMS } from "./indexing.mjs";
+import { published, entitySlug, dateKey, weekKey, storyIndexable, storySearchWorthy, quietPaths, noindexPaths, modelPages, modelIndexable, storyConfirmed, storyModified as storyModifiedRule, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES, WORK_MIN_ITEMS } from "./indexing.mjs";
 
 // Indexing rules live in indexing.mjs so the sitemap in astro.config.mjs applies the same ones.
-export { entitySlug, dateKey, weekKey, storyIndexable, storyConfirmed, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES, WORK_MIN_ITEMS };
+export { entitySlug, dateKey, weekKey, storyIndexable, storySearchWorthy, storyConfirmed, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES, WORK_MIN_ITEMS };
 import { loadRedirects } from "./redirects.mjs";
 
 export interface Discussion {
@@ -181,7 +181,15 @@ export const meta: Meta = readJson<Meta>("meta.json", {
 
 export const categories: Record<string, string> = meta.categories || DEFAULT_CATEGORIES;
 
-export const stories: Story[] = published(readJson<Story[]>("stories.json", []));
+/* Key points and "why it matters" are plain sentences, but the model sometimes marks words with
+   Markdown bold, which the page, the feeds and the API then showed as literal asterisks (276 of the
+   4,112 stories in the sitemap on 30 Oct 2026). Removed once, here, for every page and file. */
+const unbold = (t: string) => t.replace(/\*\*(.+?)\*\*/g, "$1").replace(/\*\*/g, "");
+export const stories: Story[] = published(readJson<Story[]>("stories.json", [])).map((s) => ({
+  ...s,
+  keyPoints: (s.keyPoints || []).map(unbold),
+  whyItMatters: s.whyItMatters ? unbold(s.whyItMatters) : s.whyItMatters,
+}));
 export const entities: Entity[] = readJson<Entity[]>("entities.json", []);
 export const sources: { key: string; name: string; url: string; kind: string; type: string }[] = readJson("sources.json", []);
 export interface Episode {
@@ -216,6 +224,10 @@ export const trackers: { models: ModelRelease[]; funding: Funding[] } = readJson
 const priceChanges: { at: string }[] = readJson<{ changes?: { at: string }[] }>("work-prices.json", {}).changes || [];
 /** Paths built but kept out of the index and the sitemaps (thin hubs, single-source briefs, quiet days). */
 export const noindex: Set<string> = noindexPaths(stories, entities, trackers.models, priceChanges);
+/** Paths offered to readers and AI assistants but not to Google and Bing (indexing.mjs quietPaths):
+    single-publisher stories, small topic hubs and threads, one-story model pages, thin archive pages. */
+export const quiet: Set<string> = quietPaths({ stories, entities, models: trackers.models, threads, archived: readJson<{ slug: string; sources: { url: string }[] }[]>("archive.json", []), topics: topicInfo });
+export const isQuiet = (path: string): boolean => quiet.has(path);
 
 /* ---- media store (pipeline/digest/media.py) ----
    media.json maps a story slug to where its share image and thumbnail are: a site path ("/og/…",
