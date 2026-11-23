@@ -57,7 +57,8 @@ jobs:
     # Runs after the wait, or at once when there was nothing to wait for (a scheduled or manual run).
     if: ${{ !cancelled() && (needs.pace.result == 'success' || needs.pace.result == 'skipped') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 28
+    # Set-up, the 20-minute pipeline step, a five-minute build and the deploy: 28 left no room.
+    timeout-minutes: 32
     environment:
       name: github-pages
       url: ${{ steps.pages.outputs.page_url }}

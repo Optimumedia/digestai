@@ -41,8 +41,11 @@ STEPS = {name: (lambda name=name: step_fn(name)()) for name in ORDER}
 # On 23 Nov 2026 summaries took ten minutes, topics six, and the run was cut off before media,
 # admin and the team ever ran.
 CAN_WAIT = {"discuss": 20, "pulse": 10, "upgrade": 20, "repair": 10, "topics": 100, "intros": 30, "images": 60,
-            "howto": 40, "prices": 30, "simplify": 40, "audio": 150, "social": 20, "newsletter": 30, "gsc": 15, "tidy": 20}
-LAST = {"media": 60, "backup": 25, "admin": 30, "team": 5, "morning": 20, "notify": 5, "readme": 5, "indexnow": 5}
+            "howto": 40, "prices": 30, "simplify": 40, "social": 20, "newsletter": 30, "gsc": 15, "tidy": 20}
+# The daily spoken briefing always runs: it has its own limit (AUDIO_TIME_BUDGET_SECONDS) and takes a
+# second once the day's episode exists, but as a step that could wait it was skipped behind ten
+# minutes of summaries.
+LAST = {"audio": 150, "media": 90, "backup": 25, "admin": 30, "team": 5, "morning": 20, "notify": 5, "readme": 5, "indexnow": 5}
 
 
 def time_kept(steps: list[str], i: int) -> float:

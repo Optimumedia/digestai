@@ -14,15 +14,15 @@ B = 1080
 def test_a_slow_day_skips_what_can_wait_and_keeps_the_last_steps():
     steps = run.ORDER
     i = steps.index
-    # 23 Nov 2026: summaries took ten minutes, then topics would have started with 6 minutes left.
-    assert not run.should_wait("topics", steps, i("topics"), 740, B)
+    # With summaries held to eight minutes, the export is done about ten minutes in: topics still runs.
+    assert not run.should_wait("topics", steps, i("topics"), 615, B)
     # 15 minutes gone: topics and images wait; admin, the team and media never do.
     assert run.should_wait("topics", steps, i("topics"), 900, B)
-    assert run.should_wait("audio", steps, i("audio"), 900, B)
-    for step in ("export", "media", "backup", "admin", "team", "morning", "notify", "readme", "indexnow"):
+    assert run.should_wait("images", steps, i("images"), 900, B)
+    for step in ("export", "audio", "media", "backup", "admin", "team", "morning", "notify", "readme", "indexnow"):
         assert not run.should_wait(step, steps, i(step), 1070, B), step
     # The time kept covers every always-run step still to come, and nothing already done.
-    assert run.time_kept(steps, i("audio")) == sum(run.LAST.values())
+    assert run.time_kept(steps, i("simplify")) == sum(run.LAST.values())
     assert run.time_kept(steps, i("admin")) == sum(run.LAST[s] for s in ("team", "morning", "notify", "readme", "indexnow"))
     # Every step named in the two lists exists, and none is in both.
     assert set(run.CAN_WAIT) <= set(steps) and set(run.LAST) <= set(steps) and not set(run.CAN_WAIT) & set(run.LAST)

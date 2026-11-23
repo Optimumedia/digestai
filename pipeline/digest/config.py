@@ -109,7 +109,9 @@ NEWSLETTER_HOUR_UTC = int(os.environ.get("NEWSLETTER_HOUR_UTC", "5"))
 MAX_ENRICH_PER_RUN = int(os.environ.get("MAX_ENRICH_PER_RUN") or "20")
 # Stop summarising after this many seconds and leave the rest for the next run. Rate-limited
 # providers once stretched the step past the workflow's 28-minute limit and got runs cancelled.
-ENRICH_TIME_BUDGET_SECONDS = int(os.environ.get("ENRICH_TIME_BUDGET_SECONDS") or "600")
+# Eight minutes: with the free models rate limited the local one fills whatever it gets, and from
+# 23 Nov 2026 the steps after the export need the rest of the run again.
+ENRICH_TIME_BUDGET_SECONDS = int(os.environ.get("ENRICH_TIME_BUDGET_SECONDS") or "480")
 # The whole run's time (run.py): the workflow stops "Run pipeline" at 20 minutes, so steps that can wait
 # are skipped once the time left would not also cover the last steps (admin, the team, the backup).
 RUN_BUDGET_SECONDS = int(os.environ.get("RUN_BUDGET_SECONDS") or "1080")
