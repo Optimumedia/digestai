@@ -1,0 +1,82 @@
+---
+/* /cite: one page for anyone who wants to link to, cite or build on Digest AI. It repeats the reuse
+   rules from /terms and points to /api for the file formats; the citation example is a real story
+   from this build. Only the feeds that exist are listed. */
+import Base from "../layouts/Base.astro";
+import Rail from "../components/Rail.astro";
+import { meta } from "../lib/data";
+import { SITE, storyJson, latestStories } from "../lib/api";
+
+const sample = [...latestStories(100)].sort((a, b) => b.articleCount - a.articleCount)[0];
+const citeExample = sample ? storyJson(sample).cite.text : `Digest AI, "Headline", 18 September 2026, ${SITE}/story/<slug>`;
+const today = new Date(meta.generatedAt || Date.now()).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+const linkSnippet = `<a href="${SITE}">Digest AI</a>: AI news with every source linked`;
+---
+
+<Base title="Cite and reuse" description="How to link to Digest AI, cite a story or a tracker, and use the free feeds and JSON files: no key, no sign-up, with the reuse terms in one place.">
+  <div class="grid">
+    <div class="article cite-page">
+      <header class="page-head">
+        <div class="eyebrow">Cite and reuse</div>
+        <h1>Link, cite and build on Digest AI</h1>
+        <p>Digest AI is free to read, link and quote. This page has what you need in one place: how to name and link the site, how to cite a story, and which feeds and files you can use.</p>
+      </header>
+
+      <h2 id="link">Link to Digest AI</h2>
+      <p>The name is <strong>Digest AI</strong> and the address is <a href={SITE}>{SITE.replace(/^https:\/\//, "")}</a>. If you need a line to go with the link:</p>
+      <blockquote>Digest AI is a free AI news site. It reads about 78 sources every 20 minutes, merges the outlets that report the same event into one story and links every source.</blockquote>
+      <p>As HTML:</p>
+      <pre><code>{linkSnippet}</code></pre>
+      <p>Pages worth linking to directly:</p>
+      <ul>
+        <li><a href="/today">Today's briefing</a>: the five stories that matter today.</li>
+        <li><a href="/work">AI at Work</a>: practical AI for marketers and small businesses, with what each tool costs and the catch.</li>
+        <li><a href="/models">Model tracker</a> and <a href="/funding">funding tracker</a>: releases and deals as reported, each linked to its story.</li>
+        <li><a href="/threads">Developing stories</a>: threads that update as coverage grows.</li>
+      </ul>
+      <p>A logo is at <a href="/logo-512.png">/logo-512.png</a> (512 px) and <a href="/logo-192.png">/logo-192.png</a>.</p>
+
+      <h2 id="cite">Cite a story</h2>
+      <p>Link the story page and name Digest AI, with the date the story first appeared. For example:</p>
+      <pre><code>{citeExample}</code></pre>
+      <p>Every story's JSON file carries this citation ready-made in <code>cite.text</code>: add <code>.json</code> to any story address. When a claim comes from one of the outlets, cite that outlet too; every story lists them with their dates. Digests are written by a language model from the linked sources and can be wrong, so the sources are the record. Mistakes can be reported under <a href="/about#corrections">corrections</a>.</p>
+
+      <h2 id="trackers">Cite a tracker</h2>
+      <p>The model and funding trackers change as news arrives, so give the date you looked:</p>
+      <pre><code>{`Digest AI, "AI model release tracker", ${SITE}/models, accessed ${today}`}</code></pre>
+      <p>Funding amounts are as reported in the linked stories; each row links to the story and its sources.</p>
+
+      <h2 id="data">Use the feeds and files</h2>
+      <p>All of these are free static files: no key, no sign-up, rebuilt about every 20 minutes.</p>
+      <ul>
+        <li><a href="/rss.xml"><code>/rss.xml</code></a>: every story, for feed readers.</li>
+        <li><a href="/work/rss.xml"><code>/work/rss.xml</code></a>: AI at Work, for marketers and small businesses.</li>
+        <li><a href="/podcast.xml"><code>/podcast.xml</code></a>: the daily spoken briefing, for podcast apps.</li>
+        <li><a href="/api/latest.json"><code>/api/latest.json</code></a>, <a href="/api/briefing.json"><code>/api/briefing.json</code></a> and <code>/api/category/&lt;slug&gt;.json</code>: the newest stories, today's briefing and each category as JSON.</li>
+        <li><code>/story/&lt;slug&gt;.json</code> and <code>/story/&lt;slug&gt;.md</code>: one story with its digest, key points, dates, every source and a citation.</li>
+      </ul>
+      <p>The JSON files are served with <code>Access-Control-Allow-Origin: *</code>, so a web page can read them directly. Fields and examples are on the <a href="/api">API page</a>; <a href="/llms.txt">llms.txt</a> lists everything for AI assistants.</p>
+
+      <h2 id="reuse">What you may do</h2>
+      <ul>
+        <li>Quote our headlines, key points and digests, with a link to the story page and the name Digest AI.</li>
+        <li>Build an app, a tool or an assistant that reads the JSON files and links back to the stories.</li>
+        <li>Follow the RSS and podcast feeds in your own reader or podcast app.</li>
+      </ul>
+      <p>Please do not republish the full article texts shown on story pages: they belong to their publishers. Automated bulk copying of the site is not allowed. These files are not under an open licence; the <a href="/terms#reuse">terms</a> are what applies.</p>
+
+      <h2>Questions</h2>
+      <p>Using Digest AI in something, or need a field or a format we do not publish? Write to <a href="mailto:hello@digestai.news">hello@digestai.news</a>.</p>
+    </div>
+    <Rail />
+  </div>
+</Base>
+
+<style>
+  /* Wrapped, not scrolled: long URLs would otherwise push the box past a phone's width. */
+  .cite-page pre { font-size: 13px; line-height: 1.5; border: 1px solid var(--line); }
+  .cite-page pre code { background: none; padding: 0; font-size: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .cite-page li > a code { color: var(--accent); }
+  .cite-page li { margin: 0.35em 0; }
+  .cite-page li code, .cite-page p code { overflow-wrap: anywhere; }
+</style>
