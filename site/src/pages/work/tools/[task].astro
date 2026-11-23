@@ -1,0 +1,133 @@
+---
+/* AI tools for one task (/work/tools/seo, /work/tools/ads, ... and /work/tools/free): the tool
+   directory (/work/tools) narrowed to what marketers and small businesses search for, with what each
+   tool does, what it costs, the effort and the catch. The tools are the directory's own rows, matched
+   by their name and their one line on what they do (lib/evergreen.mjs, TASKS); a page with fewer than
+   TASK_MIN_TOOLS tools (FREE_MIN_TOOLS for the free page) is built but noindex. */
+import Work from "../../../layouts/Work.astro";
+import WorkNext from "../../../components/WorkNext.astro";
+import { dateTime, formatDate, meta } from "../../../lib/data";
+import { COST_LABELS, JOBS, priceHistoryForKey, priceText, toolSlug, whoLine, type WorkTool } from "../../../lib/work";
+import { evergreen } from "../../../lib/evergreen-data";
+
+export function getStaticPaths() {
+  return evergreen.tasks.map((task: any) => ({ params: { task: task.slug }, props: { task } }));
+}
+
+const { task } = Astro.props as { task: any };
+const tools = task.tools as WorkTool[];
+const free = (t: WorkTool) => ["free", "free tier", "included"].includes(t.costKind || "");
+const freeCount = tools.filter(free).length;
+const quick = tools.filter((t) => free(t) && t.effort === "minutes").slice(0, 3);
+const cost = (t: WorkTool) => priceText(priceHistoryForKey(t.key)?.current) || (t.cost && t.cost !== "unknown" && t.costKind !== "unknown" ? t.cost : COST_LABELS[t.costKind || "unknown"]);
+const freeLimit = (t: WorkTool) => priceHistoryForKey(t.key)?.current?.freeLimit || "";
+const updated = task.lastmod || meta.generatedAt;
+const others = evergreen.tasks.filter((t: any) => t.slug !== task.slug && t.indexable);
+const plural = (n: number, w: string) => `${n} ${n === 1 ? w : `${w}s`}`;
+
+const title = task.free ? `${task.heading}: ${plural(tools.length, "tool")} that cost nothing to start` : `${task.heading}: ${plural(tools.length, "tool")} with cost and catch`;
+const description = (tools.length
+  ? `${task.heading}, from the news: ${plural(tools.length, "tool")} with what each does, who it is for, what it costs and the catch.${task.free ? "" : ` ${freeCount} can be started without paying.`} Latest: ${tools.slice(0, 3).map((t) => t.tool).join(", ")}.`
+  : `${task.heading}: what each tool does, what it costs and the catch, from the news.`).slice(0, 300);
+const jsonLd = [
+  { "@context": "https://schema.org", "@type": "CollectionPage", name: title, description, url: `${meta.siteUrl}/work/tools/${task.slug}`, dateModified: updated, isPartOf: { "@type": "WebSite", name: "Digest AI", url: meta.siteUrl } },
+  {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: task.heading,
+    numberOfItems: tools.length,
+    itemListElement: tools.slice(0, 100).map((t, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      item: {
+        "@type": "SoftwareApplication",
+        name: t.tool,
+        applicationCategory: "BusinessApplication",
+        description: t.whatItDoes,
+        url: t.link || `${meta.siteUrl}/work/tools#${toolSlug(t)}`,
+        ...(t.maker ? { author: { "@type": "Organization", name: t.maker } } : {}),
+      },
+    })),
+  },
+];
+---
+
+<Work title={title} description={description} current="tools" jsonLd={jsonLd} thin={!task.indexable}>
+  <header class="wk-head">
+    <p class="wk-eyebrow">Tool directory · {task.label}</p>
+    <h1>{task.heading}</h1>
+    <p class="wk-intro">{task.covers}</p>
+    <p>Newest change first. Every tool here comes from a story the desk covered; nothing is sponsored or tested by us. Check the price on the maker's page before you pay.</p>
+    <p class="wk-meta mono">Updated <time datetime={updated} data-static>{dateTime(updated)}</time></p>
+  </header>
+
+  {tools.length === 0 && (
+    <p class="wk-empty">Nothing for this task yet. The <a href="/work/tools">tool directory</a> has every tool covered so far.</p>
+  )}
+
+  {quick.length > 0 && (
+    <section class="wk-sec" aria-labelledby="quick-h">
+      <div class="wk-h2row"><h2 id="quick-h">Quickest to try</h2><span class="wk-h2-side">free to start, a few minutes to set up</span></div>
+      <ul class="wk-toollist" role="list">
+        {quick.map((t) => (
+          <li>
+            <a href={`/work/tools#${toolSlug(t)}`}><b>{t.tool}</b>{t.maker && <span class="wk-maker"> by {t.maker}</span>}<span class="wk-toollist-what">{t.whatItDoes}</span></a>
+            <span class="mono">{cost(t)}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  {tools.length > 0 && (
+    <section class="wk-sec" aria-labelledby="all-h">
+      <div class="wk-h2row">
+        <h2 id="all-h">{plural(tools.length, "tool")}</h2>
+        {!task.free && <span class="wk-h2-side">{freeCount} of {tools.length} can be started without paying</span>}
+      </div>
+      <div class="tablewrap">
+        <table class="tracker">
+          <thead><tr><th>Tool</th><th>Maker</th><th>What it does</th><th>Who for</th><th>{task.free ? "What is free" : "Cost"}</th><th>Effort</th><th>Last change</th><th>Official</th></tr></thead>
+          <tbody>
+            {tools.map((t) => (
+              <tr>
+                <td><b><a href={`/work/tools#${toolSlug(t)}`}>{t.tool}</a></b></td>
+                <td>{t.maker || ""}</td>
+                <td>{t.whatItDoes}</td>
+                <td>{whoLine(t.whoFor)}</td>
+                <td>{task.free ? (freeLimit(t) || cost(t)) : cost(t)}</td>
+                <td>{t.effort || ""}</td>
+                <td class="num">{t.changes[0] ? <a href={`/story/${t.changes[0].slug}`}>{formatDate(t.lastChange, { day: "numeric", month: "short", year: "numeric" })}</a> : formatDate(t.lastChange, { day: "numeric", month: "short", year: "numeric" })}</td>
+                <td>{t.link && <a href={t.link} rel="noopener nofollow" target="_blank" data-source-link data-work-try={t.tool}>Site ↗</a>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )}
+
+  {tools.some((t) => t.watchOut) && (
+    <section class="wk-sec" aria-labelledby="catch-h">
+      <div class="wk-h2row"><h2 id="catch-h">The catch, tool by tool</h2></div>
+      <ul class="wk-toollist" role="list">
+        {tools.filter((t) => t.watchOut).map((t) => (
+          <li>
+            <a href={`/work/tools#${toolSlug(t)}`}><b>{t.tool}</b><span class="wk-toollist-what">{t.watchOut}</span></a>
+            <span class="mono">{plural(t.changeCount, "change")} covered</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  <WorkNext href="/work/tools" label="The whole tool directory" why="Every tool the desk has covered, with what it costs and the catch." track="tools" />
+  {others.length > 0 && (
+    <p class="wk-alljobs">
+      Other tasks: {others.map((t: any, i: number) => <>{i > 0 && " · "}<a href={`/work/tools/${t.slug}`}>{t.label}</a></>)}
+    </p>
+  )}
+  <p class="wk-alljobs">
+    By job: {JOBS.map((j, i) => <>{i > 0 && " · "}<a href={`/work/${j.slug}`}>{j.label}</a></>)}
+  </p>
+</Work>
