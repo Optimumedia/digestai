@@ -1,0 +1,51 @@
+---
+/* Every comparison worth reading (/compare): the assistants people compare by name, then the model
+   pairs the coverage set against each other. Only indexable pairs are listed; noindex until three are. */
+import Base from "../../layouts/Base.astro";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
+import ModelLists from "../../components/ModelLists.astro";
+import { meta } from "../../lib/data";
+import { evergreen, evergreenIndexable } from "../../lib/evergreen-data";
+
+const listed = evergreen.pairs.filter((p: any) => p.indexable);
+const assistants = listed.filter((p: any) => p.kind === "assistant");
+const models = listed.filter((p: any) => p.kind === "model");
+const description = `${listed.length} side-by-side comparisons of AI assistants and models (${assistants.slice(0, 3).map((p: any) => `${p.a.name} vs ${p.b.name}`).join(", ")}), built from the news: facts, prices and the sentences where the reporting compared them.`;
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "ItemList",
+  name: "AI assistant and model comparisons",
+  description,
+  numberOfItems: listed.length,
+  itemListElement: listed.map((p: any, i: number) => ({ "@type": "ListItem", position: i + 1, name: `${p.a.name} vs ${p.b.name}`, url: `${meta.siteUrl}/compare/${p.slug}` })),
+};
+---
+
+<Base title="AI assistants and models compared" description={description} jsonLd={jsonLd} thin={!evergreenIndexable("/compare")}>
+  <Breadcrumbs items={[{ name: "Comparisons" }]} />
+  <header class="page-head">
+    <div class="eyebrow">Comparisons · {listed.length}</div>
+    <h1>AI assistants and models compared</h1>
+    <p class="intro">Side by side, from the news rather than from our own tests.</p>
+    <p>Each comparison shows what the coverage and the model tracker hold for both, the sentences where the reporting set them against each other, and every story that covers both. A comparison appears here once enough stories cover the pair.</p>
+    <ModelLists current="compare" />
+  </header>
+
+  {assistants.length > 0 && (
+    <section>
+      <div class="dayhead"><h2>Assistants</h2></div>
+      <ul class="coverage">
+        {assistants.map((p: any) => <li><a class="t" href={`/compare/${p.slug}`}>{p.a.name} vs {p.b.name}</a><span class="mono muted">{p.shared.length} stories cover both</span></li>)}
+      </ul>
+    </section>
+  )}
+  {models.length > 0 && (
+    <section>
+      <div class="dayhead"><h2>Models</h2></div>
+      <ul class="coverage">
+        {models.map((p: any) => <li><a class="t" href={`/compare/${p.slug}`}>{p.a.name} vs {p.b.name}</a><span class="mono muted">{p.shared.length} stories cover both</span></li>)}
+      </ul>
+    </section>
+  )}
+  {listed.length === 0 && <p class="muted" style="padding: 24px 0">No pair has enough coverage for a comparison yet.</p>}
+</Base>
