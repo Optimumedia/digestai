@@ -50,8 +50,9 @@ const linkSnippet = `<a href="${SITE}">Digest AI</a>: AI news with every source 
       <p>All of these are free static files: no key, no sign-up, rebuilt about every 20 minutes.</p>
       <ul>
         <li><a href="/rss.xml"><code>/rss.xml</code></a>: every story, for feed readers.</li>
+        <li><a href="/feeds/category/marketing.xml"><code>/feeds/category/&lt;category&gt;.xml</code></a>: one feed per category, such as marketing, research or policy (as <code>.json</code> too).</li>
         <li><a href="/work/rss.xml"><code>/work/rss.xml</code></a>: AI at Work, for marketers and small businesses.</li>
-        <li><a href="/podcast.xml"><code>/podcast.xml</code></a>: the daily spoken briefing, for podcast apps.</li>
+        <li><a href="/podcast.xml"><code>/podcast.xml</code></a> and <a href="/work/podcast.xml"><code>/work/podcast.xml</code></a>: the daily spoken briefing and the weekly AI at Work episode, for podcast apps.</li>
         <li><a href="/api/latest.json"><code>/api/latest.json</code></a>, <a href="/api/briefing.json"><code>/api/briefing.json</code></a> and <code>/api/category/&lt;slug&gt;.json</code>: the newest stories, today's briefing and each category as JSON.</li>
         <li><code>/story/&lt;slug&gt;.json</code> and <code>/story/&lt;slug&gt;.md</code>: one story with its digest, key points, dates, every source and a citation.</li>
       </ul>
