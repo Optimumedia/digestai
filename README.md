@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 7 November 2026
+## Today in AI, 23 November 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Protesters break into Microsoft data center site in Amsterdam, hang anti-AI banners](https://digestai.news/story/protesters-breach-microsoft-data-center-construction-site-in-amsterdam) (6 sources)
-2. [OpenAI CFO Sarah Friar says data center investment will continue despite election results](https://digestai.news/story/openai-cfo-says-it-will-keep-investing-in-ai-data-centers-despite-elec) (5 sources)
-3. [Meta improves Muse and Meta AI with Active Memory and Active Focus](https://digestai.news/story/meta-adds-specialized-muse-models-with-active-memory-and-active-focus) (2 sources)
-4. [Nvidia reportedly financing billions for ASE advanced chip packaging expansion](https://digestai.news/story/tsmc-may-enter-3d-dram-production-on-nvidias-request-amid-ai-driven-sh) (3 sources)
-5. [HubSpot report: 86.4% of teams use AI, but strategy gaps persist](https://digestai.news/story/hubspot-report-86-4-of-teams-use-ai-but-strategy-gaps-persist) (1 source)
+1. [Z.ai introduces GLM-5.4 with iterative depth for reasoning tasks](https://digestai.news/story/z-ai-launches-glm-5-4-750b-parameter-model) (2 sources)
+2. [Bret Taylor's customer service AI startup Sierra says it's finalizing a $1.75B+ round led by Lightspeed and Greenoaks at a $30B valuation, up from $15.8B in May](https://digestai.news/story/sierra-raises-1-75b-at-30b-valuation) (4 sources)
+3. [Dario Amodei reportedly suggested games could pacify masses after AI job loss](https://digestai.news/story/a-profile-of-siblings-dario-and-daniela-amodei-while-at-openai-dario-s) (3 sources)
+4. [Marlowe raises $277M seed to build AI inference factories with AMD, Etched](https://digestai.news/story/marlowe-raises-277m-seed-to-build-ai-inference-factories-with-amd-etch) (2 sources)
+5. [Google publishes guidance for verifying Google-Agent crawler requests](https://digestai.news/story/google-publishes-guidance-for-verifying-google-agent-crawler-requests) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
