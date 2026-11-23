@@ -20,14 +20,20 @@ const days = [...storiesByDay().keys()];
 const idx = days.indexOf(date!);
 const newer = idx > 0 ? days[idx - 1] : null;
 const older = idx < days.length - 1 ? days[idx + 1] : null;
+// The answer to "what happened in AI on <date>?" in one sentence, the page's own top three.
+const top = list.slice(0, 3);
+const description = `The ${list.length} AI stories Digest AI covered on ${pretty}, ranked by importance.${top.length ? ` Top: ${top.map((s) => s.headline).join("; ")}.` : ""}`.slice(0, 300);
 ---
 
-<Base title={`AI news for ${pretty}`} description={`The ${list.length} AI stories Digest AI covered on ${pretty}, ranked by importance.`} thin={list.length < DAILY_MIN_STORIES}>
+<Base title={`AI news for ${pretty}`} description={description} thin={list.length < DAILY_MIN_STORIES}>
   <div class="grid">
     <div>
       <header class="page-head">
         <div class="eyebrow">Daily digest</div>
         <h1>{pretty}</h1>
+        {top.length > 0 && (
+          <p class="intro latest-line">The main AI news on {formatDate(date + "T00:00:00Z")}: {top.map((s, i) => <>{i > 0 && "; "}<a href={`/story/${s.slug}`}>{s.headline}</a></>)}.</p>
+        )}
         <p>{list.length} stories, most important first.{shown.pages > 1 && ` This page shows the top ${shown.items.length}.`}</p>
       </header>
       <ol class="river">{shown.items.map((s) => <StoryRow story={s} />)}</ol>
