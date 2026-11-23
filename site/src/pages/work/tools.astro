@@ -6,6 +6,7 @@ import { WORK_MIN_ITEMS, formatDate, meta, topicInfo } from "../../lib/data";
 import {
   COST_LABELS, JOBS, JOB_LABELS, priceHistoryForKey, priceText, priceWas, toolSlug, whoLine, work, workPrices, workWeeks,
 } from "../../lib/work";
+import { evergreen } from "../../lib/evergreen-data";
 
 const rows = work.tools;
 // What each tool costs now, and what it cost before (pipeline/digest/prices.py). A row without a
@@ -16,6 +17,8 @@ const pricedTools = rows.filter((r) => priceNow(r.key)).length;
 const intro = topicInfo["page-work-directory"]?.description || "";
 const jobs = JOBS.map((j) => ({ ...j, count: rows.filter((r) => r.jobs.includes(j.key)).length })).filter((j) => j.count > 0);
 const free = rows.filter((r) => ["free", "free tier", "included"].includes(r.costKind || "")).length;
+// The narrower task pages (/work/tools/<task>, lib/evergreen.mjs) that have enough tools to index.
+const tasks = evergreen.tasks.filter((t: any) => t.indexable);
 const description = `${rows.length} AI tools for marketing, sales, support and running a small business, with what each one does, who it is for, what it costs and what changed last.`;
 const jsonLd = {
   "@context": "https://schema.org",
@@ -65,6 +68,11 @@ const jsonLd = {
         {jobs.length > 0 && (
           <p class="wk-alljobs">
             By job: {jobs.map((j, i) => <>{i > 0 && " · "}<a href={`/work/${j.slug}`}>AI tools {j.task}</a> <span class="mono">{j.count} {j.count === 1 ? "tool" : "tools"}</span></>)}
+          </p>
+        )}
+        {tasks.length > 0 && (
+          <p class="wk-alljobs">
+            By task: {tasks.map((t: any, i: number) => <>{i > 0 && " · "}<a href={`/work/tools/${t.slug}`}>{t.label}</a> <span class="mono">{t.tools.length}</span></>)}
           </p>
         )}
         <div class="tablewrap">

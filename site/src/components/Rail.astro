@@ -1,6 +1,7 @@
 ---
 import { byScore, byRecency, entities, entitySlug, hubHref, categories, threads, trackers, shortDate } from "../lib/data";
 import SocialLinks from "./SocialLinks.astro";
+import { evergreenIndexable } from "../lib/evergreen-data";
 
 interface Props { exclude?: number }
 const { exclude } = Astro.props;
@@ -48,6 +49,8 @@ const kitForm = import.meta.env.PUBLIC_KIT_FORM_URL || "";
     <h2>Trackers</h2>
     <div class="taglist">
       <a href="/models">Model releases <span class="muted">{trackers.models.length}</span></a>
+      {evergreenIndexable("/models/pricing") && <a href="/models/pricing">Model API prices</a>}
+      {evergreenIndexable("/compare") && <a href="/compare">Comparisons</a>}
       <a href="/funding">Funding <span class="muted">{trackers.funding.length}</span></a>
       <a href="/week">Weekly recaps</a>
       <a href="/river">River</a>

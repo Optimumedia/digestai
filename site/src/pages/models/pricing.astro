@@ -1,0 +1,120 @@
+---
+/* AI model API prices (/models/pricing): what each tracked model's API costs per million tokens, as
+   Digest AI's own digests stated it. lib/evergreen.mjs (modelPrices) takes a figure only from a
+   sentence that names one model and states its list price; the sentence and its story are shown
+   under the table so every number can be checked. Noindex below MODEL_PRICES_MIN priced models. */
+import Base from "../../layouts/Base.astro";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
+import ModelLists from "../../components/ModelLists.astro";
+import { formatDate, hubHref, meta } from "../../lib/data";
+import { evergreen, evergreenIndexable } from "../../lib/evergreen-data";
+import { formatTokens, priceLabel, usd } from "../../lib/evergreen.mjs";
+
+const rows = evergreen.priced as any[];
+const thin = !evergreenIndexable("/models/pricing");
+const updated = evergreen.pages.get("/models/pricing")?.lastmod || meta.generatedAt;
+const money = usd;
+const both = rows.filter((r) => r.price.output != null);
+const cheapest = both[0];
+const top = both.length ? both[both.length - 1].price.output : null;
+const dearest = both.filter((r) => r.price.output === top);
+const names = (list: any[]) => list.length > 1 ? `${list.slice(0, -1).map((r) => r.model.name).join(", ")} and ${list[list.length - 1].model.name}` : list[0]?.model.name || "";
+const href = (slug: string) => hubHref(evergreen.bySlug.get(slug)?.name) || `/models/${slug}`;
+
+const faq: { q: string; a: string }[] = [];
+if (cheapest && both.length >= 2) {
+  faq.push({
+    q: "Which AI model has the cheapest API?",
+    a: `Of the ${both.length} models with both an input and an output price in the coverage, ${cheapest.model.name} was reported cheapest: ${money(cheapest.price.input)} per million input tokens and ${money(cheapest.price.output)} per million output tokens (${formatDate(cheapest.price.at)}).`,
+  });
+  faq.push({
+    q: "Which AI model has the most expensive API?",
+    a: `The highest output price reported is ${money(top)} per million output tokens, for ${names(dearest)}.`,
+  });
+}
+for (const r of [...rows].sort((a, b) => (evergreen.mentions.get(b.model.slug)?.size || 0) - (evergreen.mentions.get(a.model.slug)?.size || 0)).slice(0, 5)) {
+  faq.push({
+    q: `How much does the ${r.model.name} API cost?`,
+    a: `${r.model.name}${r.model.lab ? ` from ${r.model.lab}` : ""} was reported at ${money(r.price.input)} per million input tokens${r.price.output != null ? ` and ${money(r.price.output)} per million output tokens` : ""} on ${formatDate(r.price.at)}.`,
+  });
+}
+
+const description = rows.length
+  ? `What ${rows.length} AI models cost through their API, per million input and output tokens, as reported in the news. ${cheapest ? `Cheapest reported: ${cheapest.model.name}. ` : ""}Each price links to the sentence and story that stated it.`
+  : "What AI models cost through their API, per million tokens, as reported in the news, each with the sentence and story that stated it.";
+const jsonLd: Record<string, unknown>[] = [{
+  "@context": "https://schema.org",
+  "@type": "Dataset",
+  name: "AI model API prices",
+  description,
+  url: `${meta.siteUrl}/models/pricing`,
+  dateModified: updated,
+  creator: { "@type": "Organization", name: "Digest AI", url: meta.siteUrl },
+}];
+if (faq.length) jsonLd.push({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faq.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) });
+---
+
+<Base title="AI model API prices compared, per million tokens" description={description} jsonLd={jsonLd} thin={thin} modifiedAt={updated}>
+  <Breadcrumbs items={[{ name: "Models", href: "/models" }, { name: "API prices" }]} />
+  <header class="page-head">
+    <div class="eyebrow">Models · {rows.length} {rows.length === 1 ? "price" : "prices"} reported</div>
+    <h1>AI model API prices</h1>
+    <p class="intro">What each model's API costs per million tokens, cheapest output first, as the coverage stated it.</p>
+    <p>
+      Every figure comes from one sentence of a Digest AI digest that names the model and its price. Cached, batch,
+      discounted and before-and-after prices are left out. The sentence and its story are under the table, so you can
+      check each one against the original reporting. Prices change and introductory prices end: check the maker's
+      pricing page before you build on one.
+    </p>
+    <ModelLists current="pricing" />
+  </header>
+
+  {rows.length === 0 && <p class="muted" style="padding: 24px 0">No model price has been reported in a form we can check yet.</p>}
+
+  {rows.length > 0 && (
+    <div class="tablewrap">
+      <table class="tracker">
+        <thead><tr><th>Model</th><th>Made by</th><th>Input, per 1M tokens</th><th>Output, per 1M tokens</th><th>Context window</th><th>Reported</th></tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr>
+              <td><b><a href={href(r.model.slug)}>{r.model.name}</a></b></td>
+              <td>{r.model.lab || ""}</td>
+              <td class="num">{money(r.price.input)}</td>
+              <td class="num">{r.price.output != null ? money(r.price.output) : "not stated"}</td>
+              <td class="num">{r.model.contextTokens ? formatTokens(r.model.contextTokens) : ""}</td>
+              <td class="num"><a href={`#price-${r.model.slug}`}>{formatDate(r.price.at, { day: "numeric", month: "short", year: "numeric" })}</a>{r.price.intro && <span class="muted"> · introductory</span>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+
+  {rows.length > 0 && (
+    <section>
+      <div class="dayhead"><h2>Where each price comes from</h2></div>
+      <ul class="coverage">
+        {rows.map((r) => (
+          <li id={`price-${r.model.slug}`}>
+            <div>
+              <a class="t" href={`/story/${r.price.slug}`}>{r.model.name}: {priceLabel(r.price)}</a>
+              <p class="said">"{r.price.quote}"</p>
+              {r.price.earlier && (
+                <p class="said">Earlier report: {priceLabel(r.price.earlier)} on {formatDate(r.price.earlier.at)} (<a href={`/story/${r.price.earlier.slug}`}>story</a>).</p>
+              )}
+            </div>
+            <span class="mono muted">{formatDate(r.price.at, { day: "numeric", month: "short" })} · {r.price.sources} {r.price.sources === 1 ? "source" : "sources"}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  {faq.length > 0 && (
+    <section class="faq">
+      <div class="dayhead"><h2>Questions about AI model prices</h2></div>
+      {faq.map((f) => (<details open><summary>{f.q}</summary><p>{f.a}</p></details>))}
+    </section>
+  )}
+</Base>

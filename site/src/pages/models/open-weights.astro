@@ -1,0 +1,81 @@
+---
+/* Open-weights AI models (/models/open-weights): every tracked model released as weights you can
+   download and run, newest first, with its maker, licence and context window as the coverage stated
+   them. Built from the model tracker (lib/evergreen.mjs); noindex below MODEL_LIST_MIN models. */
+import Base from "../../layouts/Base.astro";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
+import ModelLists from "../../components/ModelLists.astro";
+import { formatDate, hubHref, meta } from "../../lib/data";
+import { evergreen, evergreenIndexable } from "../../lib/evergreen-data";
+import { formatTokens } from "../../lib/evergreen.mjs";
+
+const rows = evergreen.openWeights as any[];
+const thin = !evergreenIndexable("/models/open-weights");
+const updated = evergreen.pages.get("/models/open-weights")?.lastmod || meta.generatedAt;
+const kinds: Record<string, string> = { llm: "Language", multimodal: "Multimodal", code: "Code", image: "Image", video: "Video", audio: "Audio", embedding: "Embedding", robotics: "Robotics", other: "" };
+const permissive = rows.filter((r) => /apache|\bmit\b/i.test(r.license || ""));
+const withLicence = rows.filter((r) => r.license).length;
+const widest = rows.filter((r) => r.contextTokens && ["llm", "multimodal", "code"].includes(r.kind)).sort((a, b) => b.contextTokens - a.contextTokens).slice(0, 3);
+const labs = new Map<string, number>();
+for (const r of rows) if (r.lab) labs.set(r.lab, (labs.get(r.lab) || 0) + 1);
+const topLabs = [...labs.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+const since = rows.map((r) => r.firstDate).filter(Boolean).sort()[0];
+
+const faq: { q: string; a: string }[] = [];
+if (rows[0]) faq.push({ q: "What is the newest open-weights AI model?", a: `The newest open-weights model Digest AI covered is ${rows[0].name}${rows[0].lab ? ` from ${rows[0].lab}` : ""}, first reported on ${formatDate(rows[0].firstDate)}.` });
+if (permissive.length) faq.push({ q: "Which open models are under Apache 2.0 or MIT?", a: `${permissive.length} of the ${rows.length} open-weights models here were released under Apache 2.0 or MIT, the newest being ${permissive.slice(0, 4).map((r) => r.name).join(", ")}. Licence terms are as the coverage named them; read the licence itself before commercial use.` });
+if (widest.length) faq.push({ q: "Which open-weights model has the largest context window?", a: `Among open-weights language models, the largest context windows reported are ${widest.map((r) => `${r.name} (${formatTokens(r.contextTokens)} tokens)`).join(", ")}.` });
+if (topLabs.length) faq.push({ q: "Which labs release the most open-weights models?", a: `In the coverage since ${formatDate(since)}: ${topLabs.map(([lab, n]) => `${lab} (${n})`).join(", ")}.` });
+
+const description = `${rows.length} open-weights AI models you can download and run, newest first, with maker, licence and context window as reported${since ? ` since ${formatDate(since)}` : ""}.`;
+const jsonLd: Record<string, unknown>[] = [{
+  "@context": "https://schema.org",
+  "@type": "ItemList",
+  name: "Open-weights AI models",
+  description,
+  numberOfItems: rows.length,
+  itemListElement: rows.slice(0, 100).map((r, i) => ({ "@type": "ListItem", position: i + 1, name: r.name, url: `${meta.siteUrl}${hubHref(r.name) || `/models/${r.slug}`}` })),
+}];
+if (faq.length) jsonLd.push({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faq.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) });
+---
+
+<Base title="Open-weights AI models: list with licences and context windows" description={description} jsonLd={jsonLd} thin={thin} modifiedAt={updated}>
+  <Breadcrumbs items={[{ name: "Models", href: "/models" }, { name: "Open weights" }]} />
+  <header class="page-head">
+    <div class="eyebrow">Models · {rows.length} open-weights {rows.length === 1 ? "model" : "models"}</div>
+    <h1>Open-weights AI models</h1>
+    <p class="intro">Models whose weights you can download and run on your own hardware, newest first.</p>
+    <p>
+      Taken from the model tracker: each row is a release the news desk covered, with the maker, licence and context
+      window when the coverage stated them. {withLicence} of {rows.length} name a licence. Licence names are as reported;
+      read the licence itself before you use a model in a product.
+    </p>
+    <ModelLists current="open-weights" />
+  </header>
+
+  <div class="tablewrap">
+    <table class="tracker">
+      <thead><tr><th>First covered</th><th>Model</th><th>Made by</th><th>Type</th><th>Licence</th><th>Context</th><th>Launch story</th></tr></thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr>
+            <td class="num">{formatDate(r.firstDate, { day: "numeric", month: "short", year: "numeric" })}</td>
+            <td><b><a href={hubHref(r.name) || `/models/${r.slug}`}>{r.name}</a></b>{r.link && <a class="mono muted" href={r.link} rel="noopener nofollow" target="_blank" title="Official page"> ↗</a>}</td>
+            <td>{r.lab || ""}</td>
+            <td>{kinds[r.kind] ?? ""}</td>
+            <td>{r.license || ""}</td>
+            <td class="num">{r.contextTokens ? formatTokens(r.contextTokens) : ""}</td>
+            <td>{r.launchSlugs[0] ? <a href={`/story/${r.launchSlugs[0]}`}>Story</a> : ""}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+
+  {faq.length > 0 && (
+    <section class="faq">
+      <div class="dayhead"><h2>Questions about open-weights models</h2></div>
+      {faq.map((f) => (<details open><summary>{f.q}</summary><p>{f.a}</p></details>))}
+    </section>
+  )}
+</Base>

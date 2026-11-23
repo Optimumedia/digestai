@@ -1,5 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
+import ModelLists from "../components/ModelLists.astro";
 import { trackers, formatDate, entitySlug, hubHref, latestByLab, releaseMonths, monthName, meta } from "../lib/data";
 
 // The table shows the newest TABLE_ROWS rows; every earlier launch is on its month's page
@@ -36,6 +37,7 @@ const jsonLd = {
     )}
     <p>Every model launch or new version the news desk covered, newest first. Each model has its own page with its specs and every story about it; each row also links to the launch story and its sources. Extracted automatically; corrections welcome.{all.length > rows.length && ` This page shows the newest ${rows.length} of ${all.length}; the months below list every one.`}</p>
     {months.length > 0 && <div class="taglist" style="margin-top: 12px">{months.map((m) => <a href={`/models/released/${m}`}>Released in {monthName(m)}</a>)}</div>}
+    <ModelLists current="tracker" />
   </header>
   {rows.length === 0 && <p class="muted" style="padding: 24px 0">No releases recorded yet. Rows appear as stories about new models are published.</p>}
   <div class="tablewrap">

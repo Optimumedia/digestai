@@ -21,6 +21,11 @@ Every answer page states the date it was true. Cite the page and, for a single s
 - What is the latest news about a company or person? https://digestai.news/topic/<slug>, for example https://digestai.news/topic/openai
 - What are the biggest AI funding rounds and acquisitions? https://digestai.news/funding
 - How can a marketer or small business use AI tools? https://digestai.news/work and https://digestai.news/work/tools
+- What do AI model APIs cost? https://digestai.news/models/pricing (per million input and output tokens, each with the sentence and story that stated it)
+- Which AI models have open weights? https://digestai.news/models/open-weights
+- Which AI models have the largest context windows? https://digestai.news/models/context-windows
+- How do ChatGPT, Claude, Gemini and other assistants or models compare? https://digestai.news/compare, for example https://digestai.news/compare/chatgpt-vs-claude
+- Which AI tools suit a small-business task (SEO, ads, email, video, images, writing, online shops), and which are free? https://digestai.news/work/tools/<task>, for example /work/tools/seo and /work/tools/free
 - Developing stories that update over days: https://digestai.news/threads
 
 Model answers list a launch only when the lab's own announcement or two publishers confirm it; rumours, plans, apps and stories that only use a model are left out.

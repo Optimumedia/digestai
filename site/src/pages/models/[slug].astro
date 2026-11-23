@@ -13,6 +13,8 @@ import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import Pager from "../../components/Pager.astro";
 import { modelPageList, modelPageIndexable, modelsByLab, modelStories, modelQuickFacts, topicInfo, hubHref, formatDate, dateTime, meta, isQuiet, type ModelPage } from "../../lib/data";
 import { pageSlice } from "../../lib/paging";
+import { comparisonsFor, evergreen } from "../../lib/evergreen-data";
+import { priceLabel } from "../../lib/evergreen.mjs";
 
 export function getStaticPaths() {
   return modelPageList.map((page) => ({ params: { slug: page.slug }, props: { page } }));
@@ -34,6 +36,9 @@ const link = pick("link");
 const availabilityKey = rows.find((r) => r.availability && r.availability !== "unknown")?.availability || null;
 const updated = [...list.map((s) => s.updatedAt), ...rows.map((r) => r.date)].filter(Boolean).sort().pop() || meta.generatedAt;
 const siblings = modelsByLab(lab, name).filter((m) => m.name !== name);
+// Comparisons with this model and its reported API price (lib/evergreen.mjs), when there are any.
+const compared = comparisonsFor(slug);
+const price = evergreen.prices.get(slug);
 
 const kinds: Record<string, string> = { llm: "language model", multimodal: "multimodal model", image: "image model", video: "video model", audio: "audio model", code: "coding model", embedding: "embedding model", robotics: "robotics model", other: "AI model" };
 const availability: Record<string, string> = { api: "through an API", open_weights: "as open weights you can download and run", consumer: "in a consumer app", research: "as a research release" };
@@ -131,6 +136,18 @@ if (facts.length) {
       <div class="dayhead"><h2>{plural(list.length, "story", "stories")} about {name}</h2>{shown.pages > 1 && <span class="eyebrow">newest {shown.items.length}</span>}</div>
       <ol class="river">{shown.items.map((s) => <StoryRow story={s} />)}</ol>
       <Pager base={base} page={1} pages={shown.pages} />
+
+      {(compared.length > 0 || price) && (
+        <section style="margin-top: 28px">
+          {price && <p class="muted">API price reported on {formatDate(price.at)}: {priceLabel(price)} per million tokens. <a href={`/models/pricing#price-${slug}`}>All model prices →</a></p>}
+          {compared.length > 0 && (
+            <>
+              <div class="eyebrow" style="margin-bottom: 8px">Compared with</div>
+              <div class="taglist">{compared.map((p: any) => { const other = p.a.slug === slug ? p.b : p.a; return <a href={`/compare/${p.slug}`}>{name} vs {other.name}</a>; })}</div>
+            </>
+          )}
+        </section>
+      )}
 
       {siblings.length > 0 && (
         <section style="margin-top: 28px">

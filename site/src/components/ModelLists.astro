@@ -1,0 +1,21 @@
+---
+/* The model section's lists, one line under each page's heading: the release tracker, and the lists
+   built from it (lib/evergreen.mjs). A list below its threshold is still reachable but not offered here. */
+import { evergreenIndexable } from "../lib/evergreen-data";
+
+interface Props { current: "tracker" | "pricing" | "open-weights" | "context-windows" | "compare" }
+const { current } = Astro.props;
+const links = [
+  { key: "tracker", href: "/models", label: "Release tracker" },
+  { key: "pricing", href: "/models/pricing", label: "API prices" },
+  { key: "open-weights", href: "/models/open-weights", label: "Open weights" },
+  { key: "context-windows", href: "/models/context-windows", label: "Context windows" },
+  { key: "compare", href: "/compare", label: "Comparisons" },
+].filter((l) => l.key === "tracker" || l.key === current || evergreenIndexable(l.href));
+---
+
+{links.length > 1 && (
+  <nav class="taglist model-lists" aria-label="Model lists">
+    {links.map((l) => <a href={l.href} aria-current={l.key === current ? "page" : undefined}>{l.label}</a>)}
+  </nav>
+)}

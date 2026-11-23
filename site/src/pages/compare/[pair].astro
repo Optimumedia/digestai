@@ -1,0 +1,172 @@
+---
+/* One comparison (/compare/<a>-vs-<b>): two assistants people compare by name (ChatGPT vs Claude) or
+   two tracked models, side by side, from the coverage only: the facts the tracker and the digests
+   hold, the sentences where the reporting set the two against each other, and the stories that cover
+   both. lib/evergreen.mjs decides which pairs exist (model pairs below the threshold are not built)
+   and which are indexable (assistant pairs are always built, noindex below the threshold). */
+import Base from "../../layouts/Base.astro";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
+import StoryRow from "../../components/StoryRow.astro";
+import ModelLists from "../../components/ModelLists.astro";
+import { formatDate, hubHref, meta, storyFor, newestFirst, type Story } from "../../lib/data";
+import { evergreen } from "../../lib/evergreen-data";
+import { formatTokens, priceLabel } from "../../lib/evergreen.mjs";
+
+export function getStaticPaths() {
+  return evergreen.pairs.map((pair: any) => ({ params: { pair: pair.slug }, props: { pair } }));
+}
+
+const { pair } = Astro.props as { pair: any };
+const { a, b } = pair;
+const isModel = pair.kind === "model";
+const both = newestFirst(pair.shared.map((id: number) => storyFor(id)).filter((s: Story | undefined): s is Story => Boolean(s)));
+const shown = both.slice(0, 15);
+const since = both.length ? both[both.length - 1].firstPublishedAt : null;
+const updated = evergreen.pages.get(`/compare/${pair.slug}`)?.lastmod || meta.generatedAt;
+const cell = (r: any, v: string) => (r.key === "first" && v ? formatDate(v) : v);
+const modelHref = (m: any) => hubHref(m.name) || `/models/${m.slug}`;
+
+const title = isModel
+  ? `${a.name} vs ${b.name}: price, context window and coverage`
+  : `${a.name} vs ${b.name}: models, prices and what the news says`;
+const lede = isModel
+  ? `${a.name}${a.lab ? ` (${a.lab})` : ""} and ${b.name}${b.lab ? ` (${b.lab})` : ""} side by side, from ${both.length} stories that cover both${since ? ` since ${formatDate(since)}` : ""}.`
+  : `${a.name} from ${a.maker} and ${b.name} from ${b.maker} side by side, from ${both.length} stories that name both${since ? ` since ${formatDate(since)}` : ""}.`;
+
+const faq: { q: string; a: string }[] = [];
+if (isModel) {
+  const pa = evergreen.prices.get(a.slug);
+  const pb = evergreen.prices.get(b.slug);
+  if (pa?.output != null && pb?.output != null) {
+    const [c, d] = pa.output <= pb.output ? [[a, pa], [b, pb]] : [[b, pb], [a, pa]];
+    faq.push({ q: `Which is cheaper, ${a.name} or ${b.name}?`, a: pa.output === pb.output ? `Both were reported at ${priceLabel(pa)} per million tokens.` : `${c[0].name} was reported at ${priceLabel(c[1])} per million tokens (${formatDate(c[1].at)}), ${d[0].name} at ${priceLabel(d[1])} (${formatDate(d[1].at)}).` });
+  }
+  if (a.contextTokens && b.contextTokens) {
+    const [x, y] = a.contextTokens >= b.contextTokens ? [a, b] : [b, a];
+    faq.push({ q: `Which has the larger context window, ${a.name} or ${b.name}?`, a: a.contextTokens === b.contextTokens ? `Both were reported with ${formatTokens(a.contextTokens)} tokens.` : `${x.name}: ${formatTokens(x.contextTokens)} tokens, against ${formatTokens(y.contextTokens)} for ${y.name}, as reported at launch.` });
+  }
+  if (a.firstDate && b.firstDate) {
+    const [first, second] = a.firstDate <= b.firstDate ? [a, b] : [b, a];
+    faq.push({ q: `Which came out first, ${a.name} or ${b.name}?`, a: `Digest AI first covered ${first.name} on ${formatDate(first.firstDate)} and ${second.name} on ${formatDate(second.firstDate)}.` });
+  }
+} else {
+  if (a.plans.length && b.plans.length) {
+    faq.push({ q: `Which costs less per month, ${a.name} or ${b.name}?`, a: `The cheapest paid plan priced in the coverage was ${a.plans[0].plan} at $${a.plans[0].amount} ${a.plans[0].perUser ? "a user " : ""}a month (${formatDate(a.plans[0].at)}) and ${b.plans[0].plan} at $${b.plans[0].amount} ${b.plans[0].perUser ? "a user " : ""}a month (${formatDate(b.plans[0].at)}). Plans and prices differ by country; check the maker's page.` });
+  }
+  if (a.newest && b.newest) {
+    faq.push({ q: `What are the newest models behind ${a.name} and ${b.name}?`, a: `The newest ${a.maker} model Digest AI covered is ${a.newest.name} (${formatDate(a.newest.firstDate)}); the newest from ${b.maker} is ${b.newest.name} (${formatDate(b.newest.firstDate)}).` });
+  }
+  faq.push({ q: `Who makes ${a.name} and ${b.name}?`, a: `${a.name} is made by ${a.maker}; ${b.name} by ${b.maker}.` });
+}
+
+const description = `${lede} ${pair.facts.filter((r: any) => r.a && r.b).map((r: any) => r.label.toLowerCase()).slice(0, 4).join(", ")}, each from the reporting.`.slice(0, 300);
+const others = evergreen.pairs.filter((p: any) => p.slug !== pair.slug && p.indexable && p.kind === pair.kind && [p.a, p.b].some((x: any) => (x.slug || x.key) === (a.slug || a.key) || (x.slug || x.key) === (b.slug || b.key))).slice(0, 8);
+const jsonLd: Record<string, unknown>[] = [{
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  name: title,
+  description,
+  url: `${meta.siteUrl}/compare/${pair.slug}`,
+  dateModified: updated,
+  about: [{ "@type": isModel ? "Thing" : "SoftwareApplication", name: a.name }, { "@type": isModel ? "Thing" : "SoftwareApplication", name: b.name }],
+  isPartOf: { "@type": "WebSite", name: "Digest AI", url: meta.siteUrl },
+}];
+if (faq.length) jsonLd.push({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faq.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) });
+---
+
+<Base title={title} description={description} jsonLd={jsonLd} thin={!pair.indexable} modifiedAt={updated}>
+  <Breadcrumbs items={[{ name: "Comparisons", href: "/compare" }, { name: `${a.name} vs ${b.name}` }]} />
+  <header class="page-head">
+    <div class="eyebrow">{isModel ? "Model comparison" : "Assistant comparison"}</div>
+    <h1>{a.name} vs {b.name}</h1>
+    <p class="intro">{lede}</p>
+    <p>
+      Not a test of our own: every fact below is what the coverage and the model tracker hold, and a fact the reporting
+      never gave is left blank. Each comparison sentence links to its story and its sources.
+    </p>
+    {isModel && <ModelLists current="compare" />}
+  </header>
+
+  <div class="tablewrap">
+    <table class="tracker side">
+      <thead><tr><th></th><th>{isModel ? <a href={modelHref(a)}>{a.name}</a> : a.name}</th><th>{isModel ? <a href={modelHref(b)}>{b.name}</a> : b.name}</th></tr></thead>
+      <tbody>
+        {pair.facts.map((r: any) => (
+          <tr><th scope="row">{r.label}</th><td>{cell(r, r.a) || <span class="muted">not in the coverage</span>}</td><td>{cell(r, r.b) || <span class="muted">not in the coverage</span>}</td></tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+
+  {isModel && pair.differences.length > 0 && (
+    <section>
+      <div class="dayhead"><h2>What differs</h2></div>
+      <ul class="diffs">{pair.differences.map((d: string) => <li>{d}</li>)}</ul>
+    </section>
+  )}
+
+  {!isModel && (a.plans.length > 0 || b.plans.length > 0) && (
+    <section>
+      <div class="dayhead"><h2>Paid plans priced in the coverage</h2></div>
+      <ul class="coverage">
+        {[...a.plans.map((p: any) => ({ ...p, who: a.name })), ...b.plans.map((p: any) => ({ ...p, who: b.name }))].map((p: any) => (
+          <li>
+            <div>
+              <a class="t" href={`/story/${p.slug}`}>{p.plan}: ${p.amount} {p.perUser ? "a user a month" : "a month"}</a>
+              <p class="said">"{p.quote}"</p>
+            </div>
+            <span class="mono muted">{formatDate(p.at, { day: "numeric", month: "short" })}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  {!isModel && (a.models.length > 0 || b.models.length > 0) && (
+    <section>
+      <div class="dayhead"><h2>Newest models covered</h2></div>
+      <ul class="coverage">
+        {[a, b].filter((x) => x.models.length).map((x) => (
+          <li>
+            <div><b>{x.maker}</b>: {x.models.slice(0, 5).map((m: any, i: number) => <>{i > 0 && ", "}<a href={modelHref(m)}>{m.name}</a></>)}</div>
+            <span class="mono muted">{x.models.length} tracked</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  {pair.quotes.length > 0 && (
+    <section>
+      <div class="dayhead"><h2>Head to head in the coverage</h2></div>
+      <ul class="coverage">
+        {pair.quotes.map((q: any) => (
+          <li>
+            <div>
+              <a class="t" href={`/story/${q.slug}`}>{q.headline}</a>
+              <p class="said">"{q.quote}"</p>
+            </div>
+            <span class="mono muted">{formatDate(q.at, { day: "numeric", month: "short" })} · {q.sources} {q.sources === 1 ? "source" : "sources"}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  <div class="dayhead"><h2>Stories that cover both</h2>{both.length > shown.length && <span class="eyebrow">newest {shown.length} of {both.length}</span>}</div>
+  <ol class="river">{shown.map((s) => <StoryRow story={s} />)}</ol>
+
+  {faq.length > 0 && (
+    <section class="faq">
+      <div class="dayhead"><h2>Questions</h2></div>
+      {faq.map((f) => (<details open><summary>{f.q}</summary><p>{f.a}</p></details>))}
+    </section>
+  )}
+
+  {others.length > 0 && (
+    <section style="margin-top: 28px">
+      <div class="eyebrow" style="margin-bottom: 8px">Related comparisons</div>
+      <div class="taglist">{others.map((p: any) => <a href={`/compare/${p.slug}`}>{p.a.name} vs {p.b.name}</a>)}</div>
+    </section>
+  )}
+</Base>

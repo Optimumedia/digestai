@@ -5,6 +5,7 @@ import path from "node:path";
 import { published, sitemapIndex, isOlderListPage, JOB_SLUGS } from "./src/lib/indexing.mjs";
 import { isRedirectPage, loadRedirects } from "./src/lib/redirects.mjs";
 import { answerPages } from "./src/lib/answers.mjs";
+import { buildEvergreen } from "./src/lib/evergreen.mjs";
 
 // Old addresses of merged stories are redirect pages: never listed for search engines.
 const redirects = loadRedirects(path.resolve("src/data"));
@@ -42,6 +43,16 @@ try {
 // newest launch, unless too thin to index (answers.mjs, the same rule the pages use).
 let answers = { lastmod: new Map(), thin: new Set() };
 try { answers = answerPages(read("trackers.json", {}).models || []); } catch {}
+// Evergreen lists and comparisons (/models/pricing, /compare/..., /work/tools/<task>): listed when the
+// page's own threshold says it is worth indexing (evergreen.mjs), with the date its newest fact is from.
+let evergreen = new Map();
+try {
+  evergreen = buildEvergreen({
+    stories: published(read("stories.json", [])),
+    models: read("trackers.json", {}).models || [],
+    tools: read("work.json", {}).tools || [],
+  }).pages;
+} catch {}
 
 /* Addresses from the previous site that still get search impressions. Astro writes each as a page
    with a meta refresh, a canonical link and a plain link to the new address, which is the only kind
@@ -81,11 +92,12 @@ export default defineConfig({
         if (isOlderListPage(p)) return false;
         if (answers.thin.has(p)) return false;
         if (answers.lastmod.has(p)) return true;
+        if (evergreen.has(p)) return evergreen.get(p).indexable;
         return plan ? plan.include(p) : true;
       },
       serialize(item) {
         const p = new URL(item.url).pathname.replace(/\/$/, "");
-        const mod = plan?.lastmod.get(p) || answers.lastmod.get(p);
+        const mod = plan?.lastmod.get(p) || answers.lastmod.get(p) || evergreen.get(p)?.lastmod;
         if (mod) item.lastmod = mod;
         if (p === "" || p === "/today") { item.changefreq = "hourly"; item.priority = 1.0; }
         else if (p === "/week") { item.changefreq = "daily"; item.priority = 0.8; }
