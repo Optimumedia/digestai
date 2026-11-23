@@ -1,0 +1,18 @@
+---
+import EmbedList from "../../components/EmbedList.astro";
+import { meta, storyFor, storiesInCategory } from "../../lib/data";
+import { workBriefing } from "../../lib/work";
+
+// AI at Work's current picks for marketers and small teams, else the newest marketing stories.
+const ids = [workBriefing.featuredId, ...(workBriefing.storyIds || [])].filter((i): i is number => typeof i === "number");
+const picked = [...new Set(ids)].map(storyFor).filter((s) => Boolean(s));
+const list = (picked.length >= 3 ? picked : storiesInCategory("marketing")).slice(0, 5) as NonNullable<ReturnType<typeof storyFor>>[];
+---
+
+<EmbedList
+  title="AI for marketers and small teams"
+  kicker="AI at Work · for marketers"
+  items={list.map((s) => ({ slug: s.slug, headline: s.headline, sources: s.articleCount }))}
+  more={{ href: "/work", label: "More in AI at Work →" }}
+  site={meta.siteUrl}
+/>

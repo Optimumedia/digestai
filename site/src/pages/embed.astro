@@ -1,0 +1,54 @@
+---
+import Base from "../layouts/Base.astro";
+import Rail from "../components/Rail.astro";
+import Breadcrumbs from "../components/Breadcrumbs.astro";
+import { meta } from "../lib/data";
+
+/* How to put the free widget on another site (/embed/today and /embed/work, components/EmbedList.astro).
+   The snippets are what a site owner copies; the previews are the same frames. */
+const site = meta.siteUrl;
+const snippet = (path: string, title: string, height: number, linkText: string, linkPath: string) =>
+  `<iframe src="${site}${path}" title="${title}" width="100%" height="${height}" style="max-width:420px;border:0" loading="lazy"></iframe>\n<p style="max-width:420px;font-size:13px"><a href="${site}${linkPath}" rel="nofollow">${linkText}</a></p>`;
+const widgets = [
+  { id: "today", name: "Today in AI", what: "The day's five AI stories that matter, each with its number of sources. Updated through the day.", path: "/embed/today", height: 520, link: "More AI news on Digest AI", linkPath: "/today" },
+  { id: "work", name: "AI for marketers and small teams", what: "The current AI at Work picks: tools and changes that matter to a marketer or a small business.", path: "/embed/work", height: 520, link: "More from AI at Work", linkPath: "/work" },
+];
+---
+
+<Base title="Put today's AI news on your site" description="A free widget with the day's five AI stories that matter, for a blog, an intranet or a team page. No cookies, no tracking, no sign-up: copy one line of HTML.">
+  <div class="grid">
+    <div>
+      <Breadcrumbs items={[{ name: "Add to your site" }]} />
+      <header class="page-head">
+        <div class="eyebrow">Free widget</div>
+        <h1>Put today's AI news on your site</h1>
+        <p>A small box with the day's AI stories that matter, for a blog, a company intranet or a team page. Each headline opens the story on Digest AI with every source linked. It is free, needs no sign-up, sets no cookies and counts nobody: copy the HTML below.</p>
+      </header>
+
+      {widgets.map((w) => (
+        <section class="embed-item" aria-labelledby={`embed-${w.id}`}>
+          <div class="dayhead"><h2 id={`embed-${w.id}`}>{w.name}</h2></div>
+          <p>{w.what}</p>
+          <div class="embed-row">
+            <iframe class="embed-preview" src={w.path} title={`${w.name}, preview`} width="100%" height={w.height} loading="lazy"></iframe>
+            <div class="embed-code">
+              <label class="eyebrow" for={`code-${w.id}`}>Copy this HTML</label>
+              <textarea id={`code-${w.id}`} class="embed-box" rows="7" readonly>{snippet(w.path, w.name, w.height, w.link, w.linkPath)}</textarea>
+              <button type="button" class="tb" data-copy-code={`code-${w.id}`} hidden>Copy HTML</button>
+              <p class="muted">Dark or light follows your visitor's setting. To fix one, add <code>?theme=dark</code> or <code>?theme=light</code> to the address in <code>src</code>.</p>
+            </div>
+          </div>
+        </section>
+      ))}
+
+      <section class="faq">
+        <div class="dayhead"><h2>Questions</h2></div>
+        <details><summary>Does it cost anything or need an account?</summary><p>No. Digest AI runs at no cost to readers and the widget is the same: no account, no key, no limit.</p></details>
+        <details><summary>What does it collect about my visitors?</summary><p>Nothing. The widget sets no cookies and sends no counts. When someone clicks a headline, the link says it came from a widget and names your site's address, so we can see which sites send readers; it carries nothing about the visitor.</p></details>
+        <details><summary>How often does it change?</summary><p>The site is rebuilt through the day as new stories arrive; the widget shows the current briefing each time it loads.</p></details>
+        <details><summary>Can I change how it looks?</summary><p>Set the width and height on the iframe to fit your column; the list reflows. For anything else, the same stories are open as JSON at <a href="/api">the API page</a>.</p></details>
+      </section>
+    </div>
+    <Rail />
+  </div>
+</Base>
