@@ -47,3 +47,4 @@ Static files rebuilt every 20 minutes, no key, CORS open (Access-Control-Allow-O
 ## How to cite
 
 Cite the story page (https://digestai.news/story/<slug>) and the original outlets it links to; each story lists them with publication dates. Suggested form: Digest AI, "<headline>", <date first published>, https://digestai.news/story/<slug> (each story's .json has it ready in cite.text). Digests are written by Digest AI from those sources and marked as such; quoted figures and names are checked against the sources before publishing, and stories are corrected or withdrawn when a source retracts. Reuse terms: https://digestai.news/terms#reuse
+Linking, citing a story or a tracker, and reuse in one page: https://digestai.news/cite

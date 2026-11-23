@@ -197,7 +197,7 @@ export const SITEMAP_MIN_IMPORTANCE = 6;
 export const THREAD_SITEMAP_MIN = 3;
 /** Fixed hub pages that are listed (when not noindex). Categories, topics, models, threads and the
     AI at Work subpages are matched by the rules in sitemapIndex. */
-export const SITEMAP_HUBS = ["", "/today", "/week", "/work", "/work/tools", "/work/prices", "/models", "/funding", "/api", "/about", "/listen", "/threads", "/about/how-it-works", "/about/martin"];
+export const SITEMAP_HUBS = ["", "/today", "/week", "/work", "/work/tools", "/work/prices", "/models", "/funding", "/api", "/cite", "/about", "/listen", "/threads", "/about/how-it-works", "/about/martin"];
 
 /** Publisher identity from a host name: news.example.co.uk and example.co.uk are one source.
     The same rule as pipeline/digest/hold.py registrable(). */
