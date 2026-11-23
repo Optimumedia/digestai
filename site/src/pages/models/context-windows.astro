@@ -1,0 +1,75 @@
+---
+/* AI model context windows (/models/context-windows): language, multimodal and coding models with a
+   context window the coverage stated, largest first. Built from the model tracker (lib/evergreen.mjs,
+   parseContext reads "1.05M tokens", "262,144 tokens", "one million tokens"); noindex below
+   MODEL_LIST_MIN models. */
+import Base from "../../layouts/Base.astro";
+import Breadcrumbs from "../../components/Breadcrumbs.astro";
+import ModelLists from "../../components/ModelLists.astro";
+import { formatDate, hubHref, meta } from "../../lib/data";
+import { evergreen, evergreenIndexable } from "../../lib/evergreen-data";
+import { formatTokens, priceLabel } from "../../lib/evergreen.mjs";
+
+const rows = evergreen.contexts as any[];
+const thin = !evergreenIndexable("/models/context-windows");
+const updated = evergreen.pages.get("/models/context-windows")?.lastmod || meta.generatedAt;
+const where: Record<string, string> = { api: "API", open_weights: "Open weights", consumer: "Consumer app" };
+const kinds: Record<string, string> = { llm: "Language", multimodal: "Multimodal", code: "Code" };
+const million = rows.filter((r) => r.contextTokens >= 1e6);
+const top = rows.slice(0, 3);
+
+const faq: { q: string; a: string }[] = [];
+if (top.length) faq.push({ q: "Which AI model has the largest context window?", a: `The largest context windows reported in the coverage are ${top.map((r) => `${r.name}${r.lab ? ` (${r.lab})` : ""} with ${formatTokens(r.contextTokens)} tokens`).join(", ")}.` });
+if (million.length) faq.push({ q: "Which AI models have a context window of a million tokens or more?", a: `${million.length} of the ${rows.length} models here were reported with one million tokens or more, among them ${million.slice(0, 6).map((r) => r.name).join(", ")}.` });
+faq.push({ q: "What is a context window?", a: "The amount of text, counted in tokens, that a model can take in and work with at once: the prompt, any documents you give it, and the conversation so far." });
+
+const description = `${rows.length} AI models ranked by context window, largest first, with maker and where to get each one, as reported in the news.${top[0] ? ` Largest reported: ${top[0].name}, ${formatTokens(top[0].contextTokens)} tokens.` : ""}`;
+const jsonLd: Record<string, unknown>[] = [{
+  "@context": "https://schema.org",
+  "@type": "ItemList",
+  name: "AI model context windows, largest first",
+  description,
+  itemListOrder: "https://schema.org/ItemListOrderDescending",
+  numberOfItems: rows.length,
+  itemListElement: rows.slice(0, 100).map((r, i) => ({ "@type": "ListItem", position: i + 1, name: `${r.name}: ${formatTokens(r.contextTokens)} tokens`, url: `${meta.siteUrl}${hubHref(r.name) || `/models/${r.slug}`}` })),
+}, { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faq.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) }];
+---
+
+<Base title="AI model context windows compared, largest first" description={description} jsonLd={jsonLd} thin={thin} modifiedAt={updated}>
+  <Breadcrumbs items={[{ name: "Models", href: "/models" }, { name: "Context windows" }]} />
+  <header class="page-head">
+    <div class="eyebrow">Models · {rows.length} context windows</div>
+    <h1>AI model context windows</h1>
+    <p class="intro">How much text each model can work with at once, largest first.</p>
+    <p>
+      Language, multimodal and coding models from the model tracker whose coverage stated a context window, as it was
+      stated at launch. A model can offer a smaller window on some plans or a larger one on others; the launch story
+      has the detail.
+    </p>
+    <ModelLists current="context-windows" />
+  </header>
+
+  <div class="tablewrap">
+    <table class="tracker">
+      <thead><tr><th>Model</th><th>Context window</th><th>Made by</th><th>Type</th><th>Where to get it</th><th>API price, per 1M tokens</th><th>First covered</th></tr></thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr>
+            <td><b><a href={hubHref(r.name) || `/models/${r.slug}`}>{r.name}</a></b></td>
+            <td class="num" title={r.context}>{formatTokens(r.contextTokens)} tokens</td>
+            <td>{r.lab || ""}</td>
+            <td>{kinds[r.kind] || ""}</td>
+            <td>{r.availability.map((a: string) => where[a]).join(", ")}</td>
+            <td class="num">{evergreen.prices.get(r.slug) ? <a href={`/models/pricing#price-${r.slug}`}>{priceLabel(evergreen.prices.get(r.slug))}</a> : ""}</td>
+            <td class="num">{formatDate(r.firstDate, { day: "numeric", month: "short", year: "numeric" })}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+
+  <section class="faq">
+    <div class="dayhead"><h2>Questions about context windows</h2></div>
+    {faq.map((f) => (<details open><summary>{f.q}</summary><p>{f.a}</p></details>))}
+  </section>
+</Base>

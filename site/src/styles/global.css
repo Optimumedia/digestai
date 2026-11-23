@@ -1448,3 +1448,14 @@ table.tracker .wk-was { display: block; font-size: 13px; }
 .about-person-name { font-weight: 600; }
 @media (max-width: 480px) { .about-person { grid-template-columns: 64px minmax(0, 1fr); } .about-person img { width: 64px; height: 64px; } }
 
+/* Evergreen lists and comparisons (models/pricing, compare/[pair], work/tools/[task]): existing parts,
+   two small additions. The line of model lists under a heading, and the sentence a fact comes from. */
+.model-lists { margin: 14px 0 6px; }
+.model-lists a[aria-current="page"] { font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.coverage .said { margin: 4px 0 0; color: var(--ink-2); font-size: 15px; }
+.diffs { margin: 0 0 20px; padding-left: 1.2em; max-width: 68ch; color: var(--ink-2); }
+.diffs li { margin: 4px 0; }
+/* A two-sided comparison is three columns: it fits a phone, and its row labels do not stick. */
+table.tracker.side { min-width: 0; }
+table.tracker.side th[scope="row"] { position: static; width: 32%; }
+
