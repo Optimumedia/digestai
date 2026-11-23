@@ -1,0 +1,9 @@
+{
+  "items": [
+    {"key": "start-photos", "text": "Approve the photos for the new landing page (/start), so the page can be built.", "owner": "Martin", "level": "watch", "done": false},
+    {"key": "github-token", "text": "Make a new GitHub token for the admin page: the saved one is refused (401), so Run now, Pin and Unpublish do not work.", "owner": "Martin", "level": "act", "done": false},
+    {"key": "kit-sender", "text": "Confirm the Kit sender address, so the newsletter can send.", "owner": "Martin", "level": "watch", "done": false},
+    {"key": "bing-note", "text": "Send the Bing support note: every page shows as blocked on Bing.", "owner": "Martin", "level": "watch", "done": false},
+    {"key": "outreach-drafts", "text": "Approve the prepared directory and list submissions before they are sent in your name.", "owner": "Martin", "level": "watch", "done": false}
+  ]
+}

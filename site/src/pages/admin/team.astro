@@ -1,0 +1,275 @@
+---
+// The AI team (pipeline/digest/team.py): six roles that read what each run measured, hand their
+// findings to one another and keep a ledger until each item is really done. This page shows who
+// they are, how they work together, what each found last, and today's plan.
+import Base from "../../layouts/Base.astro";
+import fs from "node:fs";
+import path from "node:path";
+
+type Finding = { key: string; text: string; level: "act" | "watch" | "info"; owner: string };
+type Role = { id: string; name: string; title: string; job: string; ranAt: string; status: "act" | "watch" | "ok" | "idle";
+  headline: string; findings: Finding[]; [k: string]: any };
+type Item = { key: string; role: string; text: string; level: string; owner: string; openedAt: string; closedAt: string | null; ageDays: number };
+let team: { generatedAt: string; order: string[]; handoffs: { from: string; to: string; what: string }[]; roles: Record<string, Role> } | null = null;
+try { team = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "src/data/team.json"), "utf-8")); } catch {}
+
+const roles = team?.roles || {};
+const brain = roles.brain;
+const members = ["guard", "platform", "market", "ideas", "finisher"].map((id) => roles[id]).filter(Boolean);
+const items: Item[] = roles.finisher?.items || [];
+const openItems = items.filter((i) => !i.closedAt);
+const closedItems = items.filter((i) => i.closedAt);
+const acting = members.filter((r) => r.status === "act");
+const EVERY: Record<string, string> = { brain: "every run", guard: "every run", finisher: "every run", platform: "every hour", market: "every 6 hours", ideas: "once a week" };
+const STATUS: Record<string, string> = { act: "needs action", watch: "watching", ok: "all clear", idle: "waiting" };
+const roleName = (id: string) => (id === "owner" ? "You" : roles[id]?.name || id);
+const clock = (iso?: string) => (iso ? `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC` : "not yet");
+const days = (d: number) => (d < 1 ? "today" : `${Math.round(d)} ${Math.round(d) === 1 ? "day" : "days"}`);
+
+// The picture: where each role sits, and the arrows between them (the same list the pipeline uses).
+const W = 960, H = 430, BW = 176, BH = 66;
+const POS: Record<string, [number, number]> = {
+  owners: [480, 46], brain: [480, 196], guard: [150, 120], platform: [150, 300], market: [810, 120], ideas: [810, 300], finisher: [480, 368],
+};
+const LABEL: Record<string, string> = { "guard>brain": "incidents first", "platform>brain": "what to fix", "market>brain": "what readers want",
+  "ideas>brain": "ideas to try", "market>ideas": "facts", "finisher>brain": "what is overdue", "brain>owners": "today's plan" };
+// Where a line leaves a box toward a point: the box edge, so arrowheads sit on the border.
+const edgePoint = ([cx, cy]: [number, number], [tx, ty]: [number, number], w: number, h: number) => {
+  const dx = tx - cx, dy = ty - cy;
+  const s = Math.min(Math.abs(dx) > 0 ? (w / 2) / Math.abs(dx) : Infinity, Math.abs(dy) > 0 ? (h / 2) / Math.abs(dy) : Infinity);
+  return [cx + dx * s, cy + dy * s];
+};
+const size = (id: string): [number, number] => (id === "owners" ? [200, 44] : [BW, BH]);
+const edges = (team?.handoffs || []).map((h) => {
+  const a = POS[h.from], b = POS[h.to];
+  const [x1, y1] = edgePoint(a, b, ...size(h.from));
+  const [x2, y2] = edgePoint(b, a, ...size(h.to));
+  const label = LABEL[`${h.from}>${h.to}`];
+  return { ...h, x1, y1, x2, y2, label, every: h.to === "finisher", lx: (x1 + x2) / 2, ly: (y1 + y2) / 2 };
+});
+const nodeStatus = (id: string) => (id === "owners" ? "owners" : roles[id]?.status || "idle");
+---
+
+<Base title="AI team · Digest AI Admin" description="The six roles that run Digest AI's pipeline checks, how they work together and today's plan." noindex={true}>
+  <div class="admin team" data-pagefind-ignore>
+    <header class="admin-head">
+      <div>
+        <div class="eyebrow">Admin · team checked at <time datetime={team?.generatedAt}>{clock(team?.generatedAt)}</time></div>
+        <h1>AI team</h1>
+      </div>
+      <a class="tb" href="/admin">Back to the newsroom</a>
+    </header>
+
+    {!team && <p class="muted">The team starts on the next pipeline run.</p>}
+
+    {team && brain && (
+      <>
+        <section class="lead" aria-labelledby="lead-title">
+          <div class="lead-text">
+            <p class="eyebrow">Brain · team lead</p>
+            <h2 id="lead-title">{acting.length ? `${acting.map((r) => r.name).join(" and ")} ${acting.length === 1 ? "needs" : "need"} action now.` : "No role needs action now."}</h2>
+            <p class="lead-line">{openItems.length} open {openItems.length === 1 ? "item" : "items"} in the ledger, {roles.finisher?.overdue || 0} older than a week. The plan below is in the order the Brain would do them.</p>
+          </div>
+          {brain.goal?.readersPerDay != null && (
+            <div class="goal">
+              <span class="goal-n">{Math.round(brain.goal.readersPerDay)}</span>
+              <span class="goal-l">readers a day, last {brain.goal.days} days</span>
+              {brain.goal.changePct != null && (
+                <span class:list={["goal-c", brain.goal.changePct >= 0 ? "up" : "down"]}>
+                  {brain.goal.changePct >= 0 ? "▲" : "▼"} {Math.abs(brain.goal.changePct)}% on the week before ({Math.round(brain.goal.previous)})
+                </span>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section class="block" aria-labelledby="plan-title">
+          <h2 id="plan-title">Today's plan</h2>
+          {brain.plan?.length ? (
+            <ol class="plan">
+              {brain.plan.map((p: any) => (
+                <li class:list={["plan-item", p.level]}>
+                  <p>{p.text}</p>
+                  <p class="meta"><span class="owner">{p.owner}</span> · raised by {roleName(p.role)}{p.ageDays >= 1 ? ` · open ${days(p.ageDays)}` : ""}</p>
+                </li>
+              ))}
+            </ol>
+          ) : <p class="muted">Nothing urgent today.</p>}
+        </section>
+
+        <section class="block" aria-labelledby="map-title">
+          <h2 id="map-title">How the team works together</h2>
+          <p class="sub">Each role reads what the pipeline measured on its own rhythm. The arrows show whose work each one reads. Every finding also goes to the Finisher, who keeps it open until the role that raised it no longer sees it.</p>
+          <svg class="map" viewBox={`0 0 ${W} ${H}`} role="img" aria-labelledby="map-title map-desc">
+            <desc id="map-desc">Guard, Platform and Market report to the Brain; Market also feeds Ideas, which reports to the Brain; Guard, Platform and Market send every finding to the Finisher, who reports what is overdue to the Brain; the Brain hands today's plan to you and Claude.</desc>
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" class="arrowhead" />
+              </marker>
+            </defs>
+            {edges.map((e) => (
+              <g class:list={["edge", { every: e.every }]}>
+                <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} marker-end="url(#arrow)" />
+                {e.label && <text x={e.lx} y={e.ly - 6} text-anchor="middle" class="edge-label">{e.label}</text>}
+              </g>
+            ))}
+            {Object.entries(POS).map(([id, [x, y]]) => {
+              const [w, h] = size(id);
+              const r = roles[id];
+              return (
+                <a href={id === "owners" ? "#plan-title" : `#role-${id}`} class="node-link">
+                  <g class:list={["node", nodeStatus(id), { lead: id === "brain" }]}>
+                    <rect x={x - w / 2} y={y - h / 2} width={w} height={h} rx="6" />
+                    {id === "owners" ? (
+                      <text x={x} y={y + 5} text-anchor="middle" class="node-name">You and Claude</text>
+                    ) : (
+                      <>
+                        <circle cx={x - w / 2 + 16} cy={y - 12} r="5" class="dot" />
+                        <text x={x - w / 2 + 28} y={y - 7} class="node-name">{r?.name || id}</text>
+                        <text x={x - w / 2 + 14} y={y + 13} class="node-title">{r?.title}</text>
+                        <text x={x - w / 2 + 14} y={y + 28} class="node-status">{STATUS[nodeStatus(id)]}</text>
+                      </>
+                    )}
+                  </g>
+                </a>
+              );
+            })}
+          </svg>
+          <ol class="map-list">
+            <li><b>Guard</b>, <b>Platform</b> and <b>Market</b> each check their part and report to the <b>Brain</b>.</li>
+            <li><b>Market</b> also gives <b>Ideas</b> the facts to build on; <b>Ideas</b> sends the Brain three ideas a week.</li>
+            <li>Every finding goes to the <b>Finisher</b>, who tells the Brain what is overdue.</li>
+            <li>The <b>Brain</b> hands today's plan to you and Claude.</li>
+          </ol>
+          <p class="legend"><span class="key solid"></span> reports to <span class="key dashed"></span> every finding, kept in the ledger</p>
+        </section>
+
+        <section class="block" aria-labelledby="roles-title">
+          <h2 id="roles-title">What each role found</h2>
+          <div class="roles">
+            {members.map((r) => (
+              <article class:list={["role", r.status]} id={`role-${r.id}`}>
+                <header>
+                  <h3>{r.name} <span class="role-title">{r.title}</span></h3>
+                  <span class:list={["chip", r.status]}>{STATUS[r.status]}</span>
+                </header>
+                <p class="job">{r.job}</p>
+                <p class="headline">{r.headline}</p>
+                {r.id === "ideas" && r.ideas?.length > 0 ? (
+                  <ul class="findings">
+                    {r.ideas.map((i: any) => <li><b>{i.title}.</b> {i.why} <span class="muted">First step: {i.firstStep}</span></li>)}
+                  </ul>
+                ) : r.id !== "finisher" && r.findings.some((f) => f.text !== r.headline) && (
+                  <ul class="findings">
+                    {r.findings.filter((f) => f.text !== r.headline).map((f) => <li class={f.level}><span class:list={["lvl", f.level]}>{f.level === "act" ? "act" : f.level === "watch" ? "watch" : "note"}</span> {f.text}{f.level !== "info" && <span class="muted"> · {f.owner}</span>}</li>)}
+                  </ul>
+                )}
+                <p class="meta">Ran {clock(r.ranAt)} · {EVERY[r.id]}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section class="block" aria-labelledby="ledger-title" id="ledger">
+          <h2 id="ledger-title">The Finisher's ledger</h2>
+          <p class="sub">{roles.finisher?.headline} An item closes only when the role that raised it runs again and no longer finds it, or when you mark your own item done in <code>pipeline/digest/team_items.json</code>.</p>
+          {items.length > 0 ? (
+            <div class="table-wrap">
+              <table class="ledger">
+                <thead><tr><th scope="col">Item</th><th scope="col">Owner</th><th scope="col">From</th><th scope="col" class="num">Open</th></tr></thead>
+                <tbody>
+                  {openItems.map((i) => (
+                    <tr class:list={[i.level, { overdue: i.ageDays >= 7 }]}>
+                      <td><span class:list={["lvl", i.level]}>{i.level}</span> {i.text}</td>
+                      <td>{i.owner}</td><td>{roleName(i.role)}</td><td class="num">{days(i.ageDays)}</td>
+                    </tr>
+                  ))}
+                  {closedItems.map((i) => (
+                    <tr class="closed">
+                      <td><span class="lvl done">done</span> {i.text}</td>
+                      <td>{i.owner}</td><td>{roleName(i.role)}</td><td class="num">closed {i.closedAt?.slice(5, 10)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : <p class="muted">Nothing open.</p>}
+        </section>
+      </>
+    )}
+  </div>
+</Base>
+
+<style>
+  .team { max-width: 1100px; margin: 0 auto; }
+  .muted { color: var(--ink-3); }
+  .block { margin: 0 0 28px; }
+  .block h2, .lead h2 { margin: 0 0 6px; font-family: var(--font-display); font-weight: 600; color: var(--ink); text-wrap: balance; }
+  .block h2 { font-size: clamp(19px, 2.2vw, 22px); }
+  .sub { margin: 0 0 12px; max-width: 72ch; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+  .lead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: start; margin: 0 0 24px; padding: 16px 18px;
+    background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 4px; }
+  .lead h2 { font-size: clamp(20px, 2.6vw, 26px); line-height: 1.25; }
+  .lead .eyebrow { margin: 0 0 6px; }
+  .lead-line { margin: 6px 0 0; font-size: 15px; color: var(--ink-2); }
+  .goal { display: grid; justify-items: end; text-align: right; gap: 2px; }
+  .goal-n { font-family: var(--font-display); font-size: 44px; font-weight: 600; line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .goal-l { font-size: 13px; color: var(--ink-3); }
+  .goal-c { font-family: var(--font-mono); font-size: 12.5px; }
+  .goal-c.up { color: var(--status-good); } .goal-c.down { color: var(--status-critical); }
+  .plan { margin: 0; padding: 0; list-style: none; counter-reset: plan; display: grid; gap: 8px; }
+  .plan-item { counter-increment: plan; position: relative; padding: 12px 14px 12px 48px; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
+  .plan-item::before { content: counter(plan); position: absolute; left: 14px; top: 11px; font-family: var(--font-display); font-size: 22px; font-weight: 600; color: var(--ink-3); }
+  .plan-item.act::before { color: var(--status-critical); }
+  .plan-item p { margin: 0; font-size: 15px; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; }
+  .plan-item .meta, .role .meta { margin-top: 4px; font-size: 12.5px; color: var(--ink-3); }
+  .owner { font-weight: 600; color: var(--ink-2); }
+  .map { display: block; width: 100%; height: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
+  .edge line { stroke: var(--ink-3); stroke-width: 1.6; }
+  .edge.every line { stroke-dasharray: 5 5; stroke: var(--line); stroke-width: 1.4; }
+  .arrowhead { fill: var(--ink-3); }
+  .edge-label { font-family: var(--font-mono); font-size: 12px; fill: var(--ink-2); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }
+  .node rect { fill: var(--bg); stroke: var(--line); stroke-width: 1.5; }
+  .node.lead rect { stroke: var(--accent); stroke-width: 2.5; }
+  .node.owners rect { fill: var(--accent-soft); stroke: var(--accent); }
+  .node.act rect { stroke: var(--status-critical); }
+  .node-name { font-size: 16px; font-weight: 700; fill: var(--ink); }
+  .node-title { font-size: 12.5px; fill: var(--ink-2); }
+  .node-status { font-family: var(--font-mono); font-size: 11px; fill: var(--ink-3); }
+  .dot { fill: var(--ink-3); }
+  .node.ok .dot { fill: var(--status-good); } .node.watch .dot { fill: var(--status-warning); } .node.act .dot { fill: var(--status-critical); }
+  .node-link:focus-visible rect { stroke: var(--accent); stroke-width: 3; }
+  .map-list { display: none; margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.6; color: var(--ink-2); }
+  .legend { margin: 8px 0 0; font-size: 12.5px; color: var(--ink-3); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .key { display: inline-block; width: 28px; border-top: 2px solid var(--ink-3); }
+  .key.dashed { border-top: 2px dashed var(--line); margin-left: 10px; }
+  .roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  .role { padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; scroll-margin-top: 60px; }
+  .role.act { border-top: 3px solid var(--status-critical); } .role.watch { border-top: 3px solid var(--status-warning); } .role.ok { border-top: 3px solid var(--status-good); }
+  .role header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .role h3 { margin: 0; font-size: 17px; color: var(--ink); }
+  .role-title { font-weight: 400; font-size: 13.5px; color: var(--ink-3); }
+  .job { margin: 4px 0 8px; font-size: 13px; line-height: 1.45; color: var(--ink-3); }
+  .headline { margin: 0; font-size: 15px; line-height: 1.45; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+  .findings { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 14px; line-height: 1.45; color: var(--ink-2); }
+  .findings li { overflow-wrap: anywhere; }
+  .chip, .lvl { display: inline-block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--ink-3); white-space: nowrap; }
+  .chip.act, .lvl.act { color: var(--status-critical); border-color: var(--status-critical); }
+  .chip.watch, .lvl.watch { color: var(--status-warning); border-color: var(--status-warning); }
+  .chip.ok, .lvl.done { color: var(--status-good); border-color: var(--status-good); }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+  .ledger { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .ledger th, .ledger td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .ledger th { font-size: 12px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.05em; }
+  .ledger td:first-child { min-width: 280px; color: var(--ink); }
+  .ledger .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .ledger tr.overdue td.num { color: var(--status-critical); font-weight: 600; }
+  .ledger tr.closed td { color: var(--ink-3); }
+  @media (max-width: 640px) {
+    .lead { grid-template-columns: 1fr; }
+    .goal { justify-items: start; text-align: left; }
+    .map, .legend { display: none; }
+    .map-list { display: block; }
+    .roles { grid-template-columns: 1fr; }
+  }
+</style>
