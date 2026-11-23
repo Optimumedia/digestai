@@ -9,7 +9,7 @@ from pathlib import Path
 import yaml
 from sqlalchemy import select, update
 
-from . import archive, cache, checks, config, db, funding as funding_rules, hold, primary, trackers as tracker_rules, work as work_rules
+from . import archive, cache, checks, config, db, funding as funding_rules, hold, primary, releases, trackers as tracker_rules, work as work_rules
 from . import prices as price_rules, work_learn
 from .enrich import headline_hedged
 from .textutil import word_count
@@ -542,6 +542,10 @@ def run() -> dict:
                     if not row.get(f) and r.get(f):
                         row[f] = r[f]
     models = tracker_rules.fold_versions(models)
+    # And every launch listed before, so a model keeps its row and its page after its stories leave the
+    # window (releases.py: a small file in the runner's cache, no database read).
+    models = releases.remember(models, [s.strip() for s in rules.get("unpublish") or [] if s],
+                               tracker_rules.is_release, tracker_rules.fold_versions)
     # Funding: one row per deal, with figures the coverage agrees on and that the articles' own text
     # states (funding.py); the page's total adds these rows only.
     funding_rows, funding_dropped = funding_rules.build(stories_out, now)

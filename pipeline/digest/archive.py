@@ -185,6 +185,12 @@ def update(conn, now: datetime, since: datetime, sources: dict, unpublished: lis
         if data["stories"].pop(slug, None) is not None:
             stats["removed"] += 1
     data["windowStart"] = since.isoformat()
+    # The model tracker's kept releases (releases.py) ride along, so the daily published copy of this
+    # file also backs them up. Last run's list: this run's is written later, by the export.
+    from . import releases
+    kept = releases.read_file()
+    if kept:
+        data[releases.ARCHIVE_KEY] = kept
     _save(data)
     stats["total"] = len(data["stories"])
     return stats
