@@ -171,7 +171,9 @@ def build_script(briefing: dict, stories: dict[int, dict]) -> tuple[str, list[di
     rnd.shuffle(whys)
 
     date = f"{day.strftime('%A')} the {_ordinal(day.day)} of {day.strftime('%B')}"
-    lines = [f"Good morning. This is the Digest AI briefing for {date}. "
+    # Read by a synthetic voice, and said so: podcast directories (Apple's guidelines, 1.11) require it
+    # in the audio and the feed, and it is true.
+    lines = [f"Good morning. This is the Digest AI briefing for {date}, read by a synthetic voice. "
              f"{_count(len(picks)).capitalize()} {'story' if len(picks) == 1 else 'stories'} today."]
     for n, s in enumerate(picks):
         if n == 0:
@@ -285,7 +287,7 @@ def build_work_script(week: str, items: list[dict], skips: list[dict] | None = N
                f"{'thing' if len(picks) == 1 else 'things'} to know")
     if free:
         opening += f", and {_count(free)} of them {'costs' if free == 1 else 'cost'} nothing to start"
-    lines = [opening + "."]
+    lines = [opening + ". This episode is read by a synthetic voice."]
 
     for n, story in enumerate(picks):
         card = story["workCard"]
