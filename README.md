@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 23 November 2026
+## Today in AI, 24 November 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Z.ai introduces GLM-5.4 with iterative depth for reasoning tasks](https://digestai.news/story/z-ai-launches-glm-5-4-750b-parameter-model) (2 sources)
-2. [Bret Taylor's customer service AI startup Sierra says it's finalizing a $1.75B+ round led by Lightspeed and Greenoaks at a $30B valuation, up from $15.8B in May](https://digestai.news/story/sierra-raises-1-75b-at-30b-valuation) (4 sources)
-3. [Dario Amodei reportedly suggested games could pacify masses after AI job loss](https://digestai.news/story/a-profile-of-siblings-dario-and-daniela-amodei-while-at-openai-dario-s) (3 sources)
-4. [Marlowe raises $277M seed to build AI inference factories with AMD, Etched](https://digestai.news/story/marlowe-raises-277m-seed-to-build-ai-inference-factories-with-amd-etch) (2 sources)
-5. [Google publishes guidance for verifying Google-Agent crawler requests](https://digestai.news/story/google-publishes-guidance-for-verifying-google-agent-crawler-requests) (1 source)
+1. [Z.ai introduces GLM-5.4 with iterative depth for reasoning tasks](https://digestai.news/story/z-ai-launches-glm-5-4-750b-parameter-model) (4 sources)
+2. [AWS launches Bedrock Trusted Access API with Anthropic safeguards](https://digestai.news/story/aws-launches-bedrock-trusted-access-api-with-anthropic-safeguards) (2 sources)
+3. [Bret Taylor's customer service AI startup Sierra says it's finalizing a $1.75B+ round led by Lightspeed and Greenoaks at a $30B valuation, up from $15.8B in May](https://digestai.news/story/sierra-raises-1-75b-at-30b-valuation) (4 sources)
+4. [Google adds Wallet to AI Mode for spending insights](https://digestai.news/story/google-wallet-google-search-gets-more-tailored-with-apps-integration) (3 sources)
+5. [Anthropic launches Claude Ship to review, fix and approve pull requests](https://digestai.news/story/anthropic-launches-claude-ship-to-automate-code-reviews-and-approvals) (4 sources)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
