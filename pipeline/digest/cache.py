@@ -10,7 +10,8 @@ embeddings. A copy lives in pipeline/data/cache (kept between runs by the Action
   or a database without the triggers, is replaced by one full read of the window.
 - Details: large columns (summaries, key points, article text), read by id and kept while the
   row's fingerprint (lengths of those columns, from the mirror) is unchanged, re-read at least
-  monthly in case something was edited by hand without changing a length.
+  every two months in case something was edited by hand without changing a length (the pipeline's
+  own in-place rewrites say so through forget_details).
 - Vectors: embeddings as float16, kept while their fingerprint is unchanged (embeddings are
   written once; a story's changes with each merge, which its fingerprint follows).
 
@@ -39,7 +40,10 @@ log = logging.getLogger("digest.cache")
 FORMAT = 1
 BATCH = 500
 FULL_REFRESH_DAYS = 7       # the mirror is re-read in full at least this often
-DETAIL_MAX_AGE_DAYS = 30    # details are re-read at least this often (spread over three days by id)
+# Details are re-read at least this often (spread over three days by id). At 30 days the re-reads
+# came to about 3 MB a day (article texts, bodies and story texts of the whole window); article bodies
+# are emptied after 55 days (tidy.py), so at 60 they are read once in their life.
+DETAIL_MAX_AGE_DAYS = 60
 UNUSED_DAYS = 3             # details and vectors nobody asked for in this long are dropped
 RECENT_ARTICLE_DAYS = 16    # articles of any status kept this long (admin looks back 14 days)
 URL_DAYS = 30               # known article addresses kept this long
