@@ -64,6 +64,50 @@ def test_topics_write_only_the_counts_that_changed():
         assert counts == {"openai": 3, "mistral": 1}, counts
 
 
+def test_each_step_is_recorded_with_one_transaction_and_finished_before_the_next_starts():
+    """A step's finish is written with the next step's start: one transaction a step, not two."""
+    import test_reads as tr
+    from sqlalchemy import select
+
+    from digest import db
+
+    seen = {}
+
+    def first():
+        return {"done": 1}
+
+    def second():
+        with db.engine().connect() as conn:
+            rows = conn.execute(select(db.runs.c.step, db.runs.c.finished_at, db.runs.c.stats)).all()
+        seen["at_second"] = {r.step: (r.finished_at is not None, r.stats) for r in rows}
+        raise RuntimeError("boom")
+
+    with tr.fresh_db() as (eng, _tmp):
+        real_begin = eng.begin
+        count = {"n": 0}
+
+        def begin():
+            count["n"] += 1
+            return real_begin()
+
+        eng.begin = begin
+        run.STEPS["t_first"], run.STEPS["t_second"] = first, second
+        try:
+            assert run.main(["t_first", "t_second"]) == 1  # the crash is reported
+        finally:
+            run.STEPS.pop("t_first"), run.STEPS.pop("t_second")
+            del eng.begin
+        # When the second step started, the first one was already recorded as finished, with its stats.
+        done, stats = seen["at_second"]["t_first"]
+        assert done and stats["done"] == 1 and "seconds" in stats
+        assert seen["at_second"]["t_second"][0] is False
+        with eng.connect() as conn:
+            rows = {r.step: r for r in conn.execute(select(db.runs)).all()}
+        assert rows["t_second"].finished_at is not None and rows["t_second"].stats["crashed"] is True
+        # Two steps: their two starts (the first finish rides with the second start) and the last finish.
+        assert count["n"] == 3, count
+
+
 def test_summaries_wait_for_the_local_model_only_while_it_is_starting():
     import tempfile
 

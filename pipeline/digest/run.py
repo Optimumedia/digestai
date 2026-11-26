@@ -133,6 +133,10 @@ def restore_admin() -> bool:
         return False
 
 
+def record_finish(conn, run_id: int, finished_at, stats: dict) -> None:
+    conn.execute(update(db.runs).where(db.runs.c.id == run_id).values(finished_at=finished_at, stats=stats))
+
+
 def main(argv: list[str]) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname).1s %(name)s: %(message)s", datefmt="%H:%M:%S")
     logging.getLogger("urllib3").setLevel(logging.WARNING)
@@ -147,6 +151,7 @@ def main(argv: list[str]) -> int:
     startup_bytes = db.bytes_read() - b_start
     run_start = time.time()
     timed = not argv or argv[0] == "all"
+    finished = None  # the last step's (runs row, finish time, stats), not yet written
     for i, step in enumerate(steps):
         elapsed = time.time() - run_start
         if timed and should_wait(step, steps, i, elapsed, config.RUN_BUDGET_SECONDS):
@@ -158,7 +163,10 @@ def main(argv: list[str]) -> int:
             log.info("waited %.0fs for the local model to finish starting", waited)
         started = db.utcnow()
         with eng.begin() as conn:
+            if finished:
+                record_finish(conn, *finished)
             run_id = conn.execute(insert(db.runs).values(started_at=started, step=step)).inserted_primary_key[0]
+        finished = None
         t0 = time.time()
         b0 = db.bytes_read()
         try:
@@ -174,11 +182,15 @@ def main(argv: list[str]) -> int:
         if waited:
             stats["waitedForLocalModel"] = waited
         summary[step] = stats
-        with eng.begin() as conn:
-            conn.execute(update(db.runs).where(db.runs.c.id == run_id).values(finished_at=db.utcnow(), stats=stats))
+        # Written with the next step's start, in one transaction: each one is about four round trips
+        # to the database, and a run of 32 steps spent some 40 seconds on this bookkeeping alone.
+        finished = (run_id, db.utcnow(), stats)
         log.info("%s: %s", step, json.dumps(stats, default=str))
         # Saved after every step: a run stopped by the time limit still leaves a usable copy.
         cache.save_all()
+    if finished:
+        with eng.begin() as conn:
+            record_finish(conn, *finished)
     print(json.dumps(summary, indent=2, default=str))
     report(summary)
     return 1 if any(s.get("crashed") for s in summary.values()) else 0
