@@ -422,7 +422,7 @@ def _schema_key(eng: Engine) -> str:
 def _read_schema_marker() -> str | None:
     try:
         return (config.CACHE_DIR / "schema.key").read_text(encoding="utf-8").strip()
-    except OSError:
+    except (OSError, ValueError):  # a damaged marker (not UTF-8) only costs the schema check
         return None
 
 

@@ -177,12 +177,9 @@ def rewrite(stored: dict, answer: dict, source: str) -> tuple[dict, list[str]]:
 # ---------------------------------------------------------------------------- the cache
 
 def load_cache() -> dict:
-    try:
-        with gzip.open(CACHE_FILE, "rt", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError, EOFError):
-        return {}
+    from . import cache  # never raises: a damaged copy (zlib.error too) is moved aside and reported
+    data = cache.read_file(CACHE_FILE, dict)
+    return data if data is not None else {}
 
 
 def save_cache(data: dict, now: float) -> None:

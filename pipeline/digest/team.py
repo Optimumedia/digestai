@@ -371,9 +371,11 @@ def brain(roles: dict[str, dict], ledger: dict, admin: dict, now: datetime) -> d
 
 def _read(path, default):
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return default
+    # A damaged runner copy can still be valid JSON of another kind: every file read here is a dict.
+    return data if isinstance(data, dict) else default
 
 
 def due(prev: dict | None, rid: str, now: datetime) -> bool:

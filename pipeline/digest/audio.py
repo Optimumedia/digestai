@@ -489,6 +489,8 @@ def _read_plan(work: Path, paragraphs: list[str]) -> dict:
         plan = json.loads(_plan_path(work).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         plan = {}
+    if not isinstance(plan, dict):  # a damaged plan is no plan: the episode is read again
+        plan = {}
     whole = (plan.get("parts") == paragraphs and plan.get("engine") == engine_name()
              and plan.get("voice") == config.AUDIO_VOICE
              and all((work / f"{i:03d}.mp3").exists() for i in range(plan.get("done", 0))))

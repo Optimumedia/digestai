@@ -77,13 +77,9 @@ def _empty_store() -> dict:
 
 
 def load(path=None) -> dict:
-    path = path or HISTORY_FILE
-    try:
-        with gzip.open(path, "rt", encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, ValueError, EOFError):
-        return _empty_store()
-    if not isinstance(data, dict) or data.get("format") != FORMAT or not isinstance(data.get("tools"), dict):
+    from . import cache  # never raises: a damaged copy (zlib.error too) is moved aside and reported
+    data = cache.read_file(path or HISTORY_FILE, dict, gz=True)
+    if data is None or data.get("format") != FORMAT or not isinstance(data.get("tools"), dict):
         return _empty_store()
     return data
 
@@ -345,13 +341,9 @@ def read_price(card: dict, url: str, fetch=None, ask=None) -> tuple[dict | None,
 
 
 def load_page_cache(path=None) -> dict:
-    path = path or PAGE_CACHE_FILE
-    try:
-        with gzip.open(path, "rt", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError, EOFError):
-        return {}
+    from . import cache
+    data = cache.read_file(path or PAGE_CACHE_FILE, dict, gz=True)
+    return data if data is not None else {}
 
 
 def save_page_cache(data: dict, now: float | None = None, path=None) -> None:

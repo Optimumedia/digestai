@@ -707,7 +707,8 @@ def load_notes() -> list[dict] | None:
     if not p.exists():
         return None
     data = _read(p, {})
-    return list(data.get("notes") or [])
+    notes = data.get("notes") if isinstance(data, dict) else None
+    return [n for n in notes if isinstance(n, dict)] if isinstance(notes, list) else []
 
 
 def save_notes(notes: list[dict]) -> None:

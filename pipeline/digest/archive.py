@@ -21,7 +21,6 @@ import json
 import logging
 import os
 import re
-import zlib
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -44,26 +43,28 @@ def path() -> Path:
     return config.CACHE_DIR / "archive.json.gz"
 
 
+def valid(data) -> bool:
+    """The shape every reader of the archive relies on: a dict of story records by slug, and a
+    window start that parses as a date (or none yet)."""
+    if not isinstance(data, dict) or data.get("format") != FORMAT or not isinstance(data.get("stories"), dict):
+        return False
+    if not all(isinstance(e, dict) for e in data["stories"].values()):
+        return False
+    if data.get("windowStart") is not None:
+        datetime.fromisoformat(data["windowStart"])  # raises on a damaged value
+    return True
+
+
 def _load() -> dict:
-    try:
-        with gzip.open(path(), "rt", encoding="utf-8") as f:
-            data = json.load(f)
-        if data.get("format") == FORMAT and isinstance(data.get("stories"), dict):
-            return data
-    except (OSError, ValueError, EOFError, zlib.error) as exc:
-        # A damaged copy is a missing one: from 7 to 23 Nov 2026 a corrupt runner copy ("invalid
-        # block type", a zlib.error) crashed the export every run, and the site did not change.
-        if path().exists():
-            log.warning("archive copy unreadable, taking it as missing: %s", str(exc)[:120])
-    return {"format": FORMAT, "windowStart": None, "stories": {}}
+    # A damaged copy is a missing one: from 7 to 23 Nov 2026 a corrupt runner copy ("invalid block
+    # type", a zlib.error) crashed the export every run, and the site did not change. cache.read_file
+    # never raises, moves the damaged file aside and names it in the step's stats.
+    data = cache.read_file(path(), dict, check=valid)
+    return data if data is not None else {"format": FORMAT, "windowStart": None, "stories": {}}
 
 
 def _save(data: dict) -> None:
-    path().parent.mkdir(parents=True, exist_ok=True)
-    tmp = path().with_name(path().name + ".tmp")
-    with gzip.open(tmp, "wt", encoding="utf-8", compresslevel=6) as f:
-        json.dump(data, f, ensure_ascii=False, separators=(",", ":"), default=str)
-    tmp.replace(path())
+    cache.write_file(path(), data, compresslevel=6, ensure_ascii=False)
 
 
 def _download() -> dict | None:
@@ -73,9 +74,10 @@ def _download() -> dict | None:
     raw = media.content_at(media.asset_url(RELEASE_TAG, ASSET))
     try:
         data = json.loads(gzip.decompress(raw).decode("utf-8")) if raw else None
-    except (OSError, ValueError, EOFError, zlib.error):
+        ok = bool(data) and valid(data)
+    except Exception:  # noqa: BLE001 - a damaged download is no download
         return None
-    if data and data.get("format") == FORMAT and isinstance(data.get("stories"), dict) and data.get("windowStart"):
+    if ok and data.get("windowStart"):
         log.info("archive taken from the published copy: %d stories", len(data["stories"]))
         return data
     return None

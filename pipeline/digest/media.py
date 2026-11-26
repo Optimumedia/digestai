@@ -108,7 +108,7 @@ def manifest() -> dict:
         path = store_dir() / "manifest.json"
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            _manifest = data if data.get("format") == FORMAT and isinstance(data.get("assets"), dict) else _empty()
+            _manifest = data if isinstance(data, dict) and data.get("format") == FORMAT and isinstance(data.get("assets"), dict) else _empty()
         except (OSError, ValueError):
             _manifest = _empty()
         for key, default in _empty().items():
