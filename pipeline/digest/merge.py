@@ -156,16 +156,16 @@ def coverage_share(tokens: list[str], titles: list[list[str]]) -> float:
 
 def coverage_time(members: list):
     """When most of a story's coverage appeared: the median publication time of its members (None
-    when none is dated). An early preview or a late analysis sits far from it; the reports of the
-    event sit around it."""
+    when none is dated). A late analysis comes well after it; the first reports of the event come
+    before or around it."""
     dates = sorted(d for m in members if (d := db.as_utc(getattr(m, "published_at", None))))
     return dates[len(dates) // 2] if dates else None
 
 
 def pick_lead(members: list, texts: dict, primary) -> object | None:
     """The member whose digest describes a story: news over commentary, a report over a round-up, an
-    article from when the story was covered (within LEAD_LATE_HOURS of the median publication time)
-    over an earlier preview or a later follow-up, then importance with a point for a primary source
+    article from when the story was covered over a follow-up published more than LEAD_LATE_HOURS
+    after the median publication time, then importance with a point for a primary source
     and up to a point for wording the other sources share, then the earliest.
     members: mirror article rows; texts: their text rows (cache.article_text); primary(row) -> bool."""
     shown = [m for m in members if m.status == "published" and m.id in texts]
@@ -176,7 +176,8 @@ def pick_lead(members: list, texts: dict, primary) -> object | None:
 
     def timely(m) -> bool:
         at = db.as_utc(getattr(m, "published_at", None))
-        return middle is None or at is None or abs(at - middle) <= timedelta(hours=LEAD_LATE_HOURS)
+        # Only lateness counts: the first report of an event comes before most of its coverage.
+        return middle is None or at is None or at - middle <= timedelta(hours=LEAD_LATE_HOURS)
 
     def key(m):
         t = texts[m.id]

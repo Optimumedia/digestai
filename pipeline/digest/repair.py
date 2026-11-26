@@ -202,7 +202,7 @@ def story_leads(eng, limit: int = LEADS_PER_RUN) -> dict[str, int]:
                 continue
             middle = merge.coverage_time(rest)
             late = (lead is not None and middle is not None and db.as_utc(lead.published_at) is not None
-                    and abs(db.as_utc(lead.published_at) - middle) > timedelta(hours=merge.LEAD_LATE_HOURS))
+                    and db.as_utc(lead.published_at) - middle > timedelta(hours=merge.LEAD_LATE_HOURS))
             if not roundups and not late:
                 continue
             if source_type is None:
