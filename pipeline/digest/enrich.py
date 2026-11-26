@@ -1957,7 +1957,9 @@ def run() -> dict:
                 stats["stopped_for_time"] = True
                 break
             row = queue[0]
-            if api_live() and should_start_article(elapsed(), api_durations, budget, config.ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS):
+            api_on = bool(api_live()) and should_start_article(elapsed(), api_durations, budget,
+                                                               config.ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS)
+            if api_on:
                 t0 = time.monotonic()
                 text = row.content_text or row.description or ""
                 result, name, used_fn = try_api(row, text)
@@ -1969,14 +1971,15 @@ def run() -> dict:
                         time.sleep(4.2)  # Gemini's per-minute windows; Groq paces itself inside call_groq
                     continue
                 tries[row.id] = tries.get(row.id, 0) + 1
+                api_on = bool(api_live())  # a provider may have dropped out on this article
             # The API side could not take the front article just now.
             if local_free() and should_start_article(elapsed(), local_durations, budget, config.ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS):
                 # The local model takes the back of the queue while the API side may still come back,
-                # and the front once it is out for the run.
-                start_local(queue.pop() if api_live() and len(queue) > 1 else queue.popleft())
+                # and the front once it is out for the run (or out of time for another article).
+                start_local(queue.pop() if api_on and len(queue) > 1 else queue.popleft())
                 continue
             if job is not None:
-                if not api_live():
+                if not api_on:
                     finish_local(None)  # nothing else can work: wait for the local model
                 elif tries.get(row.id, 0) >= 3:
                     queue.rotate(-1)  # three tries: this article goes to the back, where the local model takes it
