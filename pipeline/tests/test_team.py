@@ -156,6 +156,49 @@ def test_the_guard_reads_the_workflow_runs_github_reports():
     assert g["status"] == "act" and g["headline"].startswith("The last 2 workflow runs failed")
 
 
+def test_github_runs_reads_the_run_list_and_the_failed_step_without_the_network():
+    import os
+
+    import requests
+
+    calls = []
+
+    class R:
+        def __init__(self, status, body):
+            self.status_code, self._body = status, body
+
+        def json(self):
+            return self._body
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        calls.append(url)
+        assert headers["Authorization"] == "Bearer t0k" and timeout <= 10
+        if url.endswith("/runs/7/jobs"):
+            return R(200, {"jobs": [{"steps": [{"name": "Run pipeline", "conclusion": "success"},
+                                               {"name": "Build site", "conclusion": "failure"}]}]})
+        return R(200, {"workflow_runs": [
+            {"id": 8, "status": "in_progress", "conclusion": None, "created_at": "2026-11-23T16:55:00Z"},
+            {"id": 7, "status": "completed", "conclusion": "failure", "created_at": "2026-11-23T16:35:00Z", "html_url": "u7"},
+            {"id": 6, "status": "completed", "conclusion": "success", "created_at": "2026-11-23T16:15:00Z"}]})
+
+    old_get, old_env = requests.get, dict(os.environ)
+    try:
+        requests.get = fake_get
+        os.environ.update(GH_TOKEN="t0k", GITHUB_REPOSITORY="o/r")
+        runs, step = team.github_runs(NOW)
+        assert [r["id"] for r in runs] == [8, 7, 6] and step == "Build site", (runs, step)
+        assert len(calls) == 2 and "/repos/o/r/actions/workflows/pipeline.yml/runs" in calls[0]
+        f = team.workflow_findings(runs, NOW, step)
+        assert f[0]["text"] == 'The latest workflow run failed at 16:35 UTC in "Build site".' and f[0]["url"] == "u7", f
+        requests.get = lambda *a, **k: R(401, {})
+        assert team.github_runs(NOW) == (None, None)
+        os.environ.pop("GH_TOKEN"); os.environ.pop("GITHUB_TOKEN", None)
+        assert team.github_runs(NOW) == (None, None)
+    finally:
+        requests.get = old_get
+        os.environ.clear(); os.environ.update(old_env)
+
+
 def test_the_finisher_keeps_items_open_until_they_are_gone_and_ages_them():
     owner = [{"key": "token", "text": "Make a new token.", "owner": "Martin", "level": "act", "done": False, "fix": "Settings."}]
     t1 = team.build(_admin(crashed=True), None, None, NOW, site_hours=390.0, owner_items=owner)
