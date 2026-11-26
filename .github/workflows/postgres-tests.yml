@@ -71,7 +71,8 @@ jobs:
           cache: npm
           cache-dependency-path: site/package-lock.json
       - name: Install pipeline
-        run: pip install -q -r pipeline/requirements.txt
+        # fonttools and brotli: only for test_site_speed's check that the trimmed font keeps its shapes.
+        run: pip install -q -r pipeline/requirements.txt fonttools brotli
       - name: Write the test fixture
         working-directory: pipeline
         run: python tests/site_fixture.py
