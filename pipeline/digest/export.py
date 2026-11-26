@@ -548,7 +548,7 @@ def run() -> dict:
     # And every launch listed before, so a model keeps its row and its page after its stories leave the
     # window (releases.py: a small file in the runner's cache, no database read).
     models = releases.remember(models, [s.strip() for s in rules.get("unpublish") or [] if s],
-                               tracker_rules.is_release, tracker_rules.fold_all, tracker_rules.model_key)
+                               tracker_rules.is_release, tracker_rules.fold_all, tracker_rules.model_key, tracker_rules.join)
     # Funding: one row per deal, with figures the coverage agrees on and that the articles' own text
     # states (funding.py); the page's total adds these rows only.
     funding_rows, funding_dropped = funding_rules.build(stories_out, now)

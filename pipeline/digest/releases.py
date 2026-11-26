@@ -71,12 +71,19 @@ def save(rows: dict[str, dict]) -> None:
     tmp.replace(path())
 
 
-def merge(kept: dict[str, dict], current: dict[str, dict]) -> dict[str, dict]:
+def merge(kept: dict[str, dict], current: dict[str, dict], join: Callable[[dict, dict], None] | None = None) -> dict[str, dict]:
     """This run's rows over the kept ones. The earlier report is the launch: its date, story and
-    headline stay; specs it lacks come from the newer row; the source count is the larger one."""
+    headline stay; specs it lacks come from the newer row; the source count is the larger one.
+    `join` (trackers.join), when given, decides instead: it also keeps a launch story that names the
+    model over an earlier one that does not."""
     out = dict(kept)
     for key, row in current.items():
         old = out.get(key)
+        if join and old is not None:
+            new = dict(old)
+            join(new, row)
+            out[key] = new
+            continue
         if old is None or (row.get("date") or "~") <= (old.get("date") or "~"):
             new = dict(row)
             base = old or {}
@@ -93,7 +100,8 @@ def merge(kept: dict[str, dict], current: dict[str, dict]) -> dict[str, dict]:
 
 def remember(current: dict[str, dict], unpublished: set[str] | list[str],
              is_release: Callable[[dict, str], bool], fold: Callable[[dict], dict],
-             key: Callable[[str, str | None], str] | None = None) -> dict[str, dict]:
+             key: Callable[[str, str | None], str] | None = None,
+             join: Callable[[dict, dict], None] | None = None) -> dict[str, dict]:
     """Every release kept so far plus this run's, by tracker key. `is_release`, `fold` and `key` are the
     tracker's own rules (trackers.py), passed in so the rules live in one place."""
     gone = set(unpublished or [])
@@ -107,8 +115,8 @@ def remember(current: dict[str, dict], unpublished: set[str] | list[str],
             continue
         # Keyed again by today's rules, so a key rule fixed today ("OpenAI Group PBC" is OpenAI) joins
         # the rows it now calls one model instead of listing both.
-        kept = merge(kept, {key(r.get("name") or "", r.get("lab")) if key else k: r})
-    rows = fold(merge(kept, current))
+        kept = merge(kept, {key(r.get("name") or "", r.get("lab")) if key else k: r}, join)
+    rows = fold(merge(kept, current, join))
     if len(rows) > MAX_ROWS:
         rows = dict(sorted(rows.items(), key=lambda kv: kv[1].get("date") or "", reverse=True)[:MAX_ROWS])
     try:

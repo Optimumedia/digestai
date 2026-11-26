@@ -187,19 +187,27 @@ def fold_versions(rows: dict[str, dict]) -> dict[str, dict]:
         longer = [k for k in keys if k != short and k.endswith("|" + org) and k.startswith(name)
                   and re.fullmatch(r"(?!\d{4,}$)v?\d[\d.]*", k.split("|", 1)[0][len(name):] or "x")]  # a date is not a version
         if name and longer and short in out:
-            _join(out[longer[0]], out[short])
+            join(out[longer[0]], out[short])
             del out[short]
     return out
 
 
-def _join(target: dict, other: dict) -> None:
+def join(target: dict, other: dict) -> None:
     """`other` is the same model as `target`: the earlier report is the launch, specs fill in, and
     the source count is the larger one (summing would count a story again every run: the ledger keeps
     the merged row and the window brings both rows back)."""
-    if (other.get("date") or "~") < (target.get("date") or "~"):
-        for f in ("date", "storySlug", "storyHeadline"):
+    # The launch story is the earliest one whose headline names the model; the date is the earliest
+    # report either way ("OpenAI rolls out GPT-6.2 Sol" came two days before the Astra story).
+    def names_it(row: dict) -> bool:
+        head = _plain(row.get("storyHeadline") or "").replace(" ", "")
+        return all(t in head or _build_part(t) for t in _tokens(target.get("name") or "", target.get("lab")))
+    earlier = (other.get("date") or "~") < (target.get("date") or "~")
+    if names_it(other) and (earlier or not names_it(target)):
+        for f in ("storySlug", "storyHeadline"):
             if other.get(f):
                 target[f] = other[f]
+    if earlier and other.get("date"):
+        target["date"] = other["date"]
     for f in ("license", "context", "link"):
         if not target.get(f) and other.get(f):
             target[f] = other[f]
@@ -310,7 +318,7 @@ def fold_aliases(rows: dict[str, dict]) -> dict[str, dict]:
             row["name"] = best[0]
         for m in members:
             if m != home:
-                _join(row, rows[m])
+                join(row, rows[m])
         out[model_key(row.get("name") or "", row.get("lab"))] = row
     return out
 

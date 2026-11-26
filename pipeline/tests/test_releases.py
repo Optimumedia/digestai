@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from digest import archive, config, releases  # noqa: E402
-from digest.trackers import fold_versions, is_release, model_key  # noqa: E402
+from digest.trackers import fold_all, fold_versions, is_release, join, model_key  # noqa: E402
 
 
 @contextmanager
@@ -105,6 +105,17 @@ def test_kept_rows_are_keyed_again_by_todays_rules():
         out = releases.remember(keyed(new), [], is_release, fold_versions, model_key)
         assert list(out) == [model_key("GPT-6 Cyber", "OpenAI")], out
         assert next(iter(out.values()))["storySlug"] == "cyber"
+
+
+def test_the_kept_launch_story_is_one_that_names_the_model():
+    with cache_dir():
+        # Kept from a story about a sibling model, two days before the model's own story.
+        sol = row("GPT-6.2 Astra", "OpenAI", "2026-11-17T09:00:00Z", "sol", "OpenAI rolls out GPT-6.2 Sol")
+        releases.save(keyed(sol))
+        own = row("GPT-6.2 Astra", "OpenAI", "2026-11-19T09:00:00Z", "astra", "OpenAI releases GPT-6.2 Astra", sources=2)
+        out = releases.remember(keyed(own), [], is_release, fold_all, model_key, join)
+        astra = next(iter(out.values()))
+        assert (astra["date"], astra["storySlug"], astra["sources"]) == ("2026-11-17T09:00:00Z", "astra", 2), astra
 
 
 def test_nothing_kept_and_nothing_new_is_an_empty_tracker():

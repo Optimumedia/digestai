@@ -110,7 +110,7 @@ def test_one_model_under_two_makers_or_three_names_is_one_row():
         row("WeVisOne-VL-4B", "Tencent", "2026-10-23T09:00:00Z", "Tencent releases WeVisOne-VL 4B vision-language model on Hugging Face"),
         row("WeVisOne-VL", "Tencent", "2026-11-04T09:00:00Z", "Tencent releases WeVisOne-VL, a 2B/4B open vision model"),
         row("6.2 Astra", "OpenAI", "2026-11-19T09:00:00Z", "OpenAI releases GPT-6.2 Astra; Microsoft unveils seven MAI models", "api"),
-        row("GPT-6.2 Astra", "OpenAI", "2026-11-17T09:00:00Z", "OpenAI releases GPT-6.2 Astra", "api"),
+        row("GPT-6.2 Astra", "OpenAI", "2026-11-17T09:00:00Z", "OpenAI rolls out GPT-6.2 Sol for ChatGPT Plus, Pro, and Enterprise users", "api"),
         # Different models stay apart: sizes released separately, siblings, versions.
         row("Hy4", "Tencent", "2026-11-04T09:00:00Z", "Tencent releases Hy4"),
         row("Hy4 Flash", "Tencent", "2026-11-16T09:00:00Z", "Tencent launches Hy4 Flash"),
@@ -151,6 +151,9 @@ def test_one_model_under_two_makers_or_three_names_is_one_row():
     # The kept row is the launch: the earliest report's story, the larger source count.
     mai = next(r for r in out.values() if r["name"] == "MAI Code 2")
     assert mai["sources"] == 2 and mai["date"] == "2026-11-17T09:00:00Z", mai
+    # The earliest report is the date; the launch story is the one whose headline names the model.
+    astra = next(r for r in out.values() if r["name"] == "GPT-6.2 Astra")
+    assert astra["date"][:10] == "2026-11-17" and astra["storyHeadline"].startswith("OpenAI releases GPT-6.2 Astra"), astra
     assert model_key("GPT-6 Cyber", "OpenAI Group PBC") == model_key("GPT-6 Cyber", "OpenAI")
 
 
