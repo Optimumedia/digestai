@@ -103,9 +103,12 @@ WORK_AUDIO_MIN_BUDGET_SECONDS = int(os.environ.get("WORK_AUDIO_MIN_BUDGET_SECOND
 NEWSLETTER_HOUR_UTC = int(os.environ.get("NEWSLETTER_HOUR_UTC", "5"))
 
 # Free tiers, measured 2026-09-11: Gemini 3.x Flash models allow only 20 requests per day per
-# model on the free tier (quota id GenerateRequestsPerDayPerProjectPerModel-FreeTier), so the
-# three-model chain gives ~60 calls a day; they go to the highest-weight sources. Groq's free
-# tier is 14,400/day, so a Groq key lifts the ceiling for everything else. The daily budget is
+# model on the free tier (quota id GenerateRequestsPerDayPerProjectPerModel-FreeTier, reset at
+# midnight Pacific), so the five-model chain (two of them Flash-Lite, added 26 Nov) gives ~100
+# calls a day; they go to the front of the queue. Groq's free tier (checked 26 Nov 2026) is, per
+# model, 1,000 requests and 200,000 tokens a day and 8,000 tokens a minute: the tokens a day, about
+# 65 summaries per model, are what runs out (gpt-oss-120b and -20b both stood at 197,000 by 10:30
+# UTC). Its DAILY_BUDGET below counts requests, so it only caps runaway use. The daily budget is
 # spread over the day's runs; unused allowance rolls forward within the day.
 # ~30 s per Gemini call on long articles: 20 per run keeps the job well inside the 30-minute cadence.
 MAX_ENRICH_PER_RUN = int(os.environ.get("MAX_ENRICH_PER_RUN") or "20")
