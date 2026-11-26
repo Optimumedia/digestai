@@ -63,6 +63,7 @@ jobs:
           # not a table, so this needs no database - it runs beside the other offline tests.
           python tests/test_prices.py
           python tests/test_summaries.py
+          python tests/test_throughput.py
           python tests/test_mistral.py
           python tests/test_cloudflare.py
           python tests/test_openrouter.py

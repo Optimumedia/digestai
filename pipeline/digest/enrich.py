@@ -9,6 +9,9 @@ import logging
 import math
 import re
 import time
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -1737,62 +1740,42 @@ def run() -> dict:
     budget = float(config.ENRICH_TIME_BUDGET_SECONDS)
     started = time.monotonic()
     _deadline = started + budget
-    durations: list[float] = []
-    last_start: float | None = None
-    for row in rows:
-        now_m = time.monotonic()
-        if last_start is not None:
-            durations.append(now_m - last_start)
-        if not should_start_article(now_m - started, durations, budget, config.ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS):
-            # Leave the rest for the next run: slow or rate-limited providers must not push the
-            # whole run past the workflow's time limit, because a cancelled run publishes nothing.
-            # Checked before an article starts, with its expected duration, so the budget holds.
-            stats["stopped_for_time"] = True
-            break
-        last_start = now_m
-        text = row.content_text or row.description or ""
-        result, model_used, used_fn = None, "heuristic", None
-        for name, fn in list(providers):
-            provider = name.split(":")[0]
-            if provider in budgets and spent.get(provider, 0) >= budgets[provider]:
-                continue  # this provider's share for the run is spent; try the next one
-            # Shorter input and shorter examples for the CPU model (speed) and for Groq (its
-            # tokens-per-minute window); the rest, Mistral's 128k-token model included, get the full prompt.
-            prompt = build_prompt(row, text, provider, local_only)
-            try:
-                result = fn(prompt)
-                model_used = name
-                used_fn = (fn, prompt, provider)
-                spent[provider] = spent.get(provider, 0) + 1
-                if provider in budgets and provider != "ollama":
-                    record_usage(eng, provider, 1)
-                break
-            except ProviderPaused as exc:
-                log.warning("%s paused for this run (%s); switching provider", name, exc)
-                providers = [p for p in providers if p[0] != name]
-            except QuotaExhausted as exc:
-                log.warning("%s quota exhausted (%s); switching provider", name, exc)
-                if provider in budgets:
-                    record_usage(eng, provider, 0, exhausted=True)
-                providers = [p for p in providers if p[0] != name]
-            except Exception as exc:  # noqa: BLE001
-                stats["errors"] += 1
-                log.warning("%s failed on #%s: %s", name, row.id, exc)
-        if result is None:
-            remaining = [p for p in providers if spent.get(p[0].split(":")[0], 0) < budgets.get(p[0].split(":")[0], 10**9)]
-            if remaining:
-                # A transient error: leave the row for the next run rather than degrade it.
-                continue
-            if keyed or budgets.get("ollama"):
-                break  # every provider's share for this run is spent; the rest waits for the next run
-            result = heuristic(row, row.category_hint)
+    # Two workers. The API providers take the queue from the front, one article at a time, on this
+    # thread. The local model runs beside them on a thread of its own and takes the BACK of the
+    # queue, the articles the scarce models would reach last, whenever the API side cannot take the
+    # front one at that moment (every provider rate limited, or out for the run). Before, the run
+    # was one line: while the 3B model spent 60-110 s on an article, Groq's minute window refilled
+    # unused, and the next article found Groq "rate limited for 86 s" and went to the 3B model too.
+    api = [p for p in providers if not p[0].startswith("ollama")]
+    local = next((p for p in providers if p[0].startswith("ollama")), None)
+    queue = deque(rows)
+    api_durations: list[float] = []
+    local_durations: list[float] = []
+    tries: dict[int, int] = {}
+    job: dict | None = None  # the local model's article: future, row, text, prompt, started
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="enrich-local") if local else None
+
+    def share_left(provider: str) -> bool:
+        return provider not in budgets or spent.get(provider, 0) < budgets[provider]
+
+    def api_live() -> list:
+        return [p for p in api if share_left(p[0].split(":")[0])]
+
+    def local_free() -> bool:
+        return local is not None and job is None and share_left("ollama")
+
+    def elapsed() -> float:
+        return time.monotonic() - started
+
+    def store(row, text, result, model_used, used_fn) -> None:
+        """Everything after an answer: the clean-up, the check against the article, the write."""
         stats["model"] = model_used
         try:
             clean = _clean(result, row, row.category_hint)
         except Exception as exc:  # noqa: BLE001 - one malformed answer must not stop the batch
             stats["errors"] += 1
             log.warning("could not use the answer for #%s from %s: %s", row.id, model_used, exc)
-            continue  # the article stays pending and is retried next run
+            return  # the article stays pending and is retried next run
         # Every figure and name is checked against the article before anything is stored. The
         # title and the feed's own description count as source material: a figure in the headline
         # ("Last Week in AI #343") often appears nowhere else.
@@ -1805,7 +1788,7 @@ def run() -> dict:
                 stats["rejected"] += 1
                 conn.execute(update(db.articles).where(db.articles.c.id == row.id)
                              .values(status="rejected", reject_reason="llm: not ai news", enrich_model=model_used))
-                continue
+                return
             stats["enriched"] += 1
             if clean["work_card"]:
                 stats["work_cards"] = stats.get("work_cards", 0) + 1
@@ -1835,9 +1818,128 @@ def run() -> dict:
                 enrich_model=model_used,
                 status="enriched",
             ))
-        if model_used.startswith("gemini"):
-            time.sleep(4.2)  # 15 requests per minute on the free tier
-        # Groq paces itself from its rate-limit headers inside call_groq.
+        by = model_used.split(":")[0]
+        stats["by_provider"] = {**stats.get("by_provider", {}), by: stats.get("by_provider", {}).get(by, 0) + 1}
+
+    def try_api(row, text):
+        """The API providers in order on one article: (answer, name, (fn, prompt, provider)) or Nones."""
+        nonlocal api
+        for name, fn in list(api):
+            provider = name.split(":")[0]
+            if not share_left(provider):
+                continue  # this provider's share for the run is spent; try the next one
+            # Shorter input and shorter examples for Groq (its tokens-per-minute window); the rest,
+            # Mistral's 128k-token model included, get the full prompt.
+            prompt = build_prompt(row, text, provider, local_only)
+            try:
+                result = fn(prompt)
+            except ProviderPaused as exc:
+                log.warning("%s paused for this run (%s); switching provider", name, exc)
+                api = [p for p in api if p[0] != name]
+                continue
+            except QuotaExhausted as exc:
+                log.warning("%s quota exhausted (%s); switching provider", name, exc)
+                if provider in budgets:
+                    record_usage(eng, provider, 0, exhausted=True)
+                api = [p for p in api if p[0] != name]
+                continue
+            except Exception as exc:  # noqa: BLE001
+                stats["errors"] += 1
+                log.warning("%s failed on #%s: %s", name, row.id, exc)
+                continue
+            spent[provider] = spent.get(provider, 0) + 1
+            if provider in budgets:
+                record_usage(eng, provider, 1)
+            return result, name, (fn, prompt, provider)
+        return None, None, None
+
+    def start_local(row) -> None:
+        nonlocal job
+        text = row.content_text or row.description or ""
+        prompt = build_prompt(row, text, "ollama", local_only)
+        spent["ollama"] = spent.get("ollama", 0) + 1
+        job = {"future": pool.submit(local[1], prompt), "row": row, "text": text, "prompt": prompt,
+               "started": time.monotonic()}
+
+    def finish_local(wait: float | None) -> bool:
+        """Store the local model's answer if it is ready (waiting up to `wait` seconds; None: until
+        it is, which the request's own timeout bounds). True when the worker is free again."""
+        nonlocal job
+        if job is None:
+            return True
+        try:
+            result = job["future"].result(timeout=wait)
+        except FutureTimeout:
+            return False
+        except Exception as exc:  # noqa: BLE001 - the article stays pending and is retried next run
+            stats["errors"] += 1
+            log.warning("%s failed on #%s: %s", local[0], job["row"].id, exc)
+            local_durations.append(time.monotonic() - job["started"])
+            job = None
+            return True
+        done, job = job, None
+        local_durations.append(time.monotonic() - done["started"])
+        store(done["row"], done["text"], result, local[0], (local[1], done["prompt"], "ollama"))
+        return True
+
+    def api_wait() -> float:
+        """Seconds until the soonest rate-limited API model may be asked again (1 to 20)."""
+        now = time.time()
+        waits = [t - now for m, t in list(_groq_wait_until.items()) + list(_gemini_wait_until.items())
+                 if t > now and m not in _groq_dead and m not in _gemini_dead]
+        return max(1.0, min(20.0, min(waits) if waits else 5.0))
+
+    try:
+        while queue:
+            finish_local(0)
+            if not (should_start_article(elapsed(), api_durations, budget, config.ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS)
+                    or (local_free() and should_start_article(elapsed(), local_durations, budget,
+                                                               config.ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS))):
+                # Leave the rest for the next run: slow or rate-limited providers must not push the
+                # whole run past the workflow's time limit, because a cancelled run publishes nothing.
+                # Checked before an article starts, with its expected duration, so the budget holds.
+                stats["stopped_for_time"] = True
+                break
+            row = queue[0]
+            if api_live() and should_start_article(elapsed(), api_durations, budget, config.ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS):
+                t0 = time.monotonic()
+                text = row.content_text or row.description or ""
+                result, name, used_fn = try_api(row, text)
+                if result is not None:
+                    queue.popleft()
+                    api_durations.append(time.monotonic() - t0)
+                    store(row, text, result, name, used_fn)
+                    if name.startswith("gemini"):
+                        time.sleep(4.2)  # Gemini's per-minute windows; Groq paces itself inside call_groq
+                    continue
+                tries[row.id] = tries.get(row.id, 0) + 1
+            # The API side could not take the front article just now.
+            if local_free() and should_start_article(elapsed(), local_durations, budget, config.ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS):
+                # The local model takes the back of the queue while the API side may still come back,
+                # and the front once it is out for the run.
+                start_local(queue.pop() if api_live() and len(queue) > 1 else queue.popleft())
+                continue
+            if job is not None:
+                if not api_live():
+                    finish_local(None)  # nothing else can work: wait for the local model
+                elif tries.get(row.id, 0) >= 3:
+                    queue.rotate(-1)  # three tries: this article goes to the back, where the local model takes it
+                    finish_local(api_wait())
+                else:
+                    finish_local(api_wait())  # the API side waits out its window, or the local model ends first
+                continue
+            if api_live():
+                queue.popleft()  # a transient error: leave the row for the next run rather than degrade it
+                continue
+            if keyed or budgets.get("ollama"):
+                break  # every provider's share for this run is spent; the rest waits for the next run
+            queue.popleft()
+            text = row.content_text or row.description or ""
+            store(row, text, heuristic(row, row.category_hint), "heuristic", None)
+        finish_local(max(1.0, _time_left() + 15.0))
+    finally:
+        if pool is not None:
+            pool.shutdown(wait=False, cancel_futures=True)
     _deadline = None
     stats["seconds_used"] = round(time.monotonic() - started, 1)
     if check_stats["checked"]:
