@@ -3,7 +3,7 @@ import Base from "../layouts/Base.astro";
 import Rail from "../components/Rail.astro";
 import Breadcrumbs from "../components/Breadcrumbs.astro";
 import ListenPlayer from "../components/ListenPlayer.astro";
-import { episodes, meta, formatDate, storiesByDay, noindex, type Episode } from "../lib/data";
+import { episodes, meta, formatDate, storiesByDay, noindex, stories, archived, storyRedirects, type Episode } from "../lib/data";
 import { workEpisodes } from "../lib/work";
 import { podcastApps } from "../lib/passon";
 
@@ -22,6 +22,8 @@ const workFeed = `${meta.siteUrl}/work/podcast.xml`;
 // A day's written briefing, linked from its episode when that day's page exists and is indexable.
 const days = storiesByDay();
 const dayHref = (date: string) => (days.has(date) && !noindex.has(`/daily/${date}`) ? `/daily/${date}` : null);
+// An episode can name a story that has no page any more (unpublished since): its headline stays, unlinked.
+const hasPage = new Set([...stories.map((s) => s.slug), ...archived.map((a) => a.slug), ...storyRedirects.map((r) => r.from)]);
 const count = (n: number) => (["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"][n] || String(n));
 /** One line on what an episode covers: its length, how many stories and the first three headlines. */
 function describe(e: Episode, noun: string): string {
@@ -166,7 +168,7 @@ const jsonLd = [series, ...(workSeries ? [workSeries] : []), ...(episodes.length
                 <p class="ep-desc">{describe(e, "story")}</p>
                 <audio controls preload="none" src={e.url || `/audio/${e.file}`} data-episode={e.date}></audio>
                 <ul class="coverage">
-                  {e.stories.map((s) => <li><a class="t" href={`/story/${s.slug}`}>{s.headline}</a></li>)}
+                  {e.stories.map((s) => <li>{hasPage.has(s.slug) ? <a class="t" href={`/story/${s.slug}`}>{s.headline}</a> : <span class="t">{s.headline}</span>}</li>)}
                 </ul>
                 {day && <p class="ep-links"><a href={day}>The written stories for that day →</a></p>}
                 {e === latest && e.transcript
@@ -208,7 +210,7 @@ const jsonLd = [series, ...(workSeries ? [workSeries] : []), ...(episodes.length
                 <p class="ep-desc">{describe(e, "item")}</p>
                 <audio controls preload="none" src={e.url || `/audio/${e.file}`} data-episode={e.week || e.date}></audio>
                 <ul class="coverage">
-                  {e.stories.map((s) => <li><a class="t" href={`/story/${s.slug}`}>{s.headline}</a></li>)}
+                  {e.stories.map((s) => <li>{hasPage.has(s.slug) ? <a class="t" href={`/story/${s.slug}`}>{s.headline}</a> : <span class="t">{s.headline}</span>}</li>)}
                 </ul>
                 {e.week && <p class="ep-links"><a href={`/work/week/${e.week}`}>That week's playbook →</a></p>}
                 {e.transcript && <details><summary class="muted">Transcript</summary>{e.transcript.split("\n\n").map((p) => <p>{p}</p>)}</details>}
