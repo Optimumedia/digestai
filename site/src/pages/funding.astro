@@ -27,7 +27,7 @@ const jsonLd = {
 };
 ---
 
-<Base title="AI funding tracker" description={`${all.length} AI funding rounds and deals totalling ${money(total)}, with amounts, investors and the stories behind them.`} jsonLd={jsonLd}>
+<Base title="AI funding tracker" description={`${all.length} AI funding ${all.length === 1 ? "round or deal" : "rounds and deals"} totalling ${money(total)}, with amounts, investors and the stories behind them.`} jsonLd={jsonLd}>
   <header class="page-head">
     <div class="eyebrow">Tracker</div>
     <h1>AI funding and deals</h1>
@@ -36,7 +36,7 @@ const jsonLd = {
         The largest AI deals reported in the 30 days to {asOf}: {largest.map((r, i) => <>{i > 0 && "; "}<a href={`/story/${r.storySlug}`}>{r.company}, {dealAmount(r)} {roundWords[r.round] || "deal"}</a> ({formatDate(r.date, { day: "numeric", month: "short" })})</>)}.
       </p>
     )}
-    <p>Rounds, acquisitions and valuations as reported, newest first. A deal is listed when its story's headline reports it as done: plans, filings, talks, results and contracts are left out, and an acquisition is listed under the company bought. Amounts are as stated by the sources, figures in other currencies with their approximate value in dollars; each row links to the story. {all.length > 0 && <span>{all.length} deals{since && <> since {formatDate(since)}</>}, {money(total)} in total.</span>}{all.length > rows.length && <span> This page shows the newest {rows.length}; the API lists every one.</span>}</p>
+    <p>Rounds, acquisitions and valuations as reported, newest first. A deal is listed when its story's headline reports it as done: plans, filings, talks, results and contracts are left out, and an acquisition is listed under the company bought. Amounts are as stated by the sources, figures in other currencies with their approximate value in dollars; each row links to the story. {all.length > 0 && <span>{all.length} {all.length === 1 ? "deal" : "deals"}{since && <> since {formatDate(since)}</>}, {money(total)} in total.</span>}{all.length > rows.length && <span> This page shows the newest {rows.length}; the API lists every one.</span>}</p>
   </header>
   {rows.length === 0 && <p class="muted" style="padding: 24px 0">No deals recorded yet. Rows appear as funding stories are published.</p>}
   <div class="tablewrap">

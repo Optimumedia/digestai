@@ -57,7 +57,7 @@ const listedTry = listed.length - listedSkip;
 const jobTiles = JOBS.map((j) => ({ ...j, count: hubCount(j.key), total: totalCount(j.key) }));
 
 const description = briefingItems.length
-  ? `${briefingItems.length} AI things a marketer or small business can use today: ${briefingItems.slice(0, 3).map((s) => s.workCard.tool).join(", ")}. What each one does, what it costs and the catch.`
+  ? `${briefingItems.length} AI ${briefingItems.length === 1 ? "thing" : "things"} a marketer or small business can use today: ${briefingItems.slice(0, 3).map((s) => s.workCard.tool).join(", ")}. What each one does, what it costs and the catch.`
   : SECTION_TAGLINE;
 const jsonLd = [
   {
