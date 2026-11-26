@@ -4,9 +4,11 @@ from __future__ import annotations
 import importlib
 import json
 import logging
+import os
 import shutil
 import sys
 import time
+from pathlib import Path
 
 from sqlalchemy import insert, update
 
@@ -57,6 +59,62 @@ def should_wait(step: str, steps: list[str], i: int, elapsed: float, budget: flo
     return step in CAN_WAIT and budget - elapsed - time_kept(steps, i) < CAN_WAIT[step]
 
 
+def wait_for_local_model(state_file: str | None = None, limit: float | None = None, sleep=time.sleep, clock=time.monotonic) -> float:
+    """The workflow starts the local model in the background while the job sets up and the first steps
+    run, which takes its minute of download and start-up off the job's critical path. Summaries need
+    it ready: before the enrich step this waits while the state file (OLLAMA_STATE_FILE) still says
+    "starting", at most OLLAMA_WAIT_SECONDS. No file, "ready" or "failed": no wait. Returns the
+    seconds waited."""
+    path = state_file or os.environ.get("OLLAMA_STATE_FILE")
+    if not path:
+        return 0.0
+    if limit is None:
+        limit = float(os.environ.get("OLLAMA_WAIT_SECONDS") or 180)
+    t0 = clock()
+    while clock() - t0 < limit:
+        try:
+            state = Path(path).read_text(encoding="utf-8").strip()
+        except OSError:
+            return round(clock() - t0, 1)
+        if state != "starting":
+            break
+        sleep(2)
+    return round(clock() - t0, 1)
+
+
+def step_report(summary: dict) -> tuple[str, list[str]]:
+    """The run's steps as a Markdown table for the job summary, and one error annotation per crashed
+    step. The workflow lets the pipeline step fail without stopping the job (the site is still built
+    from what was exported), so a crash used to show only as a small orange mark on one step; from 7
+    to 23 Nov 2026 the export crashed in every run and every run looked green."""
+    rows = ["| Step | Seconds | Note |", "|---|---:|---|"]
+    errors = []
+    for step, st in summary.items():
+        note = "crashed" if st.get("crashed") else (f"skipped: {st['skipped']}" if st.get("skipped") else "")
+        rows.append(f"| {step} | {st.get('seconds', 0)} | {note} |")
+        if st.get("crashed"):
+            errors.append(f"::error title=Pipeline step crashed::The {step} step crashed and the run went on without it; its traceback is in the Run pipeline log.")
+    total = round(sum(float(st.get("seconds") or 0) for st in summary.values()))
+    waited = [s for s, st in summary.items() if st.get("skipped") == "time"]
+    head = f"### Pipeline steps: {total} s"
+    if waited:
+        head += f", {len(waited)} left for the next run for time ({', '.join(waited)})"
+    return head + "\n\n" + "\n".join(rows) + "\n", errors
+
+
+def report(summary: dict) -> None:
+    text, errors = step_report(summary)
+    for line in errors:
+        print(line)
+    out = os.environ.get("GITHUB_STEP_SUMMARY")
+    if out:
+        try:
+            with open(out, "a", encoding="utf-8") as fh:
+                fh.write(text)
+        except OSError as exc:
+            log.warning("could not write the job summary: %s", exc)
+
+
 def restore_admin() -> bool:
     """The admin step is near the end of a run. When the workflow's time limit stops a run before it
     (13 Oct: the first run after a week's stop was cut off at "media"), the site was built without
@@ -95,6 +153,9 @@ def main(argv: list[str]) -> int:
             summary[step] = {"skipped": "time", "left": round(config.RUN_BUDGET_SECONDS - elapsed), "seconds": 0.0, "readKB": 0.0}
             log.info("%s: %s", step, json.dumps(summary[step]))
             continue
+        waited = wait_for_local_model() if step == "enrich" else 0.0
+        if waited:
+            log.info("waited %.0fs for the local model to finish starting", waited)
         started = db.utcnow()
         with eng.begin() as conn:
             run_id = conn.execute(insert(db.runs).values(started_at=started, step=step)).inserted_primary_key[0]
@@ -110,6 +171,8 @@ def main(argv: list[str]) -> int:
         # also carries the connection's start-up reads.
         stats["readKB"] = round((db.bytes_read() - b0 + startup_bytes) / 1024, 1)
         startup_bytes = 0
+        if waited:
+            stats["waitedForLocalModel"] = waited
         summary[step] = stats
         with eng.begin() as conn:
             conn.execute(update(db.runs).where(db.runs.c.id == run_id).values(finished_at=db.utcnow(), stats=stats))
@@ -117,6 +180,7 @@ def main(argv: list[str]) -> int:
         # Saved after every step: a run stopped by the time limit still leaves a usable copy.
         cache.save_all()
     print(json.dumps(summary, indent=2, default=str))
+    report(summary)
     return 1 if any(s.get("crashed") for s in summary.values()) else 0
 
 

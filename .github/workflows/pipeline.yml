@@ -117,6 +117,8 @@ jobs:
       WORK_AUDIO_HOUR_UTC: ${{ vars.WORK_AUDIO_HOUR_UTC }}
       WORK_AUDIO_ITEMS: ${{ vars.WORK_AUDIO_ITEMS }}
       OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'qwen2.5:3b' }}
+      # Pinned release of the local model's server (the "Start local model" step).
+      OLLAMA_VERSION: "0.12.3"
       GEMINI_DAILY_BUDGET: ${{ vars.GEMINI_DAILY_BUDGET || '54' }}
       MAX_ENRICH_PER_RUN: ${{ vars.MAX_ENRICH_PER_RUN || '20' }}
       GH_TOKEN: ${{ github.token }}
@@ -135,6 +137,64 @@ jobs:
         run: echo "at=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
+
+      # Local model: the only summariser when no API key exists, and the safety net when the keyed
+      # providers run out of quota. Its files are cached, and so is the Ollama program itself (without
+      # its GPU libraries: the runner has none). It starts in the background, while the job sets up and
+      # the pipeline fetches; the pipeline waits for it before summaries (run.wait_for_local_model).
+      # Until 26 Nov 2026 the installer ran in the foreground of every run: a minute of each job.
+      - name: Cache local model
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-${{ env.OLLAMA_MODEL }}
+
+      - name: Cache local model program
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama-runtime
+          key: ollama-runtime-${{ env.OLLAMA_VERSION }}-cpu
+
+      - name: Start local model
+        run: |
+          echo starting > /tmp/ollama.state
+          echo "OLLAMA_STATE_FILE=/tmp/ollama.state" >> "$GITHUB_ENV"
+          echo "OLLAMA_URL=http://127.0.0.1:11434" >> "$GITHUB_ENV"
+          cat > "$RUNNER_TEMP/start-ollama.sh" <<'EOF'
+          set -u -o pipefail
+          say() { echo "$(date -u +%H:%M:%S) $*"; }
+          fail() { say "$*"; echo failed > /tmp/ollama.state; exit 1; }
+          rt="$HOME/.ollama-runtime"
+          bin="$rt/bin/ollama"
+          if [ ! -x "$bin" ]; then
+            say "downloading Ollama $OLLAMA_VERSION"
+            part="$RUNNER_TEMP/ollama-part"; rm -rf "$part"; mkdir -p "$part"
+            # The file the official installer downloads for this version, unpacked without the GPU libraries.
+            if curl -fsSL --retry 3 "https://ollama.com/download/ollama-linux-amd64.tgz?version=$OLLAMA_VERSION" \
+                | tar -xzf - -C "$part" --exclude='cuda_*' --exclude='rocm*' --exclude='vulkan*' && [ -x "$part/bin/ollama" ]; then
+              # Kept in the cache only when small: a layout change that kept the GPU libraries must not
+              # fill the repository's 10 GB of caches.
+              if [ "$(du -sm "$part" | cut -f1)" -le 600 ]; then rm -rf "$rt"; mv "$part" "$rt"; else bin="$part/bin/ollama"; fi
+            else
+              say "direct download failed; running the installer"
+              curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION="$OLLAMA_VERSION" sh >/dev/null 2>&1 || fail "the installer failed"
+              sudo systemctl stop ollama >/dev/null 2>&1 || true  # the installer's own service; ours reads the cached models
+              bin=$(command -v ollama) || fail "no ollama after the installer"
+            fi
+          fi
+          export OLLAMA_MODELS="$HOME/.ollama/models"
+          "$bin" serve > /tmp/ollama.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 1; done
+          curl -sf http://127.0.0.1:11434/api/tags >/dev/null || fail "the server did not start"
+          if ! "$bin" show "$OLLAMA_MODEL" >/dev/null 2>&1; then
+            say "pulling $OLLAMA_MODEL"
+            "$bin" pull "$OLLAMA_MODEL" 2>&1 | tail -1
+          fi
+          "$bin" show "$OLLAMA_MODEL" >/dev/null 2>&1 || fail "$OLLAMA_MODEL is not available"
+          say "ready"
+          echo ready > /tmp/ollama.state
+          EOF
+          nohup bash "$RUNNER_TEMP/start-ollama.sh" > /tmp/ollama-start.log 2>&1 &
 
       - uses: actions/setup-python@v5
         with:
@@ -208,23 +268,6 @@ jobs:
       # Actions cache, with a daily artifact as backup. The cache is restored from the most
       # recent run; if it is missing, the last backup artifact is used.
 
-      # Local model: the only summariser when no API key exists, and the safety net when the
-      # keyed providers run out of quota. Cached after the first run, so it costs ~30 s to start.
-      - name: Cache local model
-        uses: actions/cache@v4
-        with:
-          path: ~/.ollama/models
-          key: ollama-${{ env.OLLAMA_MODEL }}
-
-      - name: Start local model
-        run: |
-          # Pinned release: the installer is fetched from ollama.com but installs this exact version.
-          curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION=0.12.3 sh >/dev/null 2>&1
-          (ollama serve >/tmp/ollama.log 2>&1 &)
-          for i in $(seq 1 30); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 1; done
-          ollama pull "$OLLAMA_MODEL" 2>&1 | tail -1
-          echo "OLLAMA_URL=http://127.0.0.1:11434" >> "$GITHUB_ENV"
-
       # What earlier runs already read from the database (pipeline/digest/cache.py): each run then asks
       # only for rows written since. One small entry per run under a shared prefix; the newest is
       # restored. Without it a run reads everything once, which costs reads but changes no result.
@@ -294,6 +337,13 @@ jobs:
         timeout-minutes: 20
         continue-on-error: true
         run: python -m digest.run ${{ github.event.inputs.steps || 'all' }}
+
+      - name: Local model start-up log
+        if: always()
+        continue-on-error: true
+        run: |
+          echo "state: $(cat /tmp/ollama.state 2>/dev/null || echo none)"
+          tail -n 20 /tmp/ollama-start.log 2>/dev/null || true
 
       # Stopped before the export step wrote the site data: export from the database as it is.
       - name: Export after an early stop
