@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 25 November 2026
+## Today in AI, 26 November 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Tidal to remove 29 million fully AI-generated tracks by year end](https://digestai.news/story/tidal-bans-ai-generated-tracks-starting-dec-9) (7 sources)
-2. [OpenAI and Anthropic unreleased models may be too powerful to control, insiders say](https://digestai.news/story/anthropic-and-openai-staff-doubt-safe-release-of-advanced-internal-mod) (7 sources)
-3. [OpenAI says GPT-6 models can design proteins without specialized biology tools](https://digestai.news/story/openai-says-gpt-6-models-can-design-proteins-without-specialized-biolo) (3 sources)
-4. [Nvidia and tech futures fall in premarket after Monday's rally](https://digestai.news/story/tech-shares-retreat-as-nvidia-eases-after-huang-s-return) (5 sources)
-5. [Google adds images, timers and reminders to Gemini Notebook flashcards](https://digestai.news/story/google-adds-images-timers-and-reminders-to-gemini-notebook-flashcards) (1 source)
+1. [FCC approves SpaceX plan for 1 million Starmind AI satellites](https://digestai.news/story/fcc-approves-spacex-plan-for-1-million-ai-satellites) (13 sources)
+2. [Treasury CIO vibe-codes Civilization clone while FinCEN handles cybersecurity incident](https://digestai.news/story/treasury-cio-vibe-codes-civilization-clone-while-fincen-handles-cybers) (2 sources)
+3. [Anthropic releases shorter Lean 4 proof of Generalized Riemann Hypothesis](https://digestai.news/story/anthropic-releases-shorter-lean-proof-of-riemann-hypothesis) (2 sources)
+4. [S&P considers Nvidia credit downgrade over governance risks](https://digestai.news/story/s-p-considers-nvidia-credit-downgrade-over-governance-risks) (2 sources)
+5. [OpenAI says ChatGPT ads won't show prompt-level reports](https://digestai.news/story/openai-says-chatgpt-ads-won-t-show-prompt-level-reports) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
