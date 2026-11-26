@@ -859,8 +859,8 @@ const homeData = JSON.stringify({
         <section class="tab" data-tab="settings" hidden>
           <section class="card">
             <h2>GitHub token <span class="muted">needed for Run now, Pin and Unpublish</span></h2>
-            <p class="muted">Actions commit through GitHub's API and need a token with <b>repo</b> and <b>workflow</b> scopes, stored only in this browser. Create one at <a href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=digestai-admin" target="_blank" rel="noopener">github.com/settings/tokens</a>.</p>
-            <div class="tokenrow"><input type="password" id="gh-token" placeholder="ghp_… (kept in this browser only)" autocomplete="off" /><button class="tb" id="save-token">Save token</button><span id="token-state" class="muted"></span></div>
+            <p class="muted">Actions commit through GitHub's API with a token stored only in this browser. Use a <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">fine-grained token</a> for {repo} only, with <b>Contents</b> and <b>Actions</b> set to read and write and an expiry date: if this browser is ever compromised, that token can touch this one repository and nothing else. A classic token with the <b>repo</b> scope also works but opens every repository you can reach.</p>
+            <div class="tokenrow"><input type="password" id="gh-token" placeholder="github_pat_… (kept in this browser only)" autocomplete="off" /><button class="tb" id="save-token">Save token</button><span id="token-state" class="muted"></span></div>
             <p id="action-status" class="muted" aria-live="polite"></p>
           </section>
           <section class="card">
