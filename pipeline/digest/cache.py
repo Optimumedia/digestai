@@ -10,7 +10,8 @@ embeddings. A copy lives in pipeline/data/cache (kept between runs by the Action
   or a database without the triggers, is replaced by one full read of the window.
 - Details: large columns (summaries, key points, article text), read by id and kept while the
   row's fingerprint (lengths of those columns, from the mirror) is unchanged, re-read at least
-  monthly in case something was edited by hand without changing a length.
+  every two months in case something was edited by hand without changing a length (the pipeline's
+  own in-place rewrites say so through forget_details).
 - Vectors: embeddings as float16, kept while their fingerprint is unchanged (embeddings are
   written once; a story's changes with each merge, which its fingerprint follows).
 
@@ -39,7 +40,10 @@ log = logging.getLogger("digest.cache")
 FORMAT = 1
 BATCH = 500
 FULL_REFRESH_DAYS = 7       # the mirror is re-read in full at least this often
-DETAIL_MAX_AGE_DAYS = 30    # details are re-read at least this often (spread over three days by id)
+# Details are re-read at least this often (spread over three days by id). At 30 days the re-reads
+# came to about 3 MB a day (article texts, bodies and story texts of the whole window); article bodies
+# are emptied after 55 days (tidy.py), so at 60 they are read once in their life.
+DETAIL_MAX_AGE_DAYS = 60
 UNUSED_DAYS = 3             # details and vectors nobody asked for in this long are dropped
 RECENT_ARTICLE_DAYS = 16    # articles of any status kept this long (admin looks back 14 days)
 URL_DAYS = 30               # known article addresses kept this long
@@ -69,21 +73,89 @@ def iso(dt) -> str | None:
     return dt.isoformat() if dt else None
 
 
-def _load_json(path: Path) -> dict | None:
+# ---------------------------------------------------------------------------- runner files
+# Every file the runner keeps between runs is read through read_file(). From 7 to 23 Nov 2026 a
+# damaged archive copy ("invalid block type", a zlib.error that no `except (OSError, ValueError)`
+# catches) crashed the export on every run while the runs stayed green, and the site froze for 16
+# days. A file read here never raises: missing, damaged (gzip and zip carry a CRC, so flipped bits
+# fail the read instead of returning wrong data), unparseable or of the wrong shape all come back as
+# None, which every caller treats as "no copy yet". A damaged file is moved aside to <name>.bad (the
+# next save writes a clean one; the .bad copy shows what happened) and named in DAMAGED, which the
+# run adds to the step's stats, so it is never silent.
+DAMAGED: list[str] = []
+
+
+def quarantine(path: Path, exc: BaseException | str) -> None:
+    """Move a damaged runner file aside and record it (never raises)."""
+    path = Path(path)
+    reason = exc if isinstance(exc, str) else f"{type(exc).__name__}: {exc}"
+    log.warning("runner file %s is damaged, treated as missing: %s", path.name, str(reason)[:160])
+    DAMAGED.append(path.name)
     try:
-        with gzip.open(path, "rt", encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, ValueError, EOFError):
+        if path.exists():
+            os.replace(path, path.with_name(path.name + ".bad"))
+    except OSError:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+def read_file(path: Path, shape: type | tuple = dict, gz: bool | None = None, check=None):
+    """A runner JSON file (gzip when the name ends in .gz), or None when it is missing, damaged, not
+    JSON, not of `shape` (dict, list, ...) or refused by `check` (a predicate over the parsed value).
+    Never raises."""
+    path = Path(path)
+    gz = path.name.endswith(".gz") if gz is None else gz
+    try:
+        if not path.exists():
+            return None
+        if gz:
+            with gzip.open(path, "rt", encoding="utf-8") as f:
+                data = json.load(f)
+        else:
+            data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001 - zlib.error, BadGzipFile, UnicodeDecodeError, RecursionError...
+        quarantine(path, exc)
         return None
-    return data if isinstance(data, dict) and data.get("format") == FORMAT else None
+    if not isinstance(data, shape):
+        quarantine(path, f"holds {type(data).__name__}, not {getattr(shape, '__name__', shape)}")
+        return None
+    if check is not None:
+        try:
+            ok = bool(check(data))
+        except Exception:  # noqa: BLE001
+            ok = False
+        if not ok:
+            quarantine(path, "content check failed")
+            return None
+    return data
+
+
+def write_file(path: Path, data, gz: bool | None = None, compresslevel: int = 3, ensure_ascii: bool = True) -> None:
+    """Write a runner JSON file atomically (a run stopped mid-write leaves the previous copy)."""
+    path = Path(path)
+    gz = path.name.endswith(".gz") if gz is None else gz
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    if gz:
+        with gzip.open(tmp, "wt", encoding="utf-8", compresslevel=compresslevel) as f:
+            json.dump(data, f, ensure_ascii=ensure_ascii, separators=(",", ":"), default=str)
+    else:
+        tmp.write_text(json.dumps(data, ensure_ascii=ensure_ascii, separators=(",", ":"), default=str), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _load_json(path: Path) -> dict | None:
+    data = read_file(path, dict, gz=True)
+    if data is None:
+        return None
+    # A copy from an older format is not damage: it is simply not used.
+    return data if data.get("format") == FORMAT else None
 
 
 def _save_json(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    with gzip.open(tmp, "wt", encoding="utf-8", compresslevel=3) as f:
-        json.dump(data, f, separators=(",", ":"), default=str)
-    os.replace(tmp, path)
+    write_file(path, data, gz=True)
 
 
 class _Store:
@@ -111,7 +183,13 @@ class _Store:
 
     def load(self, path: Path) -> dict | None:
         data = _load_json(path)
-        return self.decode(data) if data else None
+        if not data:
+            return None
+        try:
+            return self.decode(data)
+        except Exception as exc:  # noqa: BLE001 - valid JSON of the wrong shape is a damaged copy too
+            quarantine(path, exc)
+            return None
 
     def save(self) -> None:
         for st in self.states.values():
@@ -178,7 +256,10 @@ class Mirror(_Store):
         if data.get("cols") != self.names:
             return None
         rows = {int(r[0]): self.Row(*[_dec(v) for v in r]) for r in data.get("rows") or []}
-        return {"wm": data.get("wm"), "full_at": float(data.get("full_at") or 0), "cols": self.names, "rows": rows}
+        wm = data.get("wm")
+        if wm is not None and (isinstance(wm, bool) or not isinstance(wm, int)):
+            raise ValueError(f"watermark {wm!r}")
+        return {"wm": wm, "full_at": float(data.get("full_at") or 0), "cols": self.names, "rows": rows}
 
     def encode(self, st: dict) -> dict:
         return {"wm": st["wm"], "full_at": st["full_at"], "cols": self.names,
@@ -217,6 +298,23 @@ class Mirror(_Store):
         rows = {k: r for k, r in rows.items() if keep(r)}
         st.update(wm=wm, rows=rows, _dirty=True)
         return dict(rows)
+
+
+def patch_rows(conn, mirror: Mirror, changes: dict[int, dict]) -> int:
+    """Put values just written into the runner's copy of a mirror, for a write made inside
+    db.revision_kept (which leaves the rows' revision as it was, so the copy would not read them).
+    Only for columns whose new value the writer knows exactly. Returns the rows changed."""
+    st = mirror.state(conn)
+    rows = st["rows"]
+    n = 0
+    for i, values in changes.items():
+        r = rows.get(int(i))
+        if r is not None:
+            rows[int(i)] = r._replace(**values)
+            n += 1
+    if n:
+        st["_dirty"] = True
+    return n
 
 
 def _len(col):
@@ -308,6 +406,47 @@ def stories(conn) -> dict[int, tuple]:
     return STORIES.rows(conn)
 
 
+class Stamped(Mirror):
+    """A whole small table whose every write sets an updated_at column (topics): a run reads the
+    row count and the rows stamped since the newest stamp it saw (less a margin), and the whole
+    table only when the count disagrees (a row deleted by hand), the copy is a day old or missing."""
+
+    MARGIN_SECONDS = 3600
+    FULL_HOURS = 24
+
+    def __init__(self, name: str, table, columns: list, stamp):
+        super().__init__(name, table, columns, scope=lambda now: True, keeper=lambda now: (lambda r: True))
+        self.stamp = stamp
+
+    def rows(self, conn) -> dict[int, tuple]:
+        st = self.state(conn)
+        total = int(conn.execute(select(func.count()).select_from(self.table)).scalar() or 0)
+        rows: dict[int, tuple] = st["rows"]
+        fresh = st["wm"] is not None and time.time() - st["full_at"] < self.FULL_HOURS * 3600
+        if fresh:
+            since = datetime.fromtimestamp(st["wm"] / 1e6, tz=db.utcnow().tzinfo) - timedelta(seconds=self.MARGIN_SECONDS)
+            for r in conn.execute(select(*self.columns).where(self.stamp >= since)).all():
+                rows[r[0]] = self.Row(*r)
+        if not fresh or len(rows) != total:
+            rows = {r[0]: self.Row(*r) for r in conn.execute(select(*self.columns)).all()}
+            st["full_at"] = time.time()
+        i = self.names.index(self.stamp.name)
+        newest = max((db.as_utc(r[i]) for r in rows.values() if r[i] is not None), default=None)
+        st.update(wm=int(newest.timestamp() * 1e6) if newest else 0, rows=rows, _dirty=True)
+        return dict(rows)
+
+
+_tp = db.topics.c
+TOPICS = Stamped("topics", db.topics, [_tp.id, _tp.slug, _tp.name, _tp.kind, _tp.story_count, _tp.described_at_count, _tp.updated_at],
+                 _tp.updated_at)
+
+
+def topics(conn) -> dict[int, tuple]:
+    """Every topic and page row without its description (id, slug, name, kind, story_count,
+    described_at_count, updated_at)."""
+    return TOPICS.rows(conn)
+
+
 # ---------------------------------------------------------------------------- details
 
 class Details(_Store):
@@ -323,7 +462,7 @@ class Details(_Store):
     def decode(self, data: dict) -> dict | None:
         if data.get("cols") != self.names:
             return None
-        items = {int(k): [e[0], e[1], e[2], self.Row(*[_dec(v) for v in e[3]])] for k, e in (data.get("items") or {}).items()}
+        items = {int(k): [e[0], float(e[1]), float(e[2]), self.Row(*[_dec(v) for v in e[3]])] for k, e in (data.get("items") or {}).items()}
         return {"cols": self.names, "items": items}
 
     def encode(self, st: dict) -> dict:
@@ -434,6 +573,8 @@ class Vectors(_Store):
         return {"items": {}}
 
     def load(self, path: Path) -> dict | None:
+        if not path.exists():
+            return None
         try:
             with np.load(path, allow_pickle=False) as z:
                 if int(z["format"]) != FORMAT:
@@ -443,11 +584,15 @@ class Vectors(_Store):
                     if not key.endswith("_ids"):
                         continue
                     g = key[:-4]
+                    ids, fps, seen = z[key], z[g + "_fps"], z[g + "_seen"]
                     vecs = z[g + "_vecs"] if g != "none" else None
-                    for j, (i, fp, seen) in enumerate(zip(z[key], z[g + "_fps"], z[g + "_seen"])):
-                        items[int(i)] = [str(fp), float(seen), None if vecs is None else vecs[j]]
+                    if len(fps) != len(ids) or len(seen) != len(ids) or (vecs is not None and (vecs.ndim != 2 or len(vecs) != len(ids))):
+                        raise ValueError(f"group {g}: lengths differ")
+                    for j, (i, fp, s) in enumerate(zip(ids, fps, seen)):
+                        items[int(i)] = [str(fp), float(s), None if vecs is None else vecs[j]]
                 return {"items": items}
-        except (OSError, ValueError, KeyError, EOFError):
+        except Exception as exc:  # noqa: BLE001 - BadZipFile, zlib.error, a CRC mismatch: a damaged copy
+            quarantine(path, exc)
             return None
 
     def write(self, path: Path, st: dict) -> None:
@@ -512,7 +657,18 @@ def thread_vectors(conn, rows) -> dict[int, np.ndarray | None]:
 # ---------------------------------------------------------------------------- small things
 
 class Blob(_Store):
-    """A small JSON document (the ranking model, known article addresses)."""
+    """A small JSON document (the ranking model, known article addresses). `shapes`: the type each
+    key must have when present; a copy that breaks them is treated as damaged."""
+
+    def __init__(self, name: str, shapes: dict | None = None):
+        super().__init__(name)
+        self.shapes = shapes or {}
+
+    def decode(self, data: dict) -> dict:
+        for key, shape in self.shapes.items():
+            if data.get(key) is not None and not isinstance(data[key], shape):
+                raise ValueError(f"{key} holds {type(data[key]).__name__}")
+        return data
 
     def get(self, conn) -> dict:
         return self.state(conn)
@@ -525,15 +681,19 @@ class Blob(_Store):
         st["_dirty"] = True
 
 
-RANK_MODEL = Blob("rank_model")
-ENGAGEMENT = Blob("engagement")
-KNOWN_URLS = Blob("known_urls")
-SUSPECTS = Blob("suspect_duplicates")  # story pairs that may be one event (merge.py), for the dashboard
+_NUM = (int, float)
+RANK_MODEL = Blob("rank_model", {"weights": list, "trained_at": _NUM, "dim": int})
+ENGAGEMENT = Blob("engagement", {"raw": dict, "zones": list, "at": _NUM, "full_at": _NUM})
+KNOWN_URLS = Blob("known_urls", {"urls": dict, "pruned_at": _NUM})
+SUSPECTS = Blob("suspect_duplicates", {"pairs": list})  # story pairs that may be one event (merge.py), for the dashboard
 # AI at Work: reader actions per tool over 30 days, one grouped read every few hours (work_learn.py).
-WORK_EVENTS = Blob("work_events")
+WORK_EVENTS = Blob("work_events", {"rows": list, "at": _NUM})
 # The time zones most of whose visitors are one direct view and nothing else, one grouped read an
 # hour (readers.py); every count of readers leaves those views out.
-BOT_ZONES = Blob("bot_zones")
+BOT_ZONES = Blob("bot_zones", {"zones": list, "at": _NUM})
+# The dashboard's daily history (daily_stats, history.py): every stored day, re-read only when the
+# table's row count or newest update moved.
+DAILY_STATS = Blob("daily_stats", {"rows": dict, "sig": list, "full_at": _NUM})
 
 
 def url_hash(url: str) -> str:

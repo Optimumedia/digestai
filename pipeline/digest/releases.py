@@ -39,11 +39,9 @@ def path() -> Path:
 
 def read_file() -> dict[str, dict] | None:
     """The runner's copy, or None when it is missing or unreadable."""
-    try:
-        data = json.loads(path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if isinstance(data, dict) and data.get("format") == FORMAT and isinstance(data.get("rows"), dict):
+    from . import cache  # never raises; a damaged copy is moved aside and named in the step's stats
+    data = cache.read_file(path(), dict)
+    if data is not None and data.get("format") == FORMAT and isinstance(data.get("rows"), dict):
         return data["rows"]
     return None
 

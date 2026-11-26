@@ -92,7 +92,8 @@ def test_a_lost_cache_is_restored_from_the_archive_copy_and_a_damaged_file_is_ig
         releases.path().write_text("{not json", encoding="utf-8")
         assert releases.read_file() is None
         assert [r["name"] for r in releases.load().values()] == ["GPT-6"]
-        releases.path().unlink()
+        # The damaged copy was moved aside (cache.read_file), so the next save writes a clean one.
+        assert not releases.path().exists() and releases.path().with_name("releases.json.bad").exists()
         assert [r["name"] for r in run({}).values()] == ["GPT-6"]
 
 

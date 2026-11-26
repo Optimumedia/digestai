@@ -145,6 +145,18 @@ def test_read_meter_counts_rows_on_sqlite_and_postgres_results():
         got = db.bytes_read() - before
         assert got < 120, got
 
+    # The same bytes per statement: a step's stats name the query that read the most (readTop).
+    with fresh_db() as (eng, _tmp):
+        with eng.begin() as conn:
+            conn.execute(insert(db.sources).values(key="k", name="N", url="https://x.test/" + "a" * 3000))
+        before = db.reads_by_statement()
+        with eng.connect() as conn:
+            conn.execute(select(db.sources.c.url)).all()
+            conn.execute(select(db.sources.c.id)).all()
+        top = db.top_reads(before)
+        assert top[0][1].startswith("sources: SELECT sources.url") and top[0][0] >= 2.9 and len(top) == 2, top
+        assert db.statement_key("select count(*) from (select a from stories) s").startswith("stories:")
+
     class FakeResult:  # psycopg's pgresult: row count, column count and each value's length
         ntuples, nfields = 2, 3
 
@@ -659,6 +671,28 @@ def test_tidy_empties_unused_columns_in_bounded_batches():
         assert total == 70 + 40
 
 
+def test_tidy_keeps_step_rows_and_vectors_only_as_long_as_something_reads_them():
+    from digest import config as cfg
+    from digest import tidy
+
+    with fresh_db() as (eng, _tmp):
+        seed(eng, stories=4, per_story=1)
+        s, t, r = db.stories.c, db.threads.c, db.runs.c
+        with eng.begin() as conn:
+            conn.execute(update(db.stories).where(s.id == 1).values(first_published_at=NOW - timedelta(days=31)))
+            conn.execute(update(db.stories).where(s.id == 2).values(first_published_at=NOW - timedelta(days=cfg.MERGE_LOOKBACK_DAYS + 2)))
+            conn.execute(update(db.threads).where(t.id == 1).values(updated_at=NOW - timedelta(days=31)))
+            conn.execute(insert(db.runs), [{"started_at": NOW - timedelta(days=d), "step": "fetch", "stats": {"readKB": 1}} for d in (2, 29, 31, 80)])
+        tidy.clean(eng)
+        with eng.connect() as conn:
+            kept = {i for i, e in conn.execute(select(s.id, s.embedding)).all() if e is not None}
+            assert kept == {2, 3, 4}, kept  # merging and threads look back 14 days: 30 leaves a margin
+            assert conn.execute(select(t.embedding).where(t.id == 1)).scalar() is None
+            ages = sorted(round((NOW - db.as_utc(x)).total_seconds() / 86400) for x in conn.execute(select(r.started_at)).scalars())
+            assert ages == [2, 29], ages
+        assert tidy.RUNS_DAYS >= 14 + 3  # the dashboard's two weeks and the history's three days
+
+
 # ---------------------------------------------------------------------------- rank
 
 def test_rank_reuses_its_model_and_counts_engagement_incrementally():
@@ -858,6 +892,147 @@ def test_a_wave_that_closes_its_pages_is_still_left_out():
         # Time on page is the readers' only: 8 + 45 seconds over two reading sessions, not the wave's 36.
         assert per_day["dwellSeconds"] == 53 and per_day["dwellReads"] == 2, per_day
         assert per_day["clicks"] == 1
+
+
+def test_new_story_scores_reach_the_runner_copy_without_being_read_back():
+    """rank.py writes the hourly-changing story scores without a new revision and puts them in the
+    runner's copy itself: the copy matches the database, and the next run reads none of those rows."""
+    from digest import rank
+
+    with fresh_db() as (eng, _tmp):
+        seed(eng)
+        with eng.begin() as conn:
+            conn.execute(update(db.stories).values(score=0.0))
+        with eng.connect() as conn:
+            cache.stories(conn)
+        new_process()
+        stats = rank.run()
+        assert stats["scores_changed"] == 12, stats
+        new_process()
+        b0 = db.bytes_read()
+        with eng.connect() as conn:
+            copy = {i: r.score for i, r in cache.stories(conn).items()}
+        assert db.bytes_read() - b0 < 1500, db.bytes_read() - b0  # watermark and deletions only, no rows
+        with eng.connect() as conn:
+            stored = dict(conn.execute(select(db.stories.c.id, db.stories.c.score)).all())
+        assert copy == stored and all(v > 0 for v in stored.values()), (copy, stored)
+        # A copy that missed the write (the run stopped before it was saved) is mended by the next rank.
+        with eng.begin() as conn:
+            conn.execute(update(db.stories).values(score=0.0))
+        with eng.connect() as conn:
+            cache.stories(conn)
+        new_process()
+        rank.run()
+        cache.reset()  # stopped before the copy was saved: the copy on disk still says 0.0
+        with eng.connect() as conn:
+            assert cache.stories(conn)[3].score == 0.0
+        cache.reset()
+        assert rank.run()["scores_changed"] == 12
+        new_process()
+        with eng.connect() as conn:
+            copy = {i: r.score for i, r in cache.stories(conn).items()}
+            assert copy == dict(conn.execute(select(db.stories.c.id, db.stories.c.score)).all())
+        # The export from the copy equals one from a cold read.
+        _tmp2 = _tmp / "x"
+        warm, cold = _export_both_ways(eng, _tmp2)
+        assert warm == cold
+
+
+def test_topic_copy_reads_only_new_stamps_and_matches_the_table():
+    tp = db.topics.c
+
+    def table(conn):
+        return {r.id: tuple(r) for r in conn.execute(select(*cache.TOPICS.columns)).all()}
+
+    def as_rows(copy):
+        return {i: tuple(r) for i, r in copy.items()}
+
+    with fresh_db() as (eng, _tmp):
+        old = NOW - timedelta(days=3)
+        with eng.begin() as conn:
+            conn.execute(insert(db.topics), [{"slug": f"t{i}", "name": f"Topic {i} " * 3, "kind": "companies", "story_count": i,
+                                              "described_at_count": 0, "updated_at": old - timedelta(hours=i)} for i in range(1, 401)])
+        with eng.connect() as conn:
+            b0 = db.bytes_read()
+            first = cache.topics(conn)
+            cold = db.bytes_read() - b0
+            assert as_rows(first) == table(conn) and len(first) == 400
+        new_process()
+        with eng.begin() as conn:
+            conn.execute(update(db.topics).where(tp.id == 7).values(story_count=70, updated_at=NOW))
+            conn.execute(insert(db.topics).values(slug="new", name="New", kind="page", story_count=1, described_at_count=0, updated_at=NOW))
+        with eng.connect() as conn:
+            b0 = db.bytes_read()
+            got = cache.topics(conn)
+            warm = db.bytes_read() - b0
+            assert as_rows(got) == table(conn) and got[7].story_count == 70 and len(got) == 401
+        assert warm < cold / 10, (warm, cold)
+        # A row deleted by hand: the count disagrees, so the table is read again.
+        new_process()
+        with eng.begin() as conn:
+            conn.execute(db.topics.delete().where(tp.id == 3))
+        with eng.connect() as conn:
+            got = cache.topics(conn)
+            assert 3 not in got and as_rows(got) == table(conn)
+
+
+def test_social_reads_only_the_stories_that_are_not_live():
+    from digest import social
+
+    with fresh_db() as (eng, _tmp):
+        seed(eng)
+        with eng.begin() as conn:
+            conn.execute(update(db.stories).where(db.stories.c.id.in_([4, 7])).values(status="unpublished"))
+        with eng.connect() as conn:
+            b0 = db.bytes_read()
+            assert social.live_story_ids(conn, list(range(1, 13))) == set(range(1, 13)) - {4, 7}
+            narrow = db.bytes_read() - b0
+            b0 = db.bytes_read()
+            full = {r.id for r in conn.execute(select(db.stories.c.id).where(db.stories.c.status == "published")).all()}
+            wide = db.bytes_read() - b0
+            assert full == set(range(1, 13)) - {4, 7} and narrow < wide, (narrow, wide)
+            # An id the table does not hold is never called live.
+            assert social.live_story_ids(conn, [1, 4, 999]) == {1}
+            assert social.live_story_ids(conn, []) == set()
+
+
+def test_daily_history_reads_its_table_once_and_matches_a_full_read():
+    """history.update kept the whole daily_stats table in the runner's copy: later runs read two
+    numbers to know it is unchanged, and never read it back for admin.json."""
+    from digest import history
+
+    with fresh_db() as (eng, _tmp):
+        seed(eng)
+        old = (NOW - timedelta(days=40)).date().isoformat()
+        with eng.begin() as conn:
+            conn.execute(insert(db.daily_stats), [{"day": (NOW - timedelta(days=40 + i)).date().isoformat(), "views": i, "visitors": i,
+                                                   "google_clicks": i, "updated_at": NOW - timedelta(days=30)} for i in range(120)])
+        first = history.update(eng, NOW, google={})
+        new_process()
+        b0 = db.bytes_read()
+        second = history.update(eng, NOW + timedelta(minutes=30), google={})
+        warm = db.bytes_read() - b0
+        assert second == first
+        # A cold copy reads the whole table (and the recent days again for the answer).
+        new_process()
+        cache.DAILY_STATS.put(eng.connect(), {})
+        b0 = db.bytes_read()
+        cold_rows = history.update(eng, NOW + timedelta(minutes=30), google={})
+        cold = db.bytes_read() - b0
+        assert cold_rows == first and warm < cold / 2, (warm, cold)
+        # A row written by hand (count or newest update moves) is seen at once.
+        new_process()
+        with eng.begin() as conn:
+            conn.execute(db.daily_stats.update().where(db.daily_stats.c.day == old).values(views=999, updated_at=NOW + timedelta(minutes=40)))
+        got = {r["day"]: r for r in history.update(eng, NOW + timedelta(hours=1), google={})}
+        assert got[old]["views"] == 999
+        # And a Search Console correction, written by the step itself, is in the answer without a re-read.
+        new_process()
+        got = {r["day"]: r for r in history.update(eng, NOW + timedelta(hours=2), google={old: (50, 900)})}
+        assert got[old]["googleClicks"] == 50
+        new_process()
+        cache.DAILY_STATS.put(eng.connect(), {})
+        assert {r["day"]: r for r in history.update(eng, NOW + timedelta(hours=2), google={old: (50, 900)})} == got
 
 
 if __name__ == "__main__":

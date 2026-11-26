@@ -50,6 +50,10 @@ CAN_WAIT = {"discuss": 20, "pulse": 10, "upgrade": 20, "repair": 10, "topics": 1
 LAST = {"audio": 150, "media": 90, "backup": 25, "admin": 30, "team": 5, "morning": 20, "notify": 5, "readme": 5, "indexnow": 5}
 
 
+# A step that reads at least this many KB names its two largest statements in its stats (readTop).
+READ_TOP_KB = 50
+
+
 def time_kept(steps: list[str], i: int) -> float:
     """Seconds kept for the steps after position i that always run."""
     return float(sum(LAST.get(s, 0) for s in steps[i + 1:]))
@@ -124,6 +128,8 @@ def restore_admin() -> bool:
     site, kept = config.SITE_DATA_DIR / "admin.json", config.CACHE_DIR / "admin.json"
     if site.exists() or not kept.exists():
         return False
+    if cache.read_file(kept, dict, gz=False) is None:  # a damaged copy is moved aside, never copied to the site
+        return False
     try:
         site.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(kept, site)
@@ -169,11 +175,16 @@ def main(argv: list[str]) -> int:
         finished = None
         t0 = time.time()
         b0 = db.bytes_read()
+        damaged_before = len(cache.DAMAGED)
+        by_statement = db.reads_by_statement()
         try:
             stats = STEPS[step]()
         except Exception:
             log.exception("step %s crashed", step)
             stats = {"crashed": True}
+        if len(cache.DAMAGED) > damaged_before:
+            # Runner files found damaged (and moved aside) during this step: named, never silent.
+            stats["damagedFiles"] = sorted(set(cache.DAMAGED[damaged_before:]))
         stats["seconds"] = round(time.time() - t0, 1)
         # Estimated kilobytes read from the database (the free plan meters them); the first step
         # also carries the connection's start-up reads.
@@ -181,6 +192,9 @@ def main(argv: list[str]) -> int:
         startup_bytes = 0
         if waited:
             stats["waitedForLocalModel"] = waited
+        if stats["readKB"] >= READ_TOP_KB:
+            # Which statement read the most: where to look when the monthly reads climb.
+            stats["readTop"] = db.top_reads(by_statement)
         summary[step] = stats
         # Written with the next step's start, in one transaction: each one is about four round trips
         # to the database, and a run of 32 steps spent some 40 seconds on this bookkeeping alone.

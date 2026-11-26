@@ -156,7 +156,8 @@ def run() -> dict:
     with eng.begin() as conn:
         # Only the counts that changed are written: all 3,400 topics, one round trip each, took six
         # minutes of a 20-minute run on 23 Nov 2026.
-        existing = {t.slug: t.story_count for t in conn.execute(select(db.topics.c.slug, db.topics.c.story_count)).all()}
+        # From the runner's copy (cache.topics): the whole table was about 200 KB a run.
+        existing = {t.slug: t.story_count for t in cache.topics(conn).values()}
         for slug, m in merged.items():
             if slug in existing:
                 if existing[slug] != len(m["ids"]):
@@ -171,12 +172,8 @@ def run() -> dict:
     provider = "groq" if config.GROQ_API_KEY else "gemini"
     ask = enrich.call_groq if provider == "groq" else enrich.call_gemini
     with eng.connect() as conn:
-        due = conn.execute(
-            select(db.topics.c.id, db.topics.c.slug, db.topics.c.name, db.topics.c.kind, db.topics.c.story_count,
-                   db.topics.c.described_at_count)
-            .where(db.topics.c.story_count >= MIN_STORIES, db.topics.c.kind != "page")
-            .order_by(db.topics.c.story_count.desc())
-        ).all()
+        due = sorted((t for t in cache.topics(conn).values() if t.story_count >= MIN_STORIES and t.kind != "page"),
+                     key=lambda t: (-t.story_count, t.id))
         allowance = enrich.allowance(conn, provider)
     budget = min(MAX_PER_RUN, allowance)
     stop = time.monotonic() + DESCRIBE_SECONDS

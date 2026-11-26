@@ -342,6 +342,29 @@ def bytes_read() -> int:
     return _bytes_read[0]
 
 
+# The same bytes per statement, so a run says which query read the most (run.py puts the largest in
+# a heavy step's stats as readTop). Keyed by the table and the start of the statement.
+_by_statement: dict[str, int] = {}
+_current_statement = [""]
+
+
+def statement_key(sql: str) -> str:
+    s = " ".join(str(sql).split())
+    m = re.search(r"\bFROM\s+([A-Za-z_][\w.]*)", s, re.I)
+    return f"{m.group(1) if m else '?'}: {s[:70]}"
+
+
+def reads_by_statement() -> dict[str, int]:
+    """Estimated bytes read so far per statement key (a copy)."""
+    return dict(_by_statement)
+
+
+def top_reads(before: dict[str, int], n: int = 2) -> list[list]:
+    """The n statements that read the most since `before` (a reads_by_statement() copy), as [KB, key]."""
+    grown = [(v - before.get(k, 0), k) for k, v in _by_statement.items() if v > before.get(k, 0)]
+    return [[round(b / 1024, 1), k] for b, k in sorted(grown, reverse=True)[:n]]
+
+
 def _value_size(v) -> int:
     if v is None:
         return 0
@@ -357,7 +380,10 @@ def _value_size(v) -> int:
 
 
 def _count_rows(cursor, row):
-    _bytes_read[0] += PG_ROW_OVERHEAD + sum(PG_COLUMN_OVERHEAD + _value_size(v) for v in row)
+    n = PG_ROW_OVERHEAD + sum(PG_COLUMN_OVERHEAD + _value_size(v) for v in row)
+    _bytes_read[0] += n
+    key = _current_statement[0]
+    _by_statement[key] = _by_statement.get(key, 0) + n
     return row
 
 
@@ -381,11 +407,19 @@ def install_read_meter(eng: Engine) -> None:
         @event.listens_for(eng, "connect")
         def _meter_sqlite(dbapi_conn, _record):
             dbapi_conn.row_factory = _count_rows
+
+        @event.listens_for(eng, "before_cursor_execute")
+        def _name_sqlite(conn, cursor, statement, parameters, context, executemany):
+            _current_statement[0] = statement_key(statement)
     else:
         @event.listens_for(eng, "after_cursor_execute")
         def _meter_pg(conn, cursor, statement, parameters, context, executemany):
             try:
-                _bytes_read[0] += pgresult_bytes(getattr(cursor, "pgresult", None))
+                n = pgresult_bytes(getattr(cursor, "pgresult", None))
+                _bytes_read[0] += n
+                if n:
+                    key = statement_key(statement)
+                    _by_statement[key] = _by_statement.get(key, 0) + n
             except Exception:  # noqa: BLE001 - measuring must never break a query
                 pass
 
@@ -422,7 +456,7 @@ def _schema_key(eng: Engine) -> str:
 def _read_schema_marker() -> str | None:
     try:
         return (config.CACHE_DIR / "schema.key").read_text(encoding="utf-8").strip()
-    except OSError:
+    except (OSError, ValueError):  # a damaged marker (not UTF-8) only costs the schema check
         return None
 
 

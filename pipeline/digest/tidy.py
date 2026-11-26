@@ -7,12 +7,14 @@ duplicate checks, the dashboard's counts and links keep working):
   summariser read them (the site shows content_md);
 - content_md and embedding of rejected articles: nothing shows or compares them;
 - article embeddings older than 35 days (ranking learns from the last 30; clustering looks back
-  72 hours), story embeddings older than 60 days and those of threads idle for 60 days (threads
-  look back 14 days);
+  72 hours), story embeddings older than 30 days and those of threads idle for 30 days (merging
+  and threads look back 14 days: MERGE_LOOKBACK_DAYS, threads.WINDOW_DAYS);
 - article text older than the export window plus 10 days (no page shows it any more), and the
   feed description of rejected articles after 16 days.
 
-Step rows in `runs` older than 90 days are deleted (their daily totals live in daily_stats).
+Step rows in `runs` older than 30 days are deleted: their daily totals live in daily_stats, the
+dashboard shows two weeks and the history recomputes three days. At about 1,900 rows a day they were
+a tenth of the database (34 MB of 320 on 26 Nov 2026) when they were kept 90 days.
 
 The updates run inside db.revision_kept, so they do not make rows look changed to the runner's
 copy (cache.py), and with a short lock timeout, so they never hold up a pipeline step for long.
@@ -37,7 +39,9 @@ MAX_ROWS_PER_RUN = 2000
 VACUUM_EVERY_HOURS = 24
 VACUUM_MIN_DEAD_ROWS = 2000
 DELETED_ROWS_DAYS = 30
-RUNS_DAYS = 90
+RUNS_DAYS = 30
+STORY_EMBEDDING_DAYS = 30
+THREAD_EMBEDDING_IDLE_DAYS = 30
 
 
 def rules(now) -> list[tuple[str, object, object, dict]]:
@@ -54,9 +58,9 @@ def rules(now) -> list[tuple[str, object, object, dict]]:
         ("old_article_embeddings", db.articles,
          and_(a.created_at < now - timedelta(days=35), a.embedding.isnot(None)), {"embedding": null()}),
         ("old_story_embeddings", db.stories,
-         and_(s.first_published_at < now - timedelta(days=60), s.embedding.isnot(None)), {"embedding": null()}),
+         and_(s.first_published_at < now - timedelta(days=STORY_EMBEDDING_DAYS), s.embedding.isnot(None)), {"embedding": null()}),
         ("old_thread_embeddings", db.threads,
-         and_(t.updated_at < now - timedelta(days=60), t.embedding.isnot(None)), {"embedding": null()}),
+         and_(t.updated_at < now - timedelta(days=THREAD_EMBEDDING_IDLE_DAYS), t.embedding.isnot(None)), {"embedding": null()}),
         ("old_article_text", db.articles,
          and_(a.created_at < old_text, or_(a.content_md.isnot(None), a.description.isnot(None))),
          {"content_md": null(), "description": null()}),
