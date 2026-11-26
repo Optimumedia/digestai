@@ -680,8 +680,11 @@ def run() -> dict:
             log.warning("database size failed: %s", str(exc)[:200])
             size = None
         out["database"] = database_summary(size, step_rows, out["history"], now, out["dbMode"])
+        from .run import CAN_WAIT  # the steps a short run skips; a skipped step writes no row
+
         out["schedule"] = {"runsPerDay": config.RUNS_PER_DAY, "intervalMinutes": config.RUN_INTERVAL_MINUTES,
-                           "runMinutes": config.RUN_MINUTES}
+                           "runMinutes": config.RUN_MINUTES, "budgetSeconds": config.RUN_BUDGET_SECONDS,
+                           "canWait": sorted(CAN_WAIT)}
         actions += database_cards(out["database"])
         out["storage"] = storage_summary()
         actions += storage_cards(out["storage"], now)
