@@ -425,6 +425,7 @@ def run() -> dict:
 
     cutoff = db.utcnow() - timedelta(days=config.MAX_ARTICLE_AGE_DAYS)
     this_year = db.utcnow().year
+    quiet: list[int] = []  # sources fetched fine with nothing new: marked fetched in one statement
     for source, items, exc in fetch_all(source_rows):
         stats["sources"] += 1
         if exc is not None:  # one bad source must not stop the run
@@ -440,29 +441,38 @@ def run() -> dict:
         limit = _max_items(source.key) if not source.discovered else config.MAX_DISCOVERED_ITEMS
         inserted = 0
         added: list[str] = []
+        fresh = []  # items that may be new: only these need the database
+        for item in items[:limit]:
+            stats["items"] += 1
+            try:
+                url = normalize_url(item["url"])
+            except ValueError:
+                continue
+            dom = domain_of(url)
+            if not dom or is_skipped_domain(dom):
+                continue
+            if item["published_at"] and item["published_at"] < cutoff:
+                continue
+            # "... (2019)": an old piece re-posted to HN/Reddit. The submission time is new,
+            # the story is not (MAX_ARTICLE_AGE_DAYS applies to the piece, not the re-post).
+            year = title_year(item["title"])
+            if year and year < this_year:
+                stats["too_old_title_year"] = stats.get("too_old_title_year", 0) + 1
+                continue
+            # Addresses this runner saw in the database before are not asked about again: feeds
+            # repeat their items for days, and each question is a round trip the plan meters.
+            url_key = cache.url_hash(url)
+            if url_key in known:
+                continue
+            fresh.append((item, url, dom, url_key))
+        if not fresh:
+            # Nothing new: no transaction of its own. Most sources, most runs; each one was about
+            # half a second of round trips (40 s of every fetch on 26 Nov 2026).
+            quiet.append(source.id)
+            log.info("%-22s %3d items, %2d new", source.key, len(items), 0)
+            continue
         with eng.begin() as conn:
-            for item in items[:limit]:
-                stats["items"] += 1
-                try:
-                    url = normalize_url(item["url"])
-                except ValueError:
-                    continue
-                dom = domain_of(url)
-                if not dom or is_skipped_domain(dom):
-                    continue
-                if item["published_at"] and item["published_at"] < cutoff:
-                    continue
-                # "... (2019)": an old piece re-posted to HN/Reddit. The submission time is new,
-                # the story is not (MAX_ARTICLE_AGE_DAYS applies to the piece, not the re-post).
-                year = title_year(item["title"])
-                if year and year < this_year:
-                    stats["too_old_title_year"] = stats.get("too_old_title_year", 0) + 1
-                    continue
-                # Addresses this runner saw in the database before are not asked about again: feeds
-                # repeat their items for days, and each question is a round trip the plan meters.
-                url_key = cache.url_hash(url)
-                if url_key in known:
-                    continue
+            for item, url, dom, url_key in fresh:
                 exists = conn.execute(select(db.articles.c.id).where(db.articles.c.url == url)).first()
                 if exists:
                     known[url_key] = time.time()
@@ -520,4 +530,8 @@ def run() -> dict:
             known[url_key] = time.time()
         stats["inserted"] += inserted
         log.info("%-22s %3d items, %2d new", source.key, len(items), inserted)
+    if quiet:
+        with eng.begin() as conn:
+            conn.execute(update(db.sources).where(db.sources.c.id.in_(quiet))
+                         .values(last_fetched_at=db.utcnow(), last_error=None, error_count=0))
     return stats

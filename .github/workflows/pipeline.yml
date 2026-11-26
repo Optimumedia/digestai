@@ -8,7 +8,7 @@ on:
     - cron: "7,27,47 * * * *"
   # GitHub delivers scheduled events late or not at all under load: from 11 Oct 2026 this one fired
   # a few times a day instead of 72. So each run also queues the next one (the "next" job below),
-  # which waits for the next 7/27/47 slot (the "pace" job) before it starts work. A scheduled event
+  # which waits until 20 minutes after this one started (the "pace" job) before it starts work. A scheduled event
   # that does arrive finds a run already queued and is dropped by the concurrency rule, so the two
   # never double up.
   workflow_dispatch:
@@ -17,9 +17,12 @@ on:
         description: "Pipeline steps (all, or e.g. 'fetch extract')"
         default: "all"
       chained:
-        description: "Queued by the previous run: wait for the next 7/27/47 slot first"
+        description: "Queued by the previous run: wait for its turn first"
         type: boolean
         default: false
+      after:
+        description: "Queued by the previous run: when its pipeline job started (Unix seconds)"
+        default: ""
 
 concurrency:
   group: pipeline
@@ -35,21 +38,28 @@ permissions:
   issues: write
 
 jobs:
-  # A run queued by the one before waits here for its slot, so the cadence stays at RUN_MINUTES
-  # (and the free-model and database budgets, which assume RUNS_PER_DAY, stay right).
+  # A run queued by the one before waits here until 20 minutes after that run's pipeline job started
+  # (pipeline/digest/pace.py), so runs never start closer together than that and the free-model and
+  # database budgets, which assume RUNS_PER_DAY, stay right. Until 26 Nov 2026 it waited for the next
+  # 7, 27 or 47 past the hour instead: a 21-minute job always just missed its slot and runs started
+  # every 40 minutes. A run queued without a start time (by an older copy of this file) still does.
   pace:
     if: github.event_name == 'workflow_dispatch' && inputs.chained
     runs-on: ubuntu-latest
     timeout-minutes: 22
     steps:
-      - name: Wait for the next 7, 27 or 47 past the hour
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: pipeline/digest
+      - name: Wait for this run's turn
+        working-directory: pipeline
+        env:
+          AFTER: ${{ inputs.after }}
+          PACE_MINUTES: "20"
+          RUN_MINUTES: "7,27,47"
         run: |
-          now_m=$((10#$(date -u +%M))); now_s=$((10#$(date -u +%S)))
-          wait=0
-          for slot in 7 27 47 67; do
-            if [ "$slot" -gt "$now_m" ]; then wait=$(( (slot - now_m) * 60 - now_s )); break; fi
-          done
-          echo "waiting ${wait}s for the next slot"
+          wait=$(python3 -m digest.pace) || wait=0
+          case "$wait" in ''|*[!0-9]*) wait=0;; esac
           sleep "$wait"
 
   pipeline:
@@ -59,9 +69,12 @@ jobs:
     runs-on: ubuntu-latest
     # Set-up, the 20-minute pipeline step, a five-minute build and the deploy: 28 left no room.
     timeout-minutes: 32
+    outputs:
+      # When this job started, for the next run's pace job.
+      started: ${{ steps.start.outputs.at }}
     environment:
       name: github-pages
-      url: ${{ steps.pages.outputs.page_url }}
+      url: ${{ steps.pages.outputs.page_url || steps.pages2.outputs.page_url || steps.pages3.outputs.page_url }}
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -104,6 +117,8 @@ jobs:
       WORK_AUDIO_HOUR_UTC: ${{ vars.WORK_AUDIO_HOUR_UTC }}
       WORK_AUDIO_ITEMS: ${{ vars.WORK_AUDIO_ITEMS }}
       OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'qwen2.5:3b' }}
+      # Pinned release of the local model's server (the "Start local model" step).
+      OLLAMA_VERSION: "0.12.3"
       GEMINI_DAILY_BUDGET: ${{ vars.GEMINI_DAILY_BUDGET || '54' }}
       MAX_ENRICH_PER_RUN: ${{ vars.MAX_ENRICH_PER_RUN || '20' }}
       GH_TOKEN: ${{ github.token }}
@@ -117,7 +132,69 @@ jobs:
       # Optional: a healthchecks.io ping URL, pinged at the end of every run.
       HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
     steps:
+      - name: Note the start
+        id: start
+        run: echo "at=$(date +%s)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
+
+      # Local model: the only summariser when no API key exists, and the safety net when the keyed
+      # providers run out of quota. Its files are cached, and so is the Ollama program itself (without
+      # its GPU libraries: the runner has none). It starts in the background, while the job sets up and
+      # the pipeline fetches; the pipeline waits for it before summaries (run.wait_for_local_model).
+      # Until 26 Nov 2026 the installer ran in the foreground of every run: a minute of each job.
+      - name: Cache local model
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-${{ env.OLLAMA_MODEL }}
+
+      - name: Cache local model program
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama-runtime
+          key: ollama-runtime-${{ env.OLLAMA_VERSION }}-cpu
+
+      - name: Start local model
+        run: |
+          echo starting > /tmp/ollama.state
+          echo "OLLAMA_STATE_FILE=/tmp/ollama.state" >> "$GITHUB_ENV"
+          echo "OLLAMA_URL=http://127.0.0.1:11434" >> "$GITHUB_ENV"
+          cat > "$RUNNER_TEMP/start-ollama.sh" <<'EOF'
+          set -u -o pipefail
+          say() { echo "$(date -u +%H:%M:%S) $*"; }
+          fail() { say "$*"; echo failed > /tmp/ollama.state; exit 1; }
+          rt="$HOME/.ollama-runtime"
+          bin="$rt/bin/ollama"
+          if [ ! -x "$bin" ]; then
+            say "downloading Ollama $OLLAMA_VERSION"
+            part="$RUNNER_TEMP/ollama-part"; rm -rf "$part"; mkdir -p "$part"
+            # The file the official installer downloads for this version, unpacked without the GPU libraries.
+            if curl -fsSL --retry 3 "https://ollama.com/download/ollama-linux-amd64.tgz?version=$OLLAMA_VERSION" \
+                | tar -xzf - -C "$part" --exclude='cuda_*' --exclude='rocm*' --exclude='vulkan*' && [ -x "$part/bin/ollama" ]; then
+              # Kept in the cache only when small: a layout change that kept the GPU libraries must not
+              # fill the repository's 10 GB of caches.
+              if [ "$(du -sm "$part" | cut -f1)" -le 600 ]; then rm -rf "$rt"; mv "$part" "$rt"; else bin="$part/bin/ollama"; fi
+            else
+              say "direct download failed; running the installer"
+              curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION="$OLLAMA_VERSION" sh >/dev/null 2>&1 || fail "the installer failed"
+              sudo systemctl stop ollama >/dev/null 2>&1 || true  # the installer's own service; ours reads the cached models
+              bin=$(command -v ollama) || fail "no ollama after the installer"
+            fi
+          fi
+          export OLLAMA_MODELS="$HOME/.ollama/models"
+          "$bin" serve > /tmp/ollama.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 1; done
+          curl -sf http://127.0.0.1:11434/api/tags >/dev/null || fail "the server did not start"
+          if ! "$bin" show "$OLLAMA_MODEL" >/dev/null 2>&1; then
+            say "pulling $OLLAMA_MODEL"
+            "$bin" pull "$OLLAMA_MODEL" 2>&1 | tail -1
+          fi
+          "$bin" show "$OLLAMA_MODEL" >/dev/null 2>&1 || fail "$OLLAMA_MODEL is not available"
+          say "ready"
+          echo ready > /tmp/ollama.state
+          EOF
+          nohup bash "$RUNNER_TEMP/start-ollama.sh" > /tmp/ollama-start.log 2>&1 &
 
       - uses: actions/setup-python@v5
         with:
@@ -191,23 +268,6 @@ jobs:
       # Actions cache, with a daily artifact as backup. The cache is restored from the most
       # recent run; if it is missing, the last backup artifact is used.
 
-      # Local model: the only summariser when no API key exists, and the safety net when the
-      # keyed providers run out of quota. Cached after the first run, so it costs ~30 s to start.
-      - name: Cache local model
-        uses: actions/cache@v4
-        with:
-          path: ~/.ollama/models
-          key: ollama-${{ env.OLLAMA_MODEL }}
-
-      - name: Start local model
-        run: |
-          # Pinned release: the installer is fetched from ollama.com but installs this exact version.
-          curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION=0.12.3 sh >/dev/null 2>&1
-          (ollama serve >/tmp/ollama.log 2>&1 &)
-          for i in $(seq 1 30); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 1; done
-          ollama pull "$OLLAMA_MODEL" 2>&1 | tail -1
-          echo "OLLAMA_URL=http://127.0.0.1:11434" >> "$GITHUB_ENV"
-
       # What earlier runs already read from the database (pipeline/digest/cache.py): each run then asks
       # only for rows written since. One small entry per run under a shared prefix; the newest is
       # restored. Without it a run reads everything once, which costs reads but changes no result.
@@ -277,6 +337,13 @@ jobs:
         timeout-minutes: 20
         continue-on-error: true
         run: python -m digest.run ${{ github.event.inputs.steps || 'all' }}
+
+      - name: Local model start-up log
+        if: always()
+        continue-on-error: true
+        run: |
+          echo "state: $(cat /tmp/ollama.state 2>/dev/null || echo none)"
+          tail -n 20 /tmp/ollama-start.log 2>/dev/null || true
 
       # Stopped before the export step wrote the site data: export from the database as it is.
       - name: Export after an early stop
@@ -404,9 +471,33 @@ jobs:
         with:
           path: site/dist
 
+      # From 24 to 26 Nov 2026, 22 of 59 runs failed here half a second after the upload finished, with
+      # "No artifacts named github-pages were found": GitHub lists a new artifact a moment after the upload
+      # step reports it. Those runs built the site and never published it. The same deploy a little later
+      # finds it, so it is tried again twice before the run fails.
       - name: Deploy to GitHub Pages
         if: steps.data.outputs.ok == 'true' && env.CF_TOKEN == ''
         id: pages
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
+      - name: Wait before deploying again
+        if: steps.pages.outcome == 'failure'
+        run: sleep 20
+
+      - name: Deploy to GitHub Pages (second try)
+        if: steps.pages.outcome == 'failure'
+        id: pages2
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
+      - name: Wait longer before the last try
+        if: steps.pages2.outcome == 'failure'
+        run: sleep 60
+
+      - name: Deploy to GitHub Pages (last try)
+        if: steps.pages2.outcome == 'failure'
+        id: pages3
         uses: actions/deploy-pages@v4
 
       # Optional dead man's switch: healthchecks.io emails when this ping stops arriving. Create a check
@@ -415,7 +506,9 @@ jobs:
         if: always() && env.HEALTHCHECK_URL != ''
         continue-on-error: true
         run: |
-          if [ "${{ steps.pipeline.outcome }}" = "success" ]; then url="$HEALTHCHECK_URL"; else url="$HEALTHCHECK_URL/fail"; fi
+          # A run that did not publish is a failure too: no usable data, or every deploy try failed.
+          if [ "${{ steps.pipeline.outcome }}" = "success" ] && [ "${{ steps.data.outputs.ok }}" = "true" ] && [ "${{ steps.pages3.outcome }}" != "failure" ]; then
+            url="$HEALTHCHECK_URL"; else url="$HEALTHCHECK_URL/fail"; fi
           curl -fsS -m 10 --retry 3 -o /dev/null "$url" || echo "healthcheck ping failed"
 
   # Queue the following run, whatever this one's result, unless one is already waiting its turn.
@@ -433,6 +526,7 @@ jobs:
           REPO: ${{ github.repository }}
           THIS_RUN: ${{ github.run_id }}
           REF: ${{ github.ref_name }}
+          STARTED: ${{ needs.pipeline.outputs.started }}
         run: |
           waiting=$(gh run list -R "$REPO" --workflow pipeline.yml --limit 20 --json status,databaseId \
             -q "[.[] | select(.databaseId != $THIS_RUN) | select(.status == \"queued\" or .status == \"pending\" or .status == \"waiting\" or .status == \"requested\")] | length")
@@ -440,7 +534,7 @@ jobs:
             # GitHub sometimes answers a dispatch with HTTP 500 (14 Oct: the chain stopped for an hour
             # on one), so try a few times before giving up to the watchdog.
             for attempt in 1 2 3 4 5; do
-              if gh workflow run pipeline.yml -R "$REPO" --ref "$REF" -f chained=true; then echo "queued the next run"; exit 0; fi
+              if gh workflow run pipeline.yml -R "$REPO" --ref "$REF" -f chained=true -f after="$STARTED"; then echo "queued the next run"; exit 0; fi
               echo "dispatch failed (attempt $attempt); trying again"; sleep $((attempt * 15))
             done
             exit 1

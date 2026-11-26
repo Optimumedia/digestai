@@ -142,6 +142,65 @@ def test_sources_yaml_has_the_techmeme_source_as_community():
         assert "feedburner.com/venturebeat" not in s["url"]
 
 
+def test_sources_with_nothing_new_cost_no_transaction_of_their_own():
+    """Most sources, most runs, bring nothing new: they are marked fetched together in one statement,
+    while a source with a new item and a failing one are written as before."""
+    from datetime import datetime, timedelta, timezone
+
+    import test_reads as tr
+    from sqlalchemy import select
+
+    from digest import db
+
+    now = datetime.now(timezone.utc)
+
+    def item(url, title, age_days=0):
+        return {"url": url, "title": title, "published_at": now - timedelta(days=age_days), "author": None,
+                "description": None, "feed_content": None, "image_url": None}
+
+    cfg = {"sources": [
+        {"key": "new-one", "name": "New", "url": "https://new.example.com/feed", "kind": "rss", "type": "press"},
+        {"key": "old-only", "name": "Old", "url": "https://old.example.com/feed", "kind": "rss", "type": "press"},
+        {"key": "broken", "name": "Broken", "url": "https://broken.example.com/feed", "kind": "rss", "type": "press"},
+        {"key": "empty", "name": "Empty", "url": "https://empty.example.com/feed", "kind": "rss", "type": "press"},
+    ]}
+    feeds = {
+        "new-one": [item("https://new.example.com/a/launch", "A lab releases a new open model for coding today")],
+        "old-only": [item("https://old.example.com/a/old", "A story from long before the article window", age_days=400)],
+        "empty": [],
+    }
+
+    def fake_fetch_all(rows):
+        return [(s, None, RuntimeError("timed out")) if s.key == "broken" else (s, feeds[s.key], None) for s in rows]
+
+    with tr.fresh_db() as (eng, _tmp):
+        saved = (fetch._SOURCES_YAML, fetch.fetch_all)
+        fetch._SOURCES_YAML, fetch.fetch_all = cfg, fake_fetch_all
+        real_begin = eng.begin
+        count = {"n": 0}
+
+        def begin():
+            count["n"] += 1
+            return real_begin()
+
+        eng.begin = begin
+        try:
+            st = fetch.run()
+        finally:
+            fetch._SOURCES_YAML, fetch.fetch_all = saved
+            del eng.begin
+        assert st["sources"] == 4 and st["inserted"] == 1 and st["errors"] == 1 and st["items"] == 2, st
+        with eng.connect() as conn:
+            rows = {r.key: r for r in conn.execute(select(db.sources)).all()}
+            urls = [r.url for r in conn.execute(select(db.articles.c.url)).all()]
+        assert urls == ["https://new.example.com/a/launch"]
+        for key in ("new-one", "old-only", "empty"):
+            assert rows[key].last_fetched_at is not None and rows[key].error_count == 0 and rows[key].last_error is None, key
+        assert rows["broken"].error_count == 1 and "timed out" in rows["broken"].last_error
+        # Set-up, the new source, the failing one, and one statement for the two with nothing new.
+        assert count["n"] == 4, count
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):
