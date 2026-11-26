@@ -8,6 +8,12 @@ exist and any that still slip through, a bounded number per run, and lists the p
 the bar for review on the dashboard (quality.py). Everything it compares comes from the runner's
 copy (cache.py): the story vectors of the threads window and the story and article texts the
 export reads anyway, so a run without duplicates reads nothing extra.
+
+Two stories are one event when they broke within MERGE_CLOSE_HOURS, are alike, and their headlines
+share the words that say what happened, not only names (same_event); a one-source story that repeats
+an older headline days later is that story's old news. Measured on the site's stories of 12-26 Nov
+2026: 35 events were split over 97 stories; these rules fold 42 of the 62 extra copies, and merge one
+labelled pair of different events (a GAO report and the senator's hearing it prompted).
 """
 from __future__ import annotations
 
