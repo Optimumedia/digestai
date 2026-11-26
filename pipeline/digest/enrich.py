@@ -894,6 +894,13 @@ def call_mistral(prompt: str) -> dict:
         _mistral_run["paused"] = "model not available on this plan"
         log.warning("Mistral model not available on this plan (%s): paused for %g hours", model, config.MISTRAL_PLAN_PAUSE_HOURS)
         raise QuotaExhausted(f"mistral {model}: model not available on this plan")
+    if resp.status_code == 402 and "billing_no_api_budget_configured" in (resp.text or ""):
+        # "You need a subscription to access this API" (every run from 25 Nov 2026): the account has
+        # no free plan any more, and paying is not an option, so it is asked once a day, not once a run.
+        _mistral_pause_for_plan()
+        _mistral_run["paused"] = "no API plan on the account"
+        log.warning("Mistral: no API plan on the account (402); paused for %g hours", config.MISTRAL_PLAN_PAUSE_HOURS)
+        raise ProviderPaused(f"mistral {model} http 402: no API plan on the account")
     if resp.status_code in (401, 402, 403, 429):
         _mistral_run["paused"] = f"http {resp.status_code}"
         raise ProviderPaused(f"mistral {model} http {resp.status_code}: {resp.text[:120]}")
