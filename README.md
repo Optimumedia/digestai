@@ -1,6 +1,6 @@
 # Digest AI (digestai.news)
 
-**[Digest AI](https://digestai.news) cuts through the AI noise.** It reads about 78 sources every
+**[Digest AI](https://digestai.news) cuts through the AI noise.** It reads about 90 sources every
 20 minutes, merges the outlets that report the same news into one story, and links every source,
 so you read each story once and can check it against the original reporting. Free, no account.
 

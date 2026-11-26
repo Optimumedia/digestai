@@ -3,6 +3,7 @@ description (Techmeme), and the fallback feed. Offline: python tests/test_fetch.
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -142,63 +143,216 @@ def test_sources_yaml_has_the_techmeme_source_as_community():
         assert "feedburner.com/venturebeat" not in s["url"]
 
 
-def test_sources_with_nothing_new_cost_no_transaction_of_their_own():
-    """Most sources, most runs, bring nothing new: they are marked fetched together in one statement,
-    while a source with a new item and a failing one are written as before."""
-    from datetime import datetime, timedelta, timezone
+def test_sources_yaml_is_consistent():
+    """Every key unique, every typed key a listed source, weights in range, and none of the feeds that
+    were found dead on 26 Nov 2026 (stale mirrors, pages that always answer 403/429) read again."""
+    cfg = fetch.sources_yaml()
+    keys = [s["key"] for s in cfg["sources"]]
+    assert len(keys) == len(set(keys)), "duplicate keys"
+    typed = [k for ks in cfg["types"].values() for k in ks]
+    assert len(typed) == len(set(typed)), "a key typed twice"
+    assert not set(typed) - set(keys), f"typed but not listed: {set(typed) - set(keys)}"
+    for s in cfg["sources"]:
+        assert s.get("category") and 0 < float(s.get("weight", 1.0)) <= 2, s["key"]
+        assert s["url"].startswith("https://"), s["key"]
+        assert isinstance(s.get("stale_days", 1), int), s["key"]
+        for dead in ("rsshub.bestblogs.dev", "tim-hilde.github.io", "producthunt.com", "venturebeat.com/category",
+                     "artificialintelligence-news.com/feed"):
+            assert dead not in s["url"], (s["key"], dead)
+    # The labs' own news is read, and typed primary so the coverage bar counts it.
+    for key in ("anthropic", "anthropic-eng", "anthropic-research", "openai", "gemini", "meta-engineering"):
+        assert key in keys and key in cfg["types"]["primary"], key
+    marketing = [s for s in cfg["sources"] if s["category"] == "marketing"]
+    assert len(marketing) >= 20, len(marketing)
+    # Marketing feeds from general blogs keep only their AI posts.
+    assert all(s.get("ai_only") for s in marketing if s["key"] != "marketing-ai-institute")
 
-    import test_reads as tr
-    from sqlalchemy import select
+
+def test_source_changed_only_when_the_yaml_differs():
+    item = {"key": "x", "name": "X", "url": "https://x.test/feed", "weight": 1.1, "category": "models"}
+    values = fetch.curated_values(item, {"x": "primary"})
+    assert values["source_type"] == "primary" and values["kind"] == "rss" and values["weight"] == 1.1
+    row = NS(**values)
+    assert not fetch.source_changed(row, values)
+    assert fetch.source_changed(NS(**{**values, "weight": 0.9}), values)
+    assert fetch.source_changed(NS(**{**values, "url": "https://x.test/old"}), values)
+    assert fetch.source_changed(NS(**{**values, "enabled": False}), values)  # re-listed after removal
+    assert not fetch.source_changed(NS(**{**values, "weight": 1.1000000000001}), values)
+
+
+def test_backoff_rests_failing_sources_and_429s_at_once():
+    assert fetch.backoff_hours(0, None) == 0
+    assert fetch.backoff_hours(1, "ReadTimeout") == 0 and fetch.backoff_hours(2, "404 Client Error") == 0
+    assert fetch.backoff_hours(3, "404 Client Error") == 1
+    assert fetch.backoff_hours(5, "404 Client Error") == 4
+    assert fetch.backoff_hours(535, "404 Client Error: Not Found") == fetch.MAX_BACKOFF_HOURS
+    # 429: the publisher asked us to slow down, so the first one already rests an hour.
+    assert fetch.backoff_hours(1, "429 Client Error: Too Many Requests for url: https://martech.org/feed/") == 1
+    assert fetch.backoff_hours(3, "429 Client Error: Too Many Requests") == 4
+    now = datetime(2026, 11, 26, 12, tzinfo=timezone.utc)
+    reddit = NS(error_count=535, last_error="404 Client Error", last_fetched_at=now - timedelta(hours=5))
+    assert fetch.resting(reddit, now)
+    assert not fetch.resting(NS(**{**vars(reddit), "last_fetched_at": now - timedelta(hours=25)}), now)
+    assert not fetch.resting(NS(error_count=0, last_error=None, last_fetched_at=now), now)
+    assert not fetch.resting(NS(error_count=7, last_error="x", last_fetched_at=None), now)  # never tried
+    # Naive timestamps (SQLite) are read as UTC.
+    assert fetch.resting(NS(error_count=1, last_error="429 Too Many", last_fetched_at=(now - timedelta(minutes=20)).replace(tzinfo=None)), now)
+
+
+def _http_error(status: int):
+    resp = NS(status_code=status)
+    return fetch.requests.HTTPError(f"{status} Client Error", response=resp)
+
+
+def test_a_429_stops_the_rest_of_that_host_for_the_run():
+    srcs = [NS(key="a1", url="https://a.test/1", kind="rss"), NS(key="b1", url="https://b.test/1", kind="rss"),
+            NS(key="a2", url="https://a.test/2", kind="rss"), NS(key="a3", url="https://a.test/3", kind="rss")]
+    asked = []
+
+    def rss(source):
+        asked.append(source.key)
+        if source.key == "a1":
+            raise _http_error(429)
+        return [{"url": source.url + "/item"}]
+
+    out = fetch.fetch_all(srcs, fetchers={"rss": rss}, sleep=lambda _s: None)
+    assert [s.key for s, _i, _e in out] == ["a1", "b1", "a2", "a3"]  # original order kept
+    by_key = {s.key: (items, exc) for s, items, exc in out}
+    assert fetch.rate_limited(by_key["a1"][1])
+    assert isinstance(by_key["a2"][1], fetch.Skipped) and isinstance(by_key["a3"][1], fetch.Skipped)
+    assert by_key["b1"][0] and by_key["b1"][1] is None
+    assert sorted(asked) == ["a1", "b1"]
+    # Other errors do not pause the host.
+    asked.clear()
+
+    def rss404(source):
+        asked.append(source.key)
+        raise _http_error(404)
+
+    fetch.fetch_all(srcs, fetchers={"rss": rss404}, sleep=lambda _s: None)
+    assert sorted(asked) == ["a1", "a2", "a3", "b1"]
+    assert not fetch.rate_limited(_http_error(404)) and not fetch.rate_limited("404 Not Found for /429")
+
+
+def test_health_notes_flag_empty_and_stale_feeds_without_failing_them():
+    now = datetime(2026, 11, 26, tzinfo=timezone.utc)
+    fresh = fetch.FeedItems([{"published_at": now - timedelta(days=2)}])
+    fresh.entries, fresh.newest = 10, now - timedelta(days=2)
+    assert _with_cfg({"key": "k"}, lambda: fetch.health_note("k", fresh, now)) is None
+    stale = fetch.FeedItems()
+    stale.entries, stale.newest = 10, datetime(2026, 10, 17, tzinfo=timezone.utc)
+    # The default allows 60 days; the Anthropic feed allows 21, so its stop on 17 Oct shows.
+    assert _with_cfg({"key": "k"}, lambda: fetch.health_note("k", stale, now)) is None
+    note = _with_cfg({"key": "k", "stale_days": 21}, lambda: fetch.health_note("k", stale, now))
+    assert note == "stale: newest entry 2026-10-17 (40 days old)", note
+    empty = fetch.FeedItems()
+    assert _with_cfg({"key": "k"}, lambda: fetch.health_note("k", empty, now)).startswith("empty")
+    # An ai_only feed can filter every entry out: that is not "empty".
+    filtered = fetch.FeedItems()
+    filtered.entries, filtered.newest = 12, now - timedelta(days=1)
+    assert _with_cfg({"key": "k"}, lambda: fetch.health_note("k", filtered, now)) is None
+    # Plain lists (Hacker News, Mastodon) are judged by their own items.
+    assert _with_cfg({"key": "hn"}, lambda: fetch.health_note("hn", [{"published_at": now}], now)) is None
+
+
+def test_items_are_taken_newest_first():
+    d = lambda day: datetime(2026, 11, day, tzinfo=timezone.utc)  # noqa: E731
+    items = [{"u": 1, "published_at": d(1)}, {"u": 2, "published_at": None}, {"u": 3, "published_at": d(20)},
+             {"u": 4, "published_at": d(10).replace(tzinfo=None)}]
+    assert [i["u"] for i in fetch.newest_first(items)] == [3, 4, 1, 2]
+
+
+FEED = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>EU AI Act</title>
+<item><title>The EU AI Act Newsletter #90: omnibus delays</title>
+<link>https://artificialintelligenceact.substack.com/p/the-eu-ai-act-newsletter-90</link>
+<pubDate>Mon, 24 Nov 2026 08:00:00 GMT</pubDate></item>
+<item><title>The EU AI Act Newsletter #89: codes of practice</title>
+<link>https://artificialintelligenceact.substack.com/p/the-eu-ai-act-newsletter-89</link>
+<pubDate>Mon, 10 Nov 2026 08:00:00 GMT</pubDate></item>
+</channel></rss>"""
+
+
+class _Resp:
+    def __init__(self, status, content):
+        self.status_code, self.content = status, content
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise _http_error(self.status_code)
+
+
+def _with_get(get, fn):
+    saved = fetch.SESSION.get
+    fetch.SESSION.get = get
+    try:
+        return fn()
+    finally:
+        fetch.SESSION.get = saved
+
+
+def test_keep_domain_filters_only_the_fallback_feed():
+    cfg = {"key": "eu-ai-act", "url": "https://artificialintelligenceact.substack.com/feed",
+           "fallback": "https://www.bing.com/news/search?q=x&format=rss", "keep_domain": "artificialintelligenceact.eu"}
+    src = NS(key="eu-ai-act", url=cfg["url"], kind="rss")
+    items = _with_get(lambda url, **_k: _Resp(200, FEED), lambda: _with_cfg(cfg, lambda: fetch._rss_items(src)))
+    assert len(items) == 2 and items.entries == 2
+    assert items.newest == datetime(2026, 11, 24, 8, tzinfo=timezone.utc)
+
+
+def test_an_empty_main_feed_falls_back():
+    """AI News served its HTML at /feed/ with status 200: that reads as no entries, and a source with a
+    fallback then reads the fallback instead of reporting nothing."""
+    cfg = {"key": "s", "url": "https://site.test/feed/", "fallback": "https://fallback.test/rss"}
+    src = NS(key="s", url=cfg["url"], kind="rss")
+    calls = []
+
+    def get(url, **_k):
+        calls.append(url)
+        return _Resp(200, b"<html><body>Our site</body></html>") if "site.test" in url else _Resp(200, FEED)
+
+    items = _with_get(get, lambda: _with_cfg(cfg, lambda: fetch._rss_items(src)))
+    assert calls == [cfg["url"], cfg["fallback"]] and len(items) == 2
+    # Without a fallback an empty feed is simply empty (health_note then says so).
+    items = _with_get(get, lambda: _with_cfg({"key": "s", "url": cfg["url"]}, lambda: fetch._rss_items(src)))
+    assert len(items) == 0
+
+
+def test_outcomes_are_written_in_one_statement():
+    from sqlalchemy import create_engine, insert, select
 
     from digest import db
 
-    now = datetime.now(timezone.utc)
+    eng = create_engine("sqlite://", future=True)
+    db.sources.create(eng)
+    with eng.begin() as conn:
+        for i, key in enumerate(("ok", "bad", "stale"), start=1):
+            conn.execute(insert(db.sources).values(id=i, key=key, name=key, url=f"https://{key}.test", error_count=4,
+                                                   last_error="old"))
+    statements = []
+    from sqlalchemy import event
 
-    def item(url, title, age_days=0):
-        return {"url": url, "title": title, "published_at": now - timedelta(days=age_days), "author": None,
-                "description": None, "feed_content": None, "image_url": None}
+    event.listen(eng, "before_cursor_execute", lambda *a, **k: statements.append(a[2]))
+    when = datetime(2026, 11, 26, 12, tzinfo=timezone.utc)
+    fetch.record_outcomes(eng, [{"sid": 1, "err": None, "cnt": 0}, {"sid": 2, "err": "404 Client Error", "cnt": 5},
+                                {"sid": 3, "err": "stale: newest entry 2026-10-17 (40 days old)", "cnt": 0}], when=when)
+    assert len([s for s in statements if s.lstrip().upper().startswith("UPDATE")]) == 1, statements
+    with eng.connect() as conn:
+        rows = {r.key: r for r in conn.execute(select(db.sources)).all()}
+    assert rows["ok"].error_count == 0 and rows["ok"].last_error is None
+    assert rows["bad"].error_count == 5 and rows["bad"].last_error.startswith("404")
+    assert rows["stale"].error_count == 0 and rows["stale"].last_error.startswith("stale:")
+    assert db.as_utc(rows["ok"].last_fetched_at) == when
+    fetch.record_outcomes(eng, [])  # nothing fetched: nothing written
 
-    cfg = {"sources": [
-        {"key": "new-one", "name": "New", "url": "https://new.example.com/feed", "kind": "rss", "type": "press"},
-        {"key": "old-only", "name": "Old", "url": "https://old.example.com/feed", "kind": "rss", "type": "press"},
-        {"key": "broken", "name": "Broken", "url": "https://broken.example.com/feed", "kind": "rss", "type": "press"},
-        {"key": "empty", "name": "Empty", "url": "https://empty.example.com/feed", "kind": "rss", "type": "press"},
-    ]}
-    feeds = {
-        "new-one": [item("https://new.example.com/a/launch", "A lab releases a new open model for coding today")],
-        "old-only": [item("https://old.example.com/a/old", "A story from long before the article window", age_days=400)],
-        "empty": [],
-    }
 
-    def fake_fetch_all(rows):
-        return [(s, None, RuntimeError("timed out")) if s.key == "broken" else (s, feeds[s.key], None) for s in rows]
+def test_extract_defers_a_publisher_that_answered_429():
+    from digest import extract
 
-    with tr.fresh_db() as (eng, _tmp):
-        saved = (fetch._SOURCES_YAML, fetch.fetch_all)
-        fetch._SOURCES_YAML, fetch.fetch_all = cfg, fake_fetch_all
-        real_begin = eng.begin
-        count = {"n": 0}
-
-        def begin():
-            count["n"] += 1
-            return real_begin()
-
-        eng.begin = begin
-        try:
-            st = fetch.run()
-        finally:
-            fetch._SOURCES_YAML, fetch.fetch_all = saved
-            del eng.begin
-        assert st["sources"] == 4 and st["inserted"] == 1 and st["errors"] == 1 and st["items"] == 2, st
-        with eng.connect() as conn:
-            rows = {r.key: r for r in conn.execute(select(db.sources)).all()}
-            urls = [r.url for r in conn.execute(select(db.articles.c.url)).all()]
-        assert urls == ["https://new.example.com/a/launch"]
-        for key in ("new-one", "old-only", "empty"):
-            assert rows[key].last_fetched_at is not None and rows[key].error_count == 0 and rows[key].last_error is None, key
-        assert rows["broken"].error_count == 1 and "timed out" in rows["broken"].last_error
-        # Set-up, the new source, the failing one, and one statement for the two with nothing new.
-        assert count["n"] == 4, count
+    slowed: set[str] = set()
+    assert not extract.defer_for_rate_limit("venturebeat.com", slowed)
+    slowed.add("venturebeat.com")
+    assert extract.defer_for_rate_limit("venturebeat.com", slowed)
+    assert not extract.defer_for_rate_limit("techcrunch.com", slowed) and not extract.defer_for_rate_limit("", slowed)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # Digest AI
 
-> Digest AI (digestai.news) is a free AI news site. It reads about 80 curated sources every 20 minutes, merges the outlets that report the same event into one story, and publishes a plain-English digest, three key points, why it matters, and every outlet that reported it, with links and dates. Nothing is published without a named source. Not connected to digest.ai or other products with a similar name.
+> Digest AI (digestai.news) is a free AI news site. It reads about 90 curated sources every 20 minutes, merges the outlets that report the same event into one story, and publishes a plain-English digest, three key points, why it matters, and every outlet that reported it, with links and dates. Nothing is published without a named source. Not connected to digest.ai or other products with a similar name.
 
 Site: https://digestai.news
 Contact: hello@digestai.news

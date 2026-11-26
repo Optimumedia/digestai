@@ -504,6 +504,12 @@ def _extract(url: str, html: str | None, title: str, feed_content: str | None = 
     return result
 
 
+def defer_for_rate_limit(domain: str, slowed: set[str]) -> bool:
+    """True when the article's publisher answered 429 earlier in this run: the article stays new and
+    is tried next run, so a publisher that asked us to slow down gets one request a run at most."""
+    return bool(domain) and domain in slowed
+
+
 def run() -> dict:
     stats = {"processed": 0, "ok": 0, "failed": 0, "methods": {}}
     eng = db.engine()
@@ -534,12 +540,18 @@ def run() -> dict:
         ).all()
 
     last_para_by_domain: dict[str, str] = {}
+    # Publishers that answered 429 (Too Many Requests) this run: their other pages wait for the next
+    # run instead of being asked at once (VentureBeat answered 429 to 48 pages in October/November).
+    slowed: set[str] = set()
     for row in rows:
-        stats["processed"] += 1
         try:
             real_domain = domain_of(normalize_url(row.url))
         except ValueError:
             real_domain = row.domain or ""
+        if defer_for_rate_limit(real_domain, slowed):
+            stats["deferred_429"] = stats.get("deferred_429", 0) + 1
+            continue
+        stats["processed"] += 1
         if is_skipped_domain(real_domain):
             # Rows stored before redirect unwrapping (Bing click links to msn.com): never fetchable.
             with eng.begin() as conn:
@@ -552,6 +564,8 @@ def run() -> dict:
         html, err = (None, None)
         if not row.content_from_feed:
             html, err = fetch_html(row.url, agent=rule.get("agent"))
+            if err == "http 429":
+                slowed.add(real_domain)
         res = extract(row.url, html, row.title, row.feed_content, row.content_from_feed)
         if err and not res.ok:
             res.reason = err

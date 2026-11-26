@@ -13,7 +13,7 @@ import feedparser
 import requests
 import yaml
 from dateutil import parser as dateparser
-from sqlalchemy import insert, select, update
+from sqlalchemy import bindparam, insert, select, update
 
 from . import cache, config, db
 from .textutil import clean_title, domain_of, is_skipped_domain, normalize_url, simhash, title_year, word_count
@@ -77,20 +77,12 @@ def sync_sources(conn) -> None:
     for item in cfg["sources"]:
         key = item["key"]
         seen.add(key)
-        values = {
-            "name": item["name"],
-            "url": item["url"],
-            "kind": item.get("kind", "rss"),
-            "source_type": item.get("type") or type_of.get(key) or ("community" if item.get("kind") in ("hn", "reddit", "mastodon") else "press"),
-            "category_hint": item.get("category"),
-            "weight": float(item.get("weight", 1.0)),
-            "fulltext": bool(item.get("fulltext", True)),
-            "content_from_feed": bool(item.get("content_from_feed", False)),
-            "enabled": bool(item.get("enabled", True)),
-            "discovered": False,
-        }
+        values = curated_values(item, type_of)
         if key in existing:
-            conn.execute(update(db.sources).where(db.sources.c.key == key).values(**values))
+            # Only rows whose settings changed are written: one statement per source each run was
+            # about eight seconds of round trips to change nothing.
+            if source_changed(existing[key], values):
+                conn.execute(update(db.sources).where(db.sources.c.key == key).values(**values))
         else:
             conn.execute(insert(db.sources).values(key=key, **values))
     # Curated sources removed from the file are disabled, never deleted (articles reference them).
@@ -108,6 +100,35 @@ def sync_sources(conn) -> None:
     from .rank import cap_discovered_sources
 
     cap_discovered_sources(conn)
+
+
+def curated_values(item: dict, type_of: dict) -> dict:
+    """The sources-table columns sources.yaml sets for one curated source."""
+    key = item["key"]
+    return {
+        "name": item["name"],
+        "url": item["url"],
+        "kind": item.get("kind", "rss"),
+        "source_type": item.get("type") or type_of.get(key) or ("community" if item.get("kind") in ("hn", "reddit", "mastodon") else "press"),
+        "category_hint": item.get("category"),
+        "weight": float(item.get("weight", 1.0)),
+        "fulltext": bool(item.get("fulltext", True)),
+        "content_from_feed": bool(item.get("content_from_feed", False)),
+        "enabled": bool(item.get("enabled", True)),
+        "discovered": False,
+    }
+
+
+def source_changed(row, values: dict) -> bool:
+    """True when a stored source differs from what sources.yaml says it should be."""
+    for col, want in values.items():
+        have = getattr(row, col, None)
+        if isinstance(want, float):
+            if have is None or abs(float(have) - want) > 1e-9:
+                return True
+        elif have != want:
+            return True
+    return False
 
 
 def _source_cfg(key: str) -> dict:
@@ -228,13 +249,26 @@ def link_in_description(html: str, skip_host: str) -> str | None:
     return None
 
 
-def _entry_items(source, feed) -> list[dict]:
+class FeedItems(list):
+    """A feed's usable items, plus what the health check needs about the whole feed: how many
+    entries it had before any filter, and the date of its newest entry."""
+    entries: int = 0
+    newest: datetime | None = None
+
+
+def _entry_items(source, feed, from_fallback: bool = False) -> FeedItems:
     cfg = _source_cfg(source.key)
     ai_only = _ai_only(source.key)
     link_from = cfg.get("link_from")
-    keep_domain = (cfg.get("keep_domain") or "").lower() or None
+    # keep_domain filters the fallback (a news search that also finds other sites); the source's own
+    # feed is never filtered by it. Applied to both, the EU AI Act newsletter's Substack items
+    # (artificialintelligenceact.substack.com) were all dropped for not being on its old .eu site.
+    keep_domain = ((cfg.get("keep_domain") or "").lower() or None) if from_fallback else None
     feed_host = domain_of(source.url)
-    items = []
+    items = FeedItems()
+    items.entries = len(feed.entries)
+    dates = [d for d in (_parse_date(e) for e in feed.entries) if d is not None]
+    items.newest = max(dates) if dates else None
     for e in feed.entries:
         link = e.get("link") or ""
         title = e.get("title") or ""
@@ -269,7 +303,7 @@ def _entry_items(source, feed) -> list[dict]:
     return items
 
 
-def _rss_items(source) -> list[dict]:
+def _rss_items(source) -> FeedItems:
     """The feed's items. When the feed fails (an error status, or nothing readable) and sources.yaml
     names a `fallback` feed, that one is read instead (Unite.AI answers 503 to some runs)."""
     fallback = _source_cfg(source.key).get("fallback")
@@ -279,6 +313,8 @@ def _rss_items(source) -> list[dict]:
         feed = parse_feed(resp.content)
         if feed.bozo and not feed.entries:
             raise ValueError(f"unparseable feed: {feed.bozo_exception}")
+        if fallback and not feed.entries:
+            raise ValueError("empty feed")  # an HTML page served at the feed's address reads as empty
     except Exception:
         if not fallback:
             raise
@@ -287,6 +323,7 @@ def _rss_items(source) -> list[dict]:
         feed = parse_feed(resp.content)
         if feed.bozo and not feed.entries:
             raise ValueError(f"unparseable feed and fallback: {feed.bozo_exception}") from None
+        return _entry_items(source, feed, from_fallback=True)
     return _entry_items(source, feed)
 
 
@@ -385,9 +422,92 @@ def host_delay(host: str) -> float:
     return config.FETCH_SLOW_HOSTS.get(host, config.FETCH_HOST_DELAY)
 
 
+# ------------------------------------------------------------------ source health
+# A source that keeps failing is asked less often, and one that answers "429 Too Many Requests" is
+# left alone for a while at once: Reddit answered 404 to 535 runs in a row (17 to 26 Nov 2026) and
+# MarTech sometimes answers 429. The wait doubles with each failure in a row, up to a day, so a
+# source that recovers is found again within a day. Only columns fetch already reads are used.
+FAILURES_BEFORE_BACKOFF = 3
+MAX_BACKOFF_HOURS = 24.0
+# A feed that answers but whose newest entry is this old has most likely stopped updating: the
+# Anthropic and Meta AI mirrors went quiet on 17 Oct and 26 Jul 2026 while every run read them
+# "successfully". Per-source `stale_days` in sources.yaml overrides it for feeds that post often.
+STALE_DAYS = 60
+
+
+class Skipped(Exception):
+    """A source not asked this run (its host answered 429 earlier in the run)."""
+
+
+def rate_limited(error) -> bool:
+    """True for a 429 answer, given the exception or the stored last_error text."""
+    if isinstance(error, BaseException):
+        resp = getattr(error, "response", None)
+        if getattr(resp, "status_code", None) == 429:
+            return True
+        error = str(error)
+    return bool(error) and bool(re.match(r"\s*429\b", str(error)))
+
+
+def backoff_hours(error_count: int, last_error: str | None) -> float:
+    """How long a source rests after `error_count` failures in a row. A 429 rests from the first
+    one (the publisher asked us to slow down); other errors get FAILURES_BEFORE_BACKOFF tries first,
+    since a single timeout says little."""
+    if not error_count or error_count <= 0:
+        return 0.0
+    if rate_limited(last_error):
+        exponent = error_count - 1
+    elif error_count < FAILURES_BEFORE_BACKOFF:
+        return 0.0
+    else:
+        exponent = error_count - FAILURES_BEFORE_BACKOFF
+    return min(2.0 ** min(exponent, 10), MAX_BACKOFF_HOURS)
+
+
+def resting(source, now: datetime | None = None) -> bool:
+    """True when the source failed recently enough that it is not asked this run."""
+    hours = backoff_hours(getattr(source, "error_count", 0) or 0, getattr(source, "last_error", None))
+    last = db.as_utc(getattr(source, "last_fetched_at", None))
+    if not hours or last is None:
+        return False
+    return (now or db.utcnow()) - last < timedelta(hours=hours)
+
+
+def health_note(key: str, items, now: datetime | None = None) -> str | None:
+    """What is wrong with a feed that answered: no entries at all, or a newest entry so old the feed
+    has probably stopped. Stored as the source's last_error (the admin page shows it) without
+    counting as a failure, so it never slows the source down."""
+    entries = getattr(items, "entries", None)
+    if entries is None:
+        entries = len(items or [])
+    if not entries:
+        return "empty: the feed answered with no entries"
+    newest = getattr(items, "newest", None)
+    if newest is None:
+        dates = [i.get("published_at") for i in items or [] if i.get("published_at")]
+        newest = max(dates) if dates else None
+    if newest is None:
+        return None
+    days = int(_source_cfg(key).get("stale_days") or STALE_DAYS)
+    age = (now or db.utcnow()) - db.as_utc(newest)
+    if age > timedelta(days=days):
+        return f"stale: newest entry {newest:%Y-%m-%d} ({age.days} days old)"
+    return None
+
+
+def newest_first(items: list[dict]) -> list[dict]:
+    """Items sorted newest first (undated ones last, in feed order), so max_items keeps the newest
+    even from a feed that lists oldest first."""
+    dated = [i for i in items if i.get("published_at")]
+    undated = [i for i in items if not i.get("published_at")]
+    dated.sort(key=lambda i: db.as_utc(i["published_at"]), reverse=True)
+    return dated + undated
+
+
 def fetch_all(source_rows, fetchers: dict | None = None, sleep=time.sleep) -> list[tuple]:
     """Download every source: hosts in parallel, one host's sources in sequence with its delay.
-    Returns (source, items, error) in the original source order, so inserts stay deterministic."""
+    Returns (source, items, error) in the original source order, so inserts stay deterministic.
+    After a 429 the host's remaining sources are not asked this run (error is a Skipped)."""
     fetchers = fetchers or FETCHERS
     by_host: dict[str, list] = {}
     for s in source_rows:
@@ -395,13 +515,18 @@ def fetch_all(source_rows, fetchers: dict | None = None, sleep=time.sleep) -> li
 
     def work(group: list) -> list[tuple]:
         out = []
+        paused = False
         for i, source in enumerate(group):
+            if paused:
+                out.append((source, None, Skipped(f"{domain_of(source.url)} answered 429 earlier in this run")))
+                continue
             if i:
                 sleep(host_delay(domain_of(source.url)))
             try:
                 out.append((source, fetchers.get(source.kind, fetchers["rss"])(source), None))
             except Exception as exc:  # noqa: BLE001 - one bad source must not stop the run
                 out.append((source, None, exc))
+                paused = rate_limited(exc)
         return out
 
     results: list[tuple] = []
@@ -423,115 +548,136 @@ def run() -> dict:
         recent = recent_titles(conn)
         known = cache.known_urls(conn)
 
-    cutoff = db.utcnow() - timedelta(days=config.MAX_ARTICLE_AGE_DAYS)
-    this_year = db.utcnow().year
-    quiet: list[int] = []  # sources fetched fine with nothing new: marked fetched in one statement
-    for source, items, exc in fetch_all(source_rows):
-        stats["sources"] += 1
-        if exc is not None:  # one bad source must not stop the run
-            stats["errors"] += 1
-            log.warning("source %s failed: %s", source.key, exc)
-            with eng.begin() as conn:
-                conn.execute(
-                    update(db.sources).where(db.sources.c.id == source.id)
-                    .values(last_error=str(exc)[:500], error_count=source.error_count + 1, last_fetched_at=db.utcnow())
-                )
-            continue
+    now = db.utcnow()
+    due = [s for s in source_rows if not resting(s, now)]
+    rested = [s.key for s in source_rows if s not in due]
+    if rested:
+        stats["resting"] = len(rested)
+        log.info("resting after repeated failures or a 429: %s", ", ".join(sorted(rested)))
 
-        limit = _max_items(source.key) if not source.discovered else config.MAX_DISCOVERED_ITEMS
-        inserted = 0
-        added: list[str] = []
-        fresh = []  # items that may be new: only these need the database
-        for item in items[:limit]:
-            stats["items"] += 1
-            try:
-                url = normalize_url(item["url"])
-            except ValueError:
+    cutoff = now - timedelta(days=config.MAX_ARTICLE_AGE_DAYS)
+    this_year = now.year
+    # Each source's outcome, written in one statement at the end: a transaction per source was about
+    # half a second of round trips each, some 45 seconds a run, for sources with nothing new.
+    outcomes: list[dict] = []
+    try:
+        for source, items, exc in fetch_all(due):
+            stats["sources"] += 1
+            if isinstance(exc, Skipped):
+                stats["skipped"] = stats.get("skipped", 0) + 1
+                log.info("source %s not asked: %s", source.key, exc)
                 continue
-            dom = domain_of(url)
-            if not dom or is_skipped_domain(dom):
+            if exc is not None:  # one bad source must not stop the run
+                stats["errors"] += 1
+                if rate_limited(exc):
+                    stats["rate_limited"] = stats.get("rate_limited", 0) + 1
+                log.warning("source %s failed: %s", source.key, exc)
+                outcomes.append({"sid": source.id, "err": str(exc)[:500], "cnt": (source.error_count or 0) + 1})
                 continue
-            if item["published_at"] and item["published_at"] < cutoff:
-                continue
-            # "... (2019)": an old piece re-posted to HN/Reddit. The submission time is new,
-            # the story is not (MAX_ARTICLE_AGE_DAYS applies to the piece, not the re-post).
-            year = title_year(item["title"])
-            if year and year < this_year:
-                stats["too_old_title_year"] = stats.get("too_old_title_year", 0) + 1
-                continue
-            # Addresses this runner saw in the database before are not asked about again: feeds
-            # repeat their items for days, and each question is a round trip the plan meters.
-            url_key = cache.url_hash(url)
-            if url_key in known:
-                continue
-            fresh.append((item, url, dom, url_key))
-        if not fresh:
-            # Nothing new: no transaction of its own. Most sources, most runs; each one was about
-            # half a second of round trips (40 s of every fetch on 26 Nov 2026).
-            quiet.append(source.id)
-            log.info("%-22s %3d items, %2d new", source.key, len(items), 0)
-            continue
-        with eng.begin() as conn:
-            for item, url, dom, url_key in fresh:
-                exists = conn.execute(select(db.articles.c.id).where(db.articles.c.url == url)).first()
-                if exists:
-                    known[url_key] = time.time()
+            note = health_note(source.key, items, now)
+            if note:
+                stats["unhealthy"] = stats.get("unhealthy", 0) + 1
+                log.warning("source %s answered but looks unhealthy: %s", source.key, note)
+            outcomes.append({"sid": source.id, "err": note, "cnt": 0})
+
+            limit = _max_items(source.key) if not source.discovered else config.MAX_DISCOVERED_ITEMS
+            candidates = []
+            for item in newest_first(items)[:limit]:
+                stats["items"] += 1
+                try:
+                    url = normalize_url(item["url"])
+                except ValueError:
+                    continue
+                dom = domain_of(url)
+                if not dom or is_skipped_domain(dom):
+                    continue
+                if item["published_at"] and item["published_at"] < cutoff:
+                    continue
+                # "... (2019)": an old piece re-posted to HN/Reddit. The submission time is new,
+                # the story is not (MAX_ARTICLE_AGE_DAYS applies to the piece, not the re-post).
+                year = title_year(item["title"])
+                if year and year < this_year:
+                    stats["too_old_title_year"] = stats.get("too_old_title_year", 0) + 1
+                    continue
+                # Addresses this runner saw in the database before are not asked about again: feeds
+                # repeat their items for days, and each question is a round trip the plan meters.
+                url_key = cache.url_hash(url)
+                if url_key in known:
                     continue
                 title = clean_title(item["title"])
                 if len(title) < 15:
                     continue
-                disc = item.get("discussion") or (None, None, None)
-                h = simhash(title)
-                dup = near_duplicate(h, recent)
-                if dup is not None:
-                    if should_merge_discussion(item.get("discussion"), dup):
-                        conn.execute(update(db.articles).where(db.articles.c.id == dup["id"]).values(
-                            discussion_site=disc[0], discussion_url=disc[1], discussion_points=disc[2],
-                            discussion_checked_at=db.utcnow()))
-                        dup.update(discussion_url=disc[1], points=disc[2])
-                        stats["discussions_merged"] = stats.get("discussions_merged", 0) + 1
-                    # A repeat from the same publisher, or any search-feed repeat, is never fetched.
-                    # Other publishers' copies still go through (the gate keeps the first one).
-                    if dup["domain"] == dom or source.discovered:
-                        stats["title_duplicates"] = stats.get("title_duplicates", 0) + 1
+                candidates.append((item, url, dom, url_key, title))
+            inserted = 0
+            added: list[str] = []
+            if not candidates:  # nothing the database has to be asked about
+                log.info("%-22s %3d items, %2d new", source.key, len(items), 0)
+                continue
+            with eng.begin() as conn:
+                for item, url, dom, url_key, title in candidates:
+                    exists = conn.execute(select(db.articles.c.id).where(db.articles.c.url == url)).first()
+                    if exists:
+                        known[url_key] = time.time()
                         continue
-                res = conn.execute(insert(db.articles).values(
-                    discussion_site=disc[0],
-                    discussion_url=disc[1],
-                    discussion_points=disc[2],
-                    trend_score=item.get("trend_score"),
-                    discussion_checked_at=db.utcnow() if disc[0] else None,
-                    url=url,
-                    source_id=source.id,
-                    raw_title=item["title"][:500],
-                    title=title[:500],
-                    author=item["author"],
-                    domain=dom[:200],
-                    published_at=item["published_at"],
-                    fetched_at=db.utcnow(),
-                    description=item["description"] or None,
-                    feed_content=item["feed_content"],
-                    image_url=item["image_url"],
-                    show_fulltext=bool(source.fulltext),
-                    simhash=db.to_signed64(h),
-                    status="new",
-                    created_at=db.utcnow(),
-                ))
-                recent.append({"id": res.inserted_primary_key[0], "hash": h, "domain": dom,
-                               "discussion_url": disc[1], "points": disc[2]})
-                inserted += 1
-                added.append(url_key)
-            conn.execute(
-                update(db.sources).where(db.sources.c.id == source.id)
-                .values(last_fetched_at=db.utcnow(), last_error=None, error_count=0)
-            )
-        # Remembered only once the insert is committed.
-        for url_key in added:
-            known[url_key] = time.time()
-        stats["inserted"] += inserted
-        log.info("%-22s %3d items, %2d new", source.key, len(items), inserted)
-    if quiet:
-        with eng.begin() as conn:
-            conn.execute(update(db.sources).where(db.sources.c.id.in_(quiet))
-                         .values(last_fetched_at=db.utcnow(), last_error=None, error_count=0))
+                    disc = item.get("discussion") or (None, None, None)
+                    h = simhash(title)
+                    dup = near_duplicate(h, recent)
+                    if dup is not None:
+                        if should_merge_discussion(item.get("discussion"), dup):
+                            conn.execute(update(db.articles).where(db.articles.c.id == dup["id"]).values(
+                                discussion_site=disc[0], discussion_url=disc[1], discussion_points=disc[2],
+                                discussion_checked_at=db.utcnow()))
+                            dup.update(discussion_url=disc[1], points=disc[2])
+                            stats["discussions_merged"] = stats.get("discussions_merged", 0) + 1
+                        # A repeat from the same publisher, or any search-feed repeat, is never fetched.
+                        # Other publishers' copies still go through (the gate keeps the first one).
+                        if dup["domain"] == dom or source.discovered:
+                            stats["title_duplicates"] = stats.get("title_duplicates", 0) + 1
+                            continue
+                    res = conn.execute(insert(db.articles).values(
+                        discussion_site=disc[0],
+                        discussion_url=disc[1],
+                        discussion_points=disc[2],
+                        trend_score=item.get("trend_score"),
+                        discussion_checked_at=db.utcnow() if disc[0] else None,
+                        url=url,
+                        source_id=source.id,
+                        raw_title=item["title"][:500],
+                        title=title[:500],
+                        author=item["author"],
+                        domain=dom[:200],
+                        published_at=item["published_at"],
+                        fetched_at=db.utcnow(),
+                        description=item["description"] or None,
+                        feed_content=item["feed_content"],
+                        image_url=item["image_url"],
+                        show_fulltext=bool(source.fulltext),
+                        simhash=db.to_signed64(h),
+                        status="new",
+                        created_at=db.utcnow(),
+                    ))
+                    recent.append({"id": res.inserted_primary_key[0], "hash": h, "domain": dom,
+                                   "discussion_url": disc[1], "points": disc[2]})
+                    inserted += 1
+                    added.append(url_key)
+            # Remembered only once the insert is committed.
+            for url_key in added:
+                known[url_key] = time.time()
+            stats["inserted"] += inserted
+            log.info("%-22s %3d items, %2d new", source.key, len(items), inserted)
+    finally:
+        # Also when an insert fails: the sources fetched so far keep their status.
+        record_outcomes(eng, outcomes)
     return stats
+
+
+def record_outcomes(eng, outcomes: list[dict], when: datetime | None = None) -> None:
+    """Every fetched source's last_fetched_at, last_error and error_count in one executemany."""
+    if not outcomes:
+        return
+    with eng.begin() as conn:
+        conn.execute(
+            update(db.sources).where(db.sources.c.id == bindparam("sid"))
+            .values(last_fetched_at=when or db.utcnow(), last_error=bindparam("err"), error_count=bindparam("cnt")),
+            outcomes,
+        )
