@@ -1,17 +1,22 @@
 ---
 import Base from "../layouts/Base.astro";
-import { trackers, formatDate, money, entitySlug, topicSlugs, meta } from "../lib/data";
+import { trackers, formatDate, money, dealAmount, entitySlug, topicSlugs, meta } from "../lib/data";
 
-const rows = trackers.funding;
+// The tracker keeps every deal it has listed (pipeline/digest/funding.py), so the table shows the newest
+// TABLE_ROWS, which keeps the page within what a crawler or an assistant reads; /api/funding.json has all.
+const TABLE_ROWS = 600;
+const all = trackers.funding;
+const rows = all.slice(0, TABLE_ROWS);
+const since = all.length ? all[all.length - 1].date : null;
 // The answer to "what are the biggest AI funding rounds right now?": the largest deals first reported
 // in the last 30 days, from the rows themselves (amounts as the sources state them). It replaces a
 // written intro that only described the table.
 const asOf = formatDate(meta.generatedAt);
-const since = Date.parse(meta.generatedAt) - 30 * 864e5;
-const largest = rows.filter((r) => r.amount_usd && Date.parse(r.date || "0") >= since).sort((a, b) => (b.amount_usd || 0) - (a.amount_usd || 0)).slice(0, 5);
+const monthAgo = Date.parse(meta.generatedAt) - 30 * 864e5;
+const largest = rows.filter((r) => r.amount_usd && Date.parse(r.date || "0") >= monthAgo).sort((a, b) => (b.amount_usd || 0) - (a.amount_usd || 0)).slice(0, 5);
 const roundWords: Record<string, string> = { seed: "seed round", series_a: "Series A", series_b: "Series B", series_c: "Series C", series_d_plus: "late-stage round", acquisition: "acquisition", ipo: "IPO", debt: "debt financing", other: "deal" };
 const rounds: Record<string, string> = { seed: "Seed", series_a: "Series A", series_b: "Series B", series_c: "Series C", series_d_plus: "Series D+", acquisition: "Acquisition", ipo: "IPO", debt: "Debt", other: "" };
-const total = rows.reduce((n, r) => n + (r.amount_usd || 0), 0);
+const total = all.reduce((n, r) => n + (r.amount_usd || 0), 0);
 const jsonLd = {
   "@context": "https://schema.org",
   "@type": "Dataset",
@@ -22,16 +27,16 @@ const jsonLd = {
 };
 ---
 
-<Base title="AI funding tracker" description={`${rows.length} AI funding rounds and deals totalling ${money(total)}, with amounts, investors and the stories behind them.`} jsonLd={jsonLd}>
+<Base title="AI funding tracker" description={`${all.length} AI funding rounds and deals totalling ${money(total)}, with amounts, investors and the stories behind them.`} jsonLd={jsonLd}>
   <header class="page-head">
     <div class="eyebrow">Tracker</div>
     <h1>AI funding and deals</h1>
     {largest.length > 0 && (
       <p class="intro latest-line">
-        The largest AI deals reported in the 30 days to {asOf}: {largest.map((r, i) => <>{i > 0 && "; "}<a href={`/story/${r.storySlug}`}>{r.company}, {money(r.amount_usd)} {roundWords[r.round] || "deal"}</a> ({formatDate(r.date, { day: "numeric", month: "short" })})</>)}.
+        The largest AI deals reported in the 30 days to {asOf}: {largest.map((r, i) => <>{i > 0 && "; "}<a href={`/story/${r.storySlug}`}>{r.company}, {dealAmount(r)} {roundWords[r.round] || "deal"}</a> ({formatDate(r.date, { day: "numeric", month: "short" })})</>)}.
       </p>
     )}
-    <p>Rounds, acquisitions and valuations as reported, newest first. Amounts are as stated by the sources; each row links to the story. {rows.length > 0 && <span>{rows.length} deals, {money(total)} in total.</span>}</p>
+    <p>Rounds, acquisitions and valuations as reported, newest first. A deal is listed when its story's headline reports it as done: plans, filings, talks, results and contracts are left out, and an acquisition is listed under the company bought. Amounts are as stated by the sources, figures in other currencies with their approximate value in dollars; each row links to the story. {all.length > 0 && <span>{all.length} deals{since && <> since {formatDate(since)}</>}, {money(total)} in total.</span>}{all.length > rows.length && <span> This page shows the newest {rows.length}; the API lists every one.</span>}</p>
   </header>
   {rows.length === 0 && <p class="muted" style="padding: 24px 0">No deals recorded yet. Rows appear as funding stories are published.</p>}
   <div class="tablewrap">
@@ -42,7 +47,7 @@ const jsonLd = {
           <tr>
             <td class="num">{formatDate(r.date, { day: "numeric", month: "short", year: "numeric" })}</td>
             <td><b>{topicSlugs.has(entitySlug(r.company)) ? <a href={`/topic/${entitySlug(r.company)}`}>{r.company}</a> : r.company}</b></td>
-            <td class="num">{money(r.amount_usd)}</td>
+            <td class="num">{dealAmount(r)}</td>
             <td>{rounds[r.round] ?? r.round}</td>
             <td class="num">{r.valuation_usd ? money(r.valuation_usd) : ""}</td>
             <td>{(r.investors || []).slice(0, 4).join(", ")}{(r.investors || []).length > 4 ? ` +${r.investors.length - 4}` : ""}</td>
