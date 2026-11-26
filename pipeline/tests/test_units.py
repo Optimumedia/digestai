@@ -253,6 +253,77 @@ def test_lead_rules_keep_news_over_commentary():
     assert pick_lead(members, texts, lambda m: False).id == 2  # without the primary point: equal, the earlier one
 
 
+def test_same_event_from_the_november_duplicates():
+    """Real pairs from the site on 16-24 Nov 2026 with the similarity of their stored embeddings: ten
+    "California sues OpenAI" stories stood side by side at 0.90-0.96, while the merge asked 0.97."""
+    from datetime import datetime, timezone
+
+    from digest import merge
+
+    def story(headline, at, sources=1, companies=(), people=(), models=()):
+        return {"headline": headline, "at": datetime.fromisoformat(at).replace(tzinfo=timezone.utc), "sources": sources,
+                "entities": {"companies": list(companies), "people": list(people), "models": list(models)}}
+
+    rogue = story("California sues OpenAI over rogue AI agent hacks", "2026-11-16T06:47", 19, ["OpenAI", "Hugging Face"], ["Rob Bonta"])
+    hf = story("California sues OpenAI over Hugging Face cyberattack", "2026-11-16T12:03", 1, ["OpenAI", "Hugging Face"], ["Rob Bonta"])
+    assert merge.same_event(rogue, hf, 0.949, 0.97), "one lawsuit, two headlines, the same morning"
+    claims = story("OpenAI has lost control of its AI bots more than 80 times, lawsuit by California claims", "2026-11-16T12:52",
+                   1, ["OpenAI"])
+    assert merge.same_event(hf, claims, 0.864, 0.97), "a lawsuit and 'sues' are the same act"
+    # Five days later, one source repeating the lawsuit's headline: old news again, not a new story.
+    testing = story("California sues OpenAI for unsafe AI model testing and public nuisance", "2026-11-16T19:00", 1, ["OpenAI"], ["Rob Bonta"])
+    again = story("California sues OpenAI over alleged unsafe AI testing", "2026-11-21T19:10", 2, ["OpenAI"])
+    assert "repeats" in (merge.same_event(testing, again, 0.897, 0.97) or "")
+    nonprofits = story("Four nonprofits sue OpenAI, Anthropic, Google, Meta and SpaceX to halt AI development", "2026-11-14T09:01", 1,
+                       ["OpenAI", "Anthropic", "Google", "Meta", "SpaceX", "Hugging Face"])
+    assert merge.same_event(rogue, nonprofits, 0.854, 0.97) is None, "another lawsuit against OpenAI"
+
+    # Names and roles alone are not an event: these Nvidia pairs are 0.86-0.91 alike and different news.
+    kress = ["Colette Kress", "Jensen Huang"]
+    staff = story("Nvidia interim CEO Colette Kress addresses staff after Jensen Huang exit", "2026-11-18T19:21", 1, ["Nvidia"], kress)
+    board = story("Nvidia interim CEO Kress says board will not reinstate Jensen Huang", "2026-11-18T11:04", 1, ["Nvidia"], kress)
+    assert merge.same_event(staff, board, 0.858, 0.97) is None
+    shares = story("Nvidia shares fall: Kress takes interim helm", "2026-11-17T02:31", 1, ["Nvidia"], kress)
+    earnings = story("Nvidia to report quarterly earnings after CEO Jensen Huang resigns", "2026-11-17T05:00", 1, ["Nvidia"], kress)
+    assert merge.same_event(shares, earnings, 0.912, 0.97) is None
+    push = story("Elon Musk and Nvidia staff push board to reinstate Jensen Huang after resignation", "2026-11-16T10:00", 1,
+                 ["Nvidia"], ["Jensen Huang", "Elon Musk"])
+    assert merge.same_event(push, board, 0.887, 0.97) is None, "two days apart: the next episode, for the thread"
+
+    # One model launch under two headlines.
+    neon = story("Google announces Gemini 4 Neon with 1M token context", "2026-11-19T02:02", 2, ["Google"], models=["Gemini 4 Neon"])
+    neon2 = story("Google introduces Gemini 4 Neon for complex tasks at lower cost", "2026-11-19T02:27", 1, ["Google"], models=["Gemini 4 Neon"])
+    assert "launch" in (merge.same_event(neon, neon2, 0.905, 0.97) or "")
+    carbon = story("Google announces Gemini 4 Carbon top-tier model", "2026-11-18T18:25", 80, ["Google"], models=["Gemini 4 Carbon", "Gemini 4 Neon"])
+    assert merge.same_event(neon, carbon, 0.850, 0.97) is None, "a different model of the family"
+
+    # Two week-long stories about one company are alike at 0.97 whatever happened in them: merged before,
+    # they built a 40-source story out of eight days of the Nvidia saga. Five days apart they stay two.
+    resign = story("Nvidia CEO Jensen Huang resigns amid affair and spy allegations", "2026-11-12T13:52", 40, ["Nvidia"], ["Jensen Huang"])
+    h200 = story("Nvidia ends H200 sales to China after Jensen Huang's ouster", "2026-11-17T23:01", 27, ["Nvidia"], ["Jensen Huang"])
+    assert merge.same_event(resign, h200, 0.975, 0.97) is None
+    assert merge.same_event({**resign, "headline": h200["headline"]}, h200, 0.5, 0.97) == "the same headline"
+
+
+def test_roundups_are_recognised_by_their_titles():
+    from digest import merge
+
+    for title in ("AI News Weekly Summary | GPT-6.2, Gemini 4 Neon, Free Tasks",
+                  "[IT News] 3rd Week of November 2026 #51 | GPT-6.2 outperforms previous generation at 1/3 the cost",
+                  "4 AI News Items Checked Today | Anthropic IPO, Claude Video Generation, NVIDIA Investigation",
+                  "AI News Flash: Anthropic Raises $81.3 Billion in Largest IPO Ever, AI Tackles the Riemann Hypothesis (November 23, 2026 Issue)",
+                  "【AI Weekly Report 11/16~11/22】Proof of Riemann Hypothesis found with Claude is verified",
+                  "Latest AI News Trending on X (Nov 13–Nov 19) | The Stars are \"GPT-6.2\" and \"Gemini 4 Neon\"",
+                  "Technology & AI Trends (4th Week of November)", "This Week's AI News Summary | GPT-6.2, Gemini 4 Neon, Anthropic IPO",
+                  "Top 3 AI News of the Week | A Simple Explanation of Gemini 4 Neon", "Weekly AI roundup: Anthropic safety, xAI Grok voice"):
+        assert merge.is_roundup(title), title
+    for title in ("Google's AI news summaries get facts wrong, BBC finds", "Gemini 4 Neon is the new #1 on the Models Engineering Index",
+                  "Market Brief: Anthropic's $1.5T IPO Is Coming", "Fireworks AI Adds Tencent's Hy4 Flash to Its Serverless API",
+                  "[AINews] Jensen Huang resigns after 33 years leading NVIDIA", "Recap of Microsoft Ignite 2026: Copilot as the Work OS",
+                  "Anthropic's record IPO collides with tech's worst week on Wall Street since 2020", "It news: a startup raises $5M"):
+        assert not merge.is_roundup(title), title
+
+
 def test_cluster_repairs_oversized_story_and_reclusters():
     import tempfile
     from datetime import datetime, timedelta, timezone
