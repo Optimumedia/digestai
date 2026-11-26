@@ -629,6 +629,9 @@ WORK_EVENTS = Blob("work_events", {"rows": list, "at": _NUM})
 # The time zones most of whose visitors are one direct view and nothing else, one grouped read an
 # hour (readers.py); every count of readers leaves those views out.
 BOT_ZONES = Blob("bot_zones", {"zones": list, "at": _NUM})
+# The dashboard's daily history (daily_stats, history.py): every stored day, re-read only when the
+# table's row count or newest update moved.
+DAILY_STATS = Blob("daily_stats", {"rows": dict, "sig": list, "full_at": _NUM})
 
 
 def url_hash(url: str) -> str:

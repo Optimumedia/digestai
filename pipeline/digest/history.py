@@ -124,6 +124,40 @@ def google_values(value: tuple, old: dict | None = None) -> dict:
     return row
 
 
+# The stored days, kept on the runner between runs (cache.DAILY_STATS). Reading the whole table twice
+# a run (here and for admin.json) was about 140 KB, half of the admin step's reads. A row only changes
+# when this step writes it, so the copy is used while the table's row count and newest updated_at
+# (one row of two values) match what the copy last saw, and the table is re-read in full daily.
+DAILY_FULL_READ_HOURS = 24
+
+
+def _signature(conn) -> list:
+    t = db.daily_stats.c
+    n, newest = conn.execute(select(func.count(), func.max(t.updated_at))).one()
+    newest = db.as_utc(newest)
+    return [int(n or 0), newest.isoformat() if newest else None]
+
+
+def _stored(conn, now: datetime) -> dict[str, dict]:
+    """Every stored day as {day: row}, from the runner's copy when the table has not changed."""
+    st = cache.DAILY_STATS.get(conn)
+    sig = _signature(conn)
+    fresh = now.timestamp() - float(st.get("full_at") or 0) < DAILY_FULL_READ_HOURS * 3600
+    if fresh and st.get("sig") == sig and isinstance(st.get("rows"), dict):
+        return {d: dict(r) for d, r in st["rows"].items()}
+    rows = {r.day: r._asdict() for r in conn.execute(select(db.daily_stats)).all()}
+    cache.DAILY_STATS.put(conn, {"sig": sig, "full_at": now.timestamp(), "rows": _plain_rows(rows)})
+    return rows
+
+
+def _plain_rows(rows: dict[str, dict]) -> dict[str, dict]:
+    return {d: {k: (db.as_utc(v).isoformat() if isinstance(v, datetime) else v) for k, v in r.items()} for d, r in rows.items()}
+
+
+def _export_rows(rows: dict[str, dict]) -> list[dict]:
+    return [{"day": d, **{_camel(c): rows[d].get(c) for c in METRIC_COLS}} for d in sorted(rows)]
+
+
 def update(eng: Engine, now: datetime | None = None, google: dict[str, tuple] | None = None) -> list[dict]:
     """Upsert the recent and missing days, then return the whole history for admin.json."""
     now = db.as_utc(now or db.utcnow())
@@ -132,7 +166,7 @@ def update(eng: Engine, now: datetime | None = None, google: dict[str, tuple] | 
     t = db.daily_stats
 
     with eng.connect() as conn:
-        existing = {r.day: r._asdict() for r in conn.execute(select(t)).all()}
+        existing = _stored(conn, now)
         first_event = _first_day(conn, db.events.c.created_at)
         cutoff = (now - timedelta(days=EVENT_RETENTION_DAYS)).date().isoformat()
         firsts = [x for x in (_first_day(conn, db.articles.c.created_at), _first_day(conn, db.stories.c.first_published_at)) if x]
@@ -145,7 +179,7 @@ def update(eng: Engine, now: datetime | None = None, google: dict[str, tuple] | 
         }
         begin = min([s for s in starts.values() if s] + ([min(google)] if google else []), default=None)
         if begin is None or begin > today:
-            return _export(conn)
+            return _export_rows(existing)
 
         recent = {(now - timedelta(days=i)).date().isoformat() for i in range(RECOMPUTE_DAYS)}
         compute = sorted(d for d in day_range(begin, today) if d not in existing or d in recent)
@@ -288,10 +322,17 @@ def update(eng: Engine, now: datetime | None = None, google: dict[str, tuple] | 
             conn.execute(t.update().where(t.c.day == d).values(**new, updated_at=now))
         for d, n in automated_fixes.items():
             conn.execute(t.update().where(t.c.day == d).values(automated_visits=n))
+        # What was just written, applied to the copy: admin.json needs no second read of the table.
+        for row in rows:
+            existing[row["day"]] = dict(row)
+        for d, new in fixes:
+            existing[d] = {**existing[d], **new, "updated_at": now}
+        for d, n in automated_fixes.items():
+            existing[d] = {**existing[d], "automated_visits": n}
+        st = cache.DAILY_STATS.get(conn)
+        cache.DAILY_STATS.put(conn, {"sig": _signature(conn), "full_at": float(st.get("full_at") or 0), "rows": _plain_rows(existing)})
     log.info("daily history: %d days written, %d Search Console days corrected", len(rows), len(fixes))
-
-    with eng.connect() as conn:
-        return _export(conn)
+    return _export_rows(existing)
 
 
 def _export(conn) -> list[dict]:

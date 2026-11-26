@@ -846,6 +846,45 @@ def test_a_wave_that_closes_its_pages_is_still_left_out():
         assert per_day["clicks"] == 1
 
 
+def test_daily_history_reads_its_table_once_and_matches_a_full_read():
+    """history.update kept the whole daily_stats table in the runner's copy: later runs read two
+    numbers to know it is unchanged, and never read it back for admin.json."""
+    from digest import history
+
+    with fresh_db() as (eng, _tmp):
+        seed(eng)
+        old = (NOW - timedelta(days=40)).date().isoformat()
+        with eng.begin() as conn:
+            conn.execute(insert(db.daily_stats), [{"day": (NOW - timedelta(days=40 + i)).date().isoformat(), "views": i, "visitors": i,
+                                                   "google_clicks": i, "updated_at": NOW - timedelta(days=30)} for i in range(120)])
+        first = history.update(eng, NOW, google={})
+        new_process()
+        b0 = db.bytes_read()
+        second = history.update(eng, NOW + timedelta(minutes=30), google={})
+        warm = db.bytes_read() - b0
+        assert second == first
+        # A cold copy reads the whole table (and the recent days again for the answer).
+        new_process()
+        cache.DAILY_STATS.put(eng.connect(), {})
+        b0 = db.bytes_read()
+        cold_rows = history.update(eng, NOW + timedelta(minutes=30), google={})
+        cold = db.bytes_read() - b0
+        assert cold_rows == first and warm < cold / 2, (warm, cold)
+        # A row written by hand (count or newest update moves) is seen at once.
+        new_process()
+        with eng.begin() as conn:
+            conn.execute(db.daily_stats.update().where(db.daily_stats.c.day == old).values(views=999, updated_at=NOW + timedelta(minutes=40)))
+        got = {r["day"]: r for r in history.update(eng, NOW + timedelta(hours=1), google={})}
+        assert got[old]["views"] == 999
+        # And a Search Console correction, written by the step itself, is in the answer without a re-read.
+        new_process()
+        got = {r["day"]: r for r in history.update(eng, NOW + timedelta(hours=2), google={old: (50, 900)})}
+        assert got[old]["googleClicks"] == 50
+        new_process()
+        cache.DAILY_STATS.put(eng.connect(), {})
+        assert {r["day"]: r for r in history.update(eng, NOW + timedelta(hours=2), google={old: (50, 900)})} == got
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):
