@@ -35,6 +35,8 @@ jobs:
           TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@localhost:5432/digest
         run: |
           python tests/test_reads.py
+          # Damaged runner files never crash a step; the backup restores into a new database.
+          python tests/test_data_safety.py
           # The events guard is Postgres-only (plpgsql): its gate runs here with the request headers
           # the public API would set.
           python tests/test_gate.py

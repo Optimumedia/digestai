@@ -17,7 +17,6 @@ with the BACKUP_KEY passphrase, then `tar xzf backup.tar.gz` (one JSON object pe
 """
 from __future__ import annotations
 
-import gzip
 import hashlib
 import io
 import json
@@ -28,7 +27,7 @@ import tarfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 
 from . import cache, config, db, media
 
@@ -100,31 +99,19 @@ def decrypt(blob: bytes, passphrase: str) -> bytes:
 # ---------------------------------------------------------------------------- the store
 
 def _load(name: str) -> dict:
-    p = tables_dir() / f"{name}.json.gz"
-    try:
-        with gzip.open(p, "rt", encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, dict):
-            return data
-    except (OSError, ValueError, EOFError):
-        pass
-    return {}
+    """Remembered rows of one table; {} when the copy is missing or damaged (cache.read_file never
+    raises, and a damaged copy is moved aside and named in the step's stats)."""
+    data = cache.read_file(tables_dir() / f"{name}.json.gz", dict, check=lambda d: all(isinstance(r, dict) for r in d.values()))
+    return data if data is not None else {}
 
 
 def _save(name: str, rows: dict) -> None:
-    tables_dir().mkdir(parents=True, exist_ok=True)
-    p = tables_dir() / f"{name}.json.gz"
-    tmp = p.with_name(p.name + ".tmp")
-    with gzip.open(tmp, "wt", encoding="utf-8", compresslevel=6) as f:
-        json.dump(rows, f, ensure_ascii=False, separators=(",", ":"), default=str)
-    tmp.replace(p)
+    cache.write_file(tables_dir() / f"{name}.json.gz", rows, compresslevel=6, ensure_ascii=False)
 
 
 def _state() -> dict:
-    try:
-        return json.loads((store_dir() / "state.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    data = cache.read_file(store_dir() / "state.json", dict, gz=False)
+    return data if data is not None else {}
 
 
 def _save_state(st: dict) -> None:
@@ -213,6 +200,132 @@ def unpack(data: bytes) -> dict[str, dict]:
     return tables
 
 
+# ---------------------------------------------------------------------------- restore
+# The backup's tables go back into an empty database in this order (sources before the articles that
+# point at them, stories before their articles). Rows come from the runner's copy (cache.py), so
+# they carry its column names: the first eight characters of reject_reason are "reject_kind".
+RESTORE_ORDER = ("sources", "threads", "stories", "articles", "topics", "newsletters", "social_posts", "llm_usage", "daily_stats")
+
+
+def _restore_row(table, row: dict) -> dict | None:
+    """One backup row as values for `table`, or None when a required column is missing."""
+    from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, BigInteger
+
+    row = dict(row)
+    if table.name == "articles":
+        if not row.get("reject_reason") and row.get("reject_kind"):
+            row["reject_reason"] = row["reject_kind"]
+        row.setdefault("fetched_at", row.get("created_at"))  # text columns are kept for published rows only
+    out = {}
+    for col in table.columns:
+        if col.name == "rev" or col.name not in row:  # rev: the change-tracking trigger stamps it
+            continue
+        v = row[col.name]
+        if v is not None:
+            if isinstance(col.type, DateTime) and isinstance(v, str):
+                v = datetime.fromisoformat(v.replace("Z", "+00:00"))
+            elif isinstance(col.type, Boolean):
+                v = bool(v)
+            elif isinstance(col.type, (Integer, BigInteger)) and not isinstance(v, bool):
+                v = int(v)
+            elif isinstance(col.type, Float):
+                v = float(v)
+            elif isinstance(col.type, JSON) and isinstance(v, str) and col.name == "embedding":
+                pass  # a packed vector stays a string
+        out[col.name] = v
+    for col in table.columns:
+        required = not col.nullable and not col.primary_key and col.default is None and col.server_default is None
+        if required and out.get(col.name) is None:
+            return None
+    return out
+
+
+def restore(tables: dict[str, dict], eng, force: bool = False) -> dict:
+    """Load unpacked backup tables into the database behind `eng` (an empty one: the tables must hold
+    no rows unless force). Returns rows restored and skipped per table. Rows that lack a required
+    column (an article the backup only knew by its small columns: no address) are skipped, and an
+    article whose story was skipped keeps no story link."""
+    db.metadata.create_all(eng)
+    out: dict = {"restored": {}, "skipped": {}}
+    with eng.begin() as conn:
+        if not force:
+            for name in RESTORE_ORDER:
+                if conn.execute(select(db.metadata.tables[name].c[ "day" if name == "daily_stats" else "id"]).limit(1)).first():
+                    raise RuntimeError(f"table {name} is not empty: restore only into a new database")
+        kept_ids: dict[str, set] = {}
+        for name in RESTORE_ORDER:
+            table = db.metadata.tables[name]
+            rows, skipped = [], 0
+            for r in (tables.get(name) or {}).values():
+                v = _restore_row(table, r)
+                if v is None:
+                    skipped += 1
+                    continue
+                if name == "articles":
+                    if v.get("story_id") is not None and v["story_id"] not in kept_ids.get("stories", set()):
+                        v["story_id"] = None
+                    if v.get("source_id") is not None and v["source_id"] not in kept_ids.get("sources", set()):
+                        v["source_id"] = None
+                rows.append(v)
+            # Unique columns (slugs, addresses) keep their first row: a backup merged over several
+            # nights can hold an old row and its renamed successor.
+            for col in [c for c in table.columns if c.unique]:
+                seen: set = set()
+                kept = []
+                for v in rows:
+                    key = v.get(col.name)
+                    if key is not None and key in seen:
+                        skipped += 1
+                        continue
+                    seen.add(key)
+                    kept.append(v)
+                rows = kept
+            for k in range(0, len(rows), 500):
+                conn.execute(table.insert(), rows[k:k + 500])
+            if "id" in table.c:
+                kept_ids[name] = {v["id"] for v in rows if v.get("id") is not None}
+            out["restored"][name] = len(rows)
+            if skipped:
+                out["skipped"][name] = skipped
+        if eng.dialect.name == "postgresql":
+            # Rows went in with their own ids: move each id sequence past them.
+            for name in RESTORE_ORDER:
+                if "id" in db.metadata.tables[name].c:
+                    conn.execute(text(f"select setval(pg_get_serial_sequence('{name}', 'id'), coalesce((select max(id) from {name}), 0) + 1, false)"))
+    return out
+
+
+def verify(blob: bytes, passphrase: str | None) -> dict:
+    """Open a backup (encrypted, or an already decrypted .tar.gz when passphrase is None) the way a
+    restore would and load it into a throwaway in-memory SQLite database: proof the file restores,
+    and the row counts it gives back."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.pool import StaticPool
+
+    tables = unpack(decrypt(blob, passphrase) if passphrase is not None else blob)
+    eng = create_engine("sqlite://", future=True, poolclass=StaticPool, connect_args={"check_same_thread": False})
+    try:
+        got = restore(tables, eng)
+        with eng.connect() as conn:
+            for name in ("stories", "articles"):
+                got.setdefault("check", {})[name] = int(conn.execute(select(func.count()).select_from(db.metadata.tables[name])).scalar() or 0)
+            # A published story the site can show: it has a slug, a headline and at least one article.
+            s, a = db.stories.c, db.articles.c
+            got["check"]["publishedWithArticles"] = int(conn.execute(
+                select(func.count(func.distinct(s.id))).select_from(db.stories.join(db.articles, a.story_id == s.id))
+                .where(s.status == "published")).scalar() or 0)
+    finally:
+        eng.dispose()
+    return got
+
+
+def restore_file(path: str, passphrase: str, force: bool = False) -> dict:
+    """python -m digest.backup restore FILE: an encrypted backup into DATABASE_URL (a new database)."""
+    blob = Path(path).read_bytes()
+    tables = unpack(decrypt(blob, passphrase) if blob[:8] == b"Salted__" else blob)
+    return restore(tables, db.engine(), force=force)
+
+
 def seed(store: media.Store, passphrase: str) -> int:
     """A missing store starts from the newest backup asset, so older rows are not lost."""
     try:
@@ -280,6 +393,14 @@ def run(session=None, now: datetime | None = None) -> dict:
     blob = encrypt(archive, passphrase)
     name = f"digest-backup-{now.date().isoformat()}.tar.gz.enc"
     stats.update(rows={k: len(v) for k, v in tables.items()}, bytes=len(blob), mb=round(len(blob) / 1048576, 2), sha256=hashlib.sha256(blob).hexdigest()[:12])
+    # Before it is uploaded, the file is opened and loaded into a throwaway database, as a restore
+    # would: a backup that cannot be restored is reported, not trusted.
+    try:
+        checked = verify(blob, passphrase)
+        stats["restoreCheck"] = {"ok": True, **checked.get("check", {}), "skipped": checked.get("skipped", {})}
+    except Exception as exc:  # noqa: BLE001 - the upload still goes ahead; the failure is on the dashboard
+        log.warning("backup restore check failed: %s", str(exc)[:200])
+        stats["restoreCheck"] = {"ok": False, "error": str(exc)[:160]}
     try:
         rel = store.release(RELEASE_TAG, "Database backups", "Nightly encrypted copies of the essential tables (pipeline/digest/backup.py). Not a software release.")
         for a in store.assets(rel["id"], pages=1):
@@ -289,7 +410,8 @@ def run(session=None, now: datetime | None = None) -> dict:
         stats["deleted"] = rotate(store, rel["id"], now)
         stats["done"] = True
         stats["asset"] = name
-        st.update(lastAt=now.isoformat(), lastAsset=name, lastMB=stats["mb"], lastRows=stats["rows"])
+        st.update(lastAt=now.isoformat(), lastAsset=name, lastMB=stats["mb"], lastRows=stats["rows"],
+                  lastRestoreCheck=stats["restoreCheck"])
     except Exception as exc:  # noqa: BLE001 - a failed upload is retried next run
         log.warning("backup upload failed: %s", str(exc)[:200])
         stats["reason"] = f"upload failed: {str(exc)[:100]}"
@@ -303,3 +425,31 @@ def _write_status(st: dict, stats: dict, now: datetime) -> None:
     st["checkedAt"] = now.isoformat()
     st["reason"] = stats.get("reason") or ""
     _save_state(st)
+
+
+def main(argv: list[str]) -> int:
+    """python -m digest.backup restore FILE [--force]: load a backup (encrypted with BACKUP_KEY, or an
+    already decrypted .tar.gz) into the database DATABASE_URL names, which must be a new, empty one.
+    python -m digest.backup verify FILE: the same into a throwaway in-memory database, counts only."""
+    import sys
+
+    if len(argv) < 2 or argv[0] not in ("restore", "verify"):
+        print(main.__doc__)
+        return 2
+    passphrase = os.environ.get("BACKUP_KEY") or ""
+    blob = Path(argv[1]).read_bytes()
+    if blob[:8] == b"Salted__" and not passphrase:
+        print("BACKUP_KEY is not set", file=sys.stderr)
+        return 2
+    if argv[0] == "verify":
+        out = verify(blob, passphrase if blob[:8] == b"Salted__" else None)
+    else:
+        out = restore_file(argv[1], passphrase, force="--force" in argv)
+    print(json.dumps(out, indent=1))
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+
+    raise SystemExit(main(sys.argv[1:]))
