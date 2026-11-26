@@ -484,6 +484,8 @@ def test_backup_encryption_is_openssl_compatible():
             out = subprocess.run([openssl, "enc", "-d", "-aes-256-cbc", "-pbkdf2", "-iter", str(backup.PBKDF2_ITERATIONS), "-md", "sha256",
                                   "-in", str(src), "-pass", "pass:correct horse"], capture_output=True, check=True).stdout
             assert out == b"hello backup" * 100
+    else:
+        print("SKIP openssl not installed: the restore command in SETUP.md was not checked")
 
 
 def test_backup_runs_daily_uploads_one_bounded_file_rotates_and_excludes_private_tables():
