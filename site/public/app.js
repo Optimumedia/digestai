@@ -434,13 +434,43 @@
   }
 
   /* ---------- theme ---------- */
-  document.getElementById("theme-toggle")?.addEventListener("click", () => {
+  // The button says whether dark mode is on (aria-pressed), so a screen reader hears the state too.
+  const themeToggle = document.getElementById("theme-toggle");
+  const isDark = () => {
     const root = document.documentElement;
-    const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-    root.dataset.theme = dark ? "light" : "dark";
+    return root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  };
+  themeToggle?.setAttribute("aria-pressed", String(isDark()));
+  themeToggle?.addEventListener("click", () => {
+    const root = document.documentElement;
+    root.dataset.theme = isDark() ? "light" : "dark";
+    themeToggle.setAttribute("aria-pressed", String(root.dataset.theme === "dark"));
     store.set("theme", root.dataset.theme);
     document.querySelectorAll("iframe.giscus-frame").forEach((f) => f.contentWindow?.postMessage({ giscus: { setConfig: { theme: root.dataset.theme } } }, "https://giscus.app"));
   });
+
+  /* ---------- tables wider than the screen ---------- */
+  // On a phone a tracker table scrolls sideways inside its .tablewrap. A keyboard can scroll it only
+  // if it can take focus, so a wrap that actually overflows becomes a named region in the Tab order,
+  // and stops being one when the window is wide enough to show the whole table.
+  const tableWraps = document.querySelectorAll(".tablewrap");
+  if (tableWraps.length) {
+    const tableName = (w) => {
+      const prev = w.previousElementSibling;
+      const t = (w.querySelector("caption") || (prev && /^H[1-4]$/.test(prev.tagName) ? prev : null) || document.querySelector("h1") || {}).textContent || "";
+      return (t.trim().slice(0, 80) + " table").trim();
+    };
+    const markWraps = () => tableWraps.forEach((w) => {
+      if (w.scrollWidth > w.clientWidth + 1) {
+        if (!w.hasAttribute("tabindex")) { w.tabIndex = 0; w.setAttribute("role", "region"); w.setAttribute("aria-label", tableName(w)); }
+      } else if (w.getAttribute("role") === "region") {
+        w.removeAttribute("tabindex"); w.removeAttribute("role"); w.removeAttribute("aria-label");
+      }
+    });
+    markWraps();
+    let wrapTimer = null;
+    addEventListener("resize", () => { clearTimeout(wrapTimer); wrapTimer = setTimeout(markWraps, 200); });
+  }
 
   /* ---------- live relative times ---------- */
   function rel(iso) {

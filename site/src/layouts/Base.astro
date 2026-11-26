@@ -176,6 +176,8 @@ const clientConfig = {
     })} />
   </head>
   <body data-story-id={storyId} data-article-id={articleId} data-section={section}>
+    {/* The first stop for the Tab key: past the masthead's tools and section links straight to the page. */}
+    <a class="skip-link" href="#main">Skip to content</a>
     <header class="masthead">
       <div class="wrap masthead-row">
         <a class="brand" href="/" aria-label="Digest AI home">Digest<b>AI</b> <small>news desk</small></a>
@@ -220,7 +222,7 @@ const clientConfig = {
     </header>
 
     {/* Astro writes data-x={false} as data-x="false", which Pagefind still counts: leave it out instead. */}
-    <main class="wrap" {...(paged ? {} : { "data-pagefind-body": "" })}>
+    <main class="wrap" id="main" {...(paged ? {} : { "data-pagefind-body": "" })}>
       <slot />
     </main>
 
