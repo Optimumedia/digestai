@@ -45,11 +45,16 @@ def test_the_rules_as_text():
         assert f"'{origin}'" in sql
     assert "return null;" in sql  # a dropped event is skipped, not refused: the sender learns nothing
     assert sql.count("exception when others then") == 2  # reading the headers, and writing the count
-    # Until a day of real counts shows the API passes Origin and User-Agent on, a request without
-    # them is counted apart and stored.
-    assert db.GATE_STRICT is False and "firm boolean := false;" in sql
-    assert "firm boolean := true;" in db.events_guard_sql(True)
-    assert db.events_guard_sql(True).replace(":= true;", ":= false;") == sql
+    # The counts showed the API passes Origin and User-Agent on (readers arrive as "ok"), so a request
+    # without them is dropped as well as counted.
+    assert db.GATE_STRICT is True and "firm boolean := true;" in sql
+    assert "firm boolean := false;" in db.events_guard_sql(False)
+    assert db.events_guard_sql(False).replace(":= false;", ":= true;") == sql
+    # Past the ceiling for all senders together, a public event is dropped and counted as "flood".
+    assert 0 < db.GATE_FLOOD_PER_MINUTE < 1000
+    assert f"interval '1 minute') >= {db.GATE_FLOOD_PER_MINUTE} then" in sql
+    assert "verdict in ('origin', 'client', 'flood')" in sql
+    assert max(len(r) for r in db.GATE_REASONS) <= db.event_gate.c.reason.type.length
     assert set(re.findall(r"verdict := '([a-z]+)'", sql)) == set(db.GATE_REASONS)
     # The count never holds an address: the only request headers read are these three.
     assert set(re.findall(r"hdr->>'([a-z-]+)'", sql)) == {"origin", "user-agent", "cf-ipcountry"}
@@ -117,7 +122,9 @@ def _fresh(strict: bool):
 
 
 def test_the_guard_on_postgres():
-    eng = _fresh(strict=db.GATE_STRICT)
+    """Every rule but the strict one, so the lax guard (a database restored with GATE_STRICT off) still
+    behaves; test_the_strict_guard_on_postgres covers what GATE_STRICT adds."""
+    eng = _fresh(strict=False)
     if eng is None:
         return
     try:
@@ -154,7 +161,7 @@ def test_the_guard_on_postgres():
         assert _send(eng, _headers(ua="curl/8.9.1", origin=None, country="SG")) == 0
         assert _gate(eng)[("SG", "client")] == len(PROGRAMS) + 1
 
-        # No Origin or no User-Agent at all: counted apart and, for now, stored.
+        # No Origin or no User-Agent at all: counted apart and, without GATE_STRICT, stored.
         assert _send(eng, _headers(origin=None, country="US")) == 1
         assert _send(eng, _headers(origin="", country="US")) == 1
         assert _send(eng, _headers(ua="", country="US")) == 1
@@ -213,6 +220,33 @@ def test_the_strict_guard_on_postgres():
         assert _send(eng, _headers(ua="", country="US"), type="dwell") == 0
         assert _send(eng, "not json at all") == 1
         assert _gate(eng) == {("DE", "ok"): 1, ("US", "noorigin"): 1, ("US", "noagent"): 2}
+    finally:
+        eng.dispose()
+
+
+def test_the_flood_ceiling_on_postgres():
+    """A script that makes up a new session for every event passes the per-session limit, not the
+    ceiling for all senders together. The pipeline's own inserts are never held back by it."""
+    saved = db.GATE_FLOOD_PER_MINUTE
+    db.GATE_FLOOD_PER_MINUTE = 5
+    try:
+        eng = _fresh(strict=db.GATE_STRICT)
+    finally:
+        db.GATE_FLOOD_PER_MINUTE = saved
+    if eng is None:
+        return
+    try:
+        for i in range(5):
+            assert _send(eng, _headers(), session=f"made-up-{i}") == 1
+        for i in range(5, 9):
+            assert _send(eng, _headers(country="CN"), session=f"made-up-{i}") == 0
+        assert _send(eng, _headers(country="CN"), session="made-up-x", type="dwell", value=5.0) == 0
+        assert _gate(eng) == {("DE", "ok"): 5, ("CN", "flood"): 5}
+        assert _send(eng, None, session="pipeline") == 1  # no request headers: never gated
+        # Events older than a minute do not count towards it.
+        with eng.begin() as conn:
+            conn.execute(text("update events set created_at = now() - interval '2 minutes'"))
+        assert _send(eng, _headers(), session="later") == 1
     finally:
         eng.dispose()
 

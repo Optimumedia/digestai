@@ -652,13 +652,20 @@ def _normalize_url(url: str) -> str:
 # the browsers claim. Nothing from the address is stored. Every step is best effort: a header that
 # cannot be read lets the event through, and a count that cannot be written changes nothing.
 #
-# A request with no Origin or no User-Agent at all is counted apart ("noorigin", "noagent") and, until
-# GATE_STRICT is on, stored: a browser always sends both, but whether the API in front of the
-# database passes both on is only known from a day of real counts. Once event_gate shows readers
-# arriving as "ok", GATE_STRICT drops the two as well.
-GATE_STRICT = False
+# A request with no Origin or no User-Agent at all is counted apart ("noorigin", "noagent"). A browser
+# always sends both on the site's cross-origin insert, so with GATE_STRICT on (26 Nov 2026) the two are
+# dropped as well. The counts showed it was time: from 2 Oct to 26 Nov event_gate had 8,022 views
+# arriving "ok" (so the API does pass Origin on), "noagent" never, and 556 "noorigin" events, from
+# countries the readers do not come from, 136 of them in one minute on 14 Nov (the busiest minute
+# readers ever made was 26 events).
+GATE_STRICT = True
+# A ceiling on what the public key may store in one minute, all senders together: past it, events are
+# dropped and counted as "flood". The per-session limit below does not stop a script that makes up a
+# new session for every insert; this does, so the table (and every pipeline read of it) stays small.
+# Readers' busiest minute was 26 events, a page of AI at Work sends up to 12.
+GATE_FLOOD_PER_MINUTE = 200
 GATE_ORIGINS = ("https://digestai.news", "https://www.digestai.news")
-GATE_REASONS = ("ok", "origin", "client", "noorigin", "noagent")
+GATE_REASONS = ("ok", "origin", "client", "noorigin", "noagent", "flood")
 # Programs by the name they give. "bot" counts only before / ; ) - or at the end of the name:
 # Googlebot/2.1 and PetalBot; are crawlers, a CUBOT phone is a reader.
 GATE_PROGRAMS = ("headlesschrome|phantomjs|puppeteer|playwright|selenium|lighthouse|pagespeed|python|curl/|wget|"
@@ -697,6 +704,10 @@ begin
     hdr := null;
     verdict := 'ok';
   end;
+  if hdr is not null and verdict = 'ok'
+     and (select count(*) from events e where e.created_at > now() - interval '1 minute') >= __FLOOD__ then
+    verdict := 'flood';
+  end if;
   if hdr is not null and (verdict <> 'ok' or new.type = 'view') then
     begin
       insert into event_gate (day, country, reason, n)
@@ -706,7 +717,7 @@ begin
       null;
     end;
   end if;
-  if verdict in ('origin', 'client') or (firm and verdict <> 'ok') then
+  if verdict in ('origin', 'client', 'flood') or (firm and verdict <> 'ok') then
     return null;
   end if;
   -- Page views, listens and alert sign-ups happen on pages that are not stories: story_id may be
@@ -736,7 +747,7 @@ end $$;"""
 def events_guard_sql(strict: bool = GATE_STRICT) -> str:
     return (_EVENTS_GUARD_SQL.replace("__ORIGINS__", ", ".join(f"'{o}'" for o in GATE_ORIGINS))
             .replace("__PROGRAMS__", GATE_PROGRAMS).replace("__CRAWLERS__", GATE_CRAWLERS)
-            .replace("__STRICT__", "true" if strict else "false"))
+            .replace("__STRICT__", "true" if strict else "false").replace("__FLOOD__", str(int(GATE_FLOOD_PER_MINUTE))))
 
 
 EVENTS_GUARD_SQL = events_guard_sql()

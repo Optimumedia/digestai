@@ -5,6 +5,7 @@
    Deliberately light (no ticker, rail or full text; a few KB each) because they accumulate for years
    on a host with a 1 GB site limit. */
 import Analytics from "../../components/Analytics.astro";
+import { jsonForScript } from "../../lib/safe.mjs";
 import "../../styles/global.css";
 import { archived, stories, meta, formatDate, categories } from "../../lib/data";
 import { archivedSearchWorthy } from "../../lib/indexing.mjs";
@@ -66,7 +67,7 @@ const jsonLd = {
     <script is:inline>
       try { const t = JSON.parse(localStorage.getItem("theme")); if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; } catch {}
     </script>
-    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+    <script type="application/ld+json" set:html={jsonForScript(jsonLd)} />
   </head>
   <body>
     <header class="masthead">
