@@ -249,8 +249,17 @@ openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -in digest-backup-20
 tar xzf backup.tar.gz     # one file per table, one JSON object per line, plus manifest.json
 ```
 
-It asks for the passphrase. Loading the rows back into a new database is a job to ask for when needed
-(the files hold every column the pipeline needs, except article text and embeddings, which it rebuilds).
+It asks for the passphrase. To load the rows back into a new, empty database (a new Supabase project,
+or a local SQLite file), from `pipeline/` with `BACKUP_KEY` and `DATABASE_URL` set to the new database:
+
+```bash
+python -m digest.backup verify digest-backup-2026-09-17.tar.gz.enc    # counts only, into a throwaway database
+python -m digest.backup restore digest-backup-2026-09-17.tar.gz.enc   # refuses a database that already has rows
+```
+
+The files hold every column the pipeline needs, except article text and embeddings, which it
+rebuilds; rejected articles the backup only knew by their small columns are skipped. Every night the
+backup step does the same check before uploading (`restoreCheck` in the step's stats).
 
 ## Alerts when the pipeline stops (17 Sep)
 

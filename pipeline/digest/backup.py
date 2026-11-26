@@ -464,7 +464,11 @@ def main(argv: list[str]) -> int:
     if argv[0] == "verify":
         out = verify(blob, passphrase if blob[:8] == b"Salted__" else None)
     else:
-        out = restore_file(argv[1], passphrase, force="--force" in argv)
+        try:
+            out = restore_file(argv[1], passphrase, force="--force" in argv)
+        except RuntimeError as exc:  # a database that already has rows
+            print(str(exc), file=sys.stderr)
+            return 1
     print(json.dumps(out, indent=1))
     return 0
 
