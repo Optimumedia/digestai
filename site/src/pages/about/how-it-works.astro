@@ -1,6 +1,7 @@
 ---
 import Base from "../../layouts/Base.astro";
 import Rail from "../../components/Rail.astro";
+import { jsonForScript } from "../../lib/safe.mjs";
 
 // The engineering write-up: how the pipeline works and what it costs (nothing). Written for
 // developers and the curious; kept to what the code in this repository actually does.
@@ -21,7 +22,7 @@ const jsonLd = {
 ---
 
 <Base title={title} description={description} type="article">
-  <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+  <script type="application/ld+json" set:html={jsonForScript(jsonLd)} />
   <div class="grid">
     <article class="article">
       <header class="page-head">

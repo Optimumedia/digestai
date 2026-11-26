@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { marked } from "marked";
+import { markdownToHtml } from "./safe.mjs";
 import { published, entitySlug, dateKey, weekKey, storyIndexable, storySearchWorthy, quietPaths, noindexPaths, modelPages, modelIndexable, storyConfirmed, storyModified as storyModifiedRule, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES, WORK_MIN_ITEMS } from "./indexing.mjs";
 import { withCanonicalLabs, canonicalLab, releaseList, newestByLab, releasesByMonth, monthIndexable } from "./answers.mjs";
 
@@ -695,13 +695,10 @@ export function related(story: Story, limit = 5): Story[] {
   return scored.slice(0, limit).map((x) => x.s);
 }
 
-function escapeHtmlInMarkdown(md: string): string {
-  return md.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
+// Raw HTML is shown as text and only web, mail and on-site addresses survive in links and images
+// (lib/safe.mjs): summaries and publishers' text are not ours to trust.
 export function renderMarkdown(md: string | null | undefined): string {
-  if (!md) return "";
-  return marked.parse(escapeHtmlInMarkdown(md), { async: false, gfm: true, breaks: false }) as string;
+  return markdownToHtml(md);
 }
 
 export function plain(md: string | null | undefined, max = 200): string {

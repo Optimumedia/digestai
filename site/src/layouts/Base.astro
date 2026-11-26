@@ -4,6 +4,7 @@ import SocialLinks from "../components/SocialLinks.astro";
 import Analytics from "../components/Analytics.astro";
 import "../styles/global.css";
 import { categories, meta, byScore, byRecency, shortDate, dateTime } from "../lib/data";
+import { jsonForScript } from "../lib/safe.mjs";
 
 interface Props {
   title: string;
@@ -149,11 +150,11 @@ const clientConfig = {
         if (t === "dark" || t === "light") document.documentElement.dataset.theme = t;
       } catch {}
     </script>
-    <script is:inline set:html={`window.DIGEST=${JSON.stringify(clientConfig)};`} />
+    <script is:inline set:html={`window.DIGEST=${jsonForScript(clientConfig)};`} />
     <script src={`/app.js?v=${meta.generatedAt.replace(/\D/g, "").slice(0, 12)}`} defer is:inline></script>
     <slot name="head" />
-    {jsonLd && <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />}
-    <script type="application/ld+json" set:html={JSON.stringify({
+    {jsonLd && <script type="application/ld+json" set:html={jsonForScript(jsonLd)} />}
+    <script type="application/ld+json" set:html={jsonForScript({
       "@context": "https://schema.org",
       "@type": "NewsMediaOrganization",
       "@id": `${site}/#organization`,
