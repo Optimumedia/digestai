@@ -48,7 +48,7 @@ const FAMILY_LABS = [
   [/^(?:gemini|gemma)\b/i, "Google"],
 ];
 const LAB_NAMES = [
-  [/^(?:open ?ai|chatgpt)$/i, "OpenAI"],
+  [/^(?:open ?ai(?: group)?(?: pbc)?|chatgpt)$/i, "OpenAI"],
   [/^(?:anthropic|claude)$/i, "Anthropic"],
   [/^(?:google(?: deepmind| research| cloud)?|deepmind|alphabet)$/i, "Google"],
   [/^nvidia$/i, "NVIDIA"],
@@ -60,7 +60,7 @@ const LAB_NAMES = [
   [/^(?:alibaba(?: cloud)?|qwen(?: team)?)$/i, "Alibaba"],
   [/^(?:z\.ai|zhipu(?: ai)?)$/i, "Z.ai"],
   [/^tencent(?: hunyuan)?$/i, "Tencent"],
-  [/^microsoft(?: ai)?$/i, "Microsoft"],
+  [/^(?:microsoft(?: ai)?|mai)$/i, "Microsoft"],
   [/^(?:x\.?ai|grok)$/i, "xAI"],
 ];
 
@@ -257,6 +257,33 @@ function namedIn(sentence, canon) {
   return { hits, stranger };
 }
 
+/** A product the tracker holds that is not a model ("Decisions API"): its price is not a model's. */
+const NOT_A_MODEL_NAME = /\b(?:API|app|platform|agent|assistant)$/i;
+/** Words a sentence may open with before a figure that is the launched model's own ("The pricing is
+    set at", "It is available via the Liquid API at"). */
+const PLAIN_LEAD = new Set(["the", "it", "its", "this", "that", "these", "pricing", "priced", "price", "prices", "access", "developers",
+  "usage", "input", "output", "costs", "cost", "at", "for", "with", "through", "via", "available", "currently", "both", "each",
+  "and", "but", "plus", "users", "customers", "a", "an", "in", "on", "per", "tokens", "only", "now", "standard", "list"]);
+/** Another model named before the figure: "the base model ($0.15/$0.50) before swapping to GLM-Legal". */
+const ANOTHER_MODEL = /\b(?:base|previous|predecessor|older|earlier|existing|other|rival|competing|sister|parent|larger|smaller)\s+(?:model|version|tier)s?\b/i;
+
+/** In the launch story of a model, a figure in a sentence that does not name it is that model's
+    price only when nothing else is named before the figure and the model is not named after it. */
+function pricesTheLaunch(clause, model) {
+  const at = clause.indexOf("$");
+  const before = clause.slice(0, at);
+  const after = lower(clause.slice(at));
+  if (ANOTHER_MODEL.test(before)) return false;
+  if (model.names.some((n) => after.includes(lower(n)))) return false;
+  const own = new Set([...model.names, model.lab || ""].flatMap((n) => lower(n).split(/[\s\-]+/)).filter(Boolean));
+  for (const word of before.match(/[A-Za-z][\w'’.-]*/g) || []) {
+    if (!/^[A-Z]/.test(word) || /^[A-Z0-9]+s?$/.test(word) || /\d/.test(word)) continue; // "API", "GPUs", "FP8"
+    const w = lower(word).replace(/['’]s$/, "");
+    if (!PLAIN_LEAD.has(w) && !own.has(w)) return false; // "Neon costs $3": another model's price
+  }
+  return true;
+}
+
 /** Each model's API price per million tokens, newest statement first: {input, output, at, slug,
     headline, quote, sources, primary, earlier}. `earlier` is the newest older statement that gave a
     different figure, so a page can say a price moved instead of hiding it. */
@@ -272,18 +299,22 @@ export function modelPrices(stories, canon) {
     const about = launched && launched.names.some((n) => (searchable(n) ? containsName(lower(s.headline), lower(n)) : n.length >= 3 && containsName(s.headline || "", n))) ? launched : null;
     for (const sentence of storySentences(s)) {
       if (!sentence.includes("$")) continue;
-      const price = priceFromSentence(sentence);
+      // A price belongs to its own clause: in "Gemini 4 Hydrogen is free in AI Studio; Neon costs
+      // $3.00/$15.00 per 1M tokens" the figure is Neon's, not Hydrogen's.
+      const clause = sentence.split(/;\s+/).find((c) => c.includes("$")) || sentence;
+      const price = priceFromSentence(clause);
       if (!price) continue;
-      const { hits, stranger } = namedIn(sentence, canon);
+      const { hits, stranger } = namedIn(clause, canon);
       if (stranger || hits.size > 1) continue;
       let slug;
       if (hits.size === 1) {
         const [[named, at]] = [...hits.entries()];
-        if (at > sentence.indexOf("$")) continue; // the model must come before the figure it pays
+        if (at > clause.indexOf("$")) continue; // the model must come before the figure it pays
         slug = named;
-      } else if (about) {
+      } else if (about && pricesTheLaunch(clause, about)) {
         slug = about.slug;
       } else continue;
+      if (NOT_A_MODEL_NAME.test(canon.find((m) => m.slug === slug)?.name || "")) continue;
       if (!found.has(slug)) found.set(slug, []);
       found.get(slug).push({ ...price, at: s.firstPublishedAt, slug: s.slug, headline: s.headline, quote: sentence, sources: s.articleCount || 1, primary: Boolean(s.hasPrimary) });
     }

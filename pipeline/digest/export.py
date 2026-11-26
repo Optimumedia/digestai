@@ -532,6 +532,9 @@ def run() -> dict:
         for a in st["articles"]:
             r = a.get("modelRelease")
             # Only real launches of usable models, once each however the name is spelled (trackers.py).
+            if r and r.get("name"):
+                # "6.2 Astra" in "OpenAI releases GPT-6.2 Astra" is GPT-6.2 Astra.
+                r = {**r, "name": tracker_rules.full_name(r["name"], st["headline"])}
             if r and r.get("name") and tracker_rules.is_release(r, f"{st['headline']} | {a.get('title') or ''}"):
                 k = tracker_rules.model_key(r["name"], r.get("lab"))
                 row = models.setdefault(k, {**r, "date": a["publishedAt"], "storySlug": st["slug"], "storyHeadline": st["headline"], "sources": 0})
@@ -541,14 +544,18 @@ def run() -> dict:
                 for f in ("license", "context", "link", "lab"):
                     if not row.get(f) and r.get(f):
                         row[f] = r[f]
-    models = tracker_rules.fold_versions(models)
+    models = tracker_rules.fold_all(models)
     # And every launch listed before, so a model keeps its row and its page after its stories leave the
     # window (releases.py: a small file in the runner's cache, no database read).
     models = releases.remember(models, [s.strip() for s in rules.get("unpublish") or [] if s],
-                               tracker_rules.is_release, tracker_rules.fold_versions)
+                               tracker_rules.is_release, tracker_rules.fold_all, tracker_rules.model_key, tracker_rules.join)
     # Funding: one row per deal, with figures the coverage agrees on and that the articles' own text
     # states (funding.py); the page's total adds these rows only.
     funding_rows, funding_dropped = funding_rules.build(stories_out, now)
+    # And every deal listed before, so a round stays on /funding, its company's page and its week after
+    # its stories leave the window (funding.py: a small file in the runner's cache, no database read).
+    funding_rows = funding_rules.remember(funding_rows, {s["slug"] for s in stories_out},
+                                          [s.strip() for s in rules.get("unpublish") or [] if s], now)
     trackers = {
         "models": sorted(models.values(), key=lambda r: r["date"] or "", reverse=True),
         "funding": funding_rows,

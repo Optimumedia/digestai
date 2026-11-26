@@ -39,6 +39,7 @@ const categoryList = Object.keys(categories);
         <li><a href="/api/latest.json"><code>/api/latest.json</code></a> — the 100 newest stories by first publication, one light row each with a link to the story's JSON.</li>
         <li><a href="/api/briefing.json"><code>/api/briefing.json</code></a> — today's briefing: the five stories that matter, with key points and why they matter, and the also-list.</li>
         <li><a href="/api/models.json"><code>/api/models.json</code></a>: the newest confirmed model from each lab, the months with their release pages, and the newest launches, each with the date it was first reported and its launch story. Also as Markdown: <a href="/models/latest.md"><code>/models/latest.md</code></a>.</li>
+        <li><a href="/api/funding.json"><code>/api/funding.json</code></a>: every deal the <a href="/funding">funding tracker</a> has listed, newest first, with the amount, round, valuation, investors, the date it was first reported and its story.</li>
         <li><a href="/today.md"><code>/today.md</code></a>: today's briefing as Markdown, dated.</li>
         <li><code>/api/category/&lt;slug&gt;.json</code> — the 50 newest stories in one category: {categoryList.map((k, i) => <>{i > 0 && ", "}<a href={`/api/category/${k}.json`}>{k}</a></>)}.</li>
       </ul>

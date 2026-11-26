@@ -65,6 +65,8 @@ export interface ModelRelease {
 export interface Funding {
   company: string;
   amount_usd: number | null;
+  /** The figure as the headline states it when it is not in dollars ("€6.6M", "RMB 200M"). */
+  amount_stated?: string;
   round: string;
   investors: string[];
   valuation_usd: number | null;
@@ -434,12 +436,21 @@ export function storiesByWeek(): Map<string, Story[]> {
   return new Map([...map.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)));
 }
 
+/** "$10.5M", "$1.75B", "$176M": as many digits as the reported figure needs, up to three significant
+    ones, so a $10.5M round is not shown as $11M. */
 export function money(n: number | null | undefined): string {
   if (!n) return "undisclosed";
-  if (n >= 1e12) return `$${(n / 1e12).toFixed(n >= 1e13 ? 0 : 1)}T`;
-  if (n >= 1e9) return `$${(n / 1e9).toFixed(n >= 1e10 ? 0 : 1)}B`;
-  if (n >= 1e6) return `$${Math.round(n / 1e6)}M`;
-  return `$${Math.round(n / 1e3)}K`;
+  const [div, unit] = n >= 1e12 ? [1e12, "T"] : n >= 1e9 ? [1e9, "B"] : n >= 1e6 ? [1e6, "M"] : [1e3, "K"];
+  const v = n / div;
+  const digits = v >= 100 ? 0 : v >= 10 ? 1 : 2;
+  return `$${String(+v.toFixed(digits))}${unit}`;
+}
+
+/** A deal's amount for a table cell: the figure as stated when it was not in dollars, with its
+    approximate dollar value ("€6.6M (about $7.6M)"). */
+export function dealAmount(r: { amount_usd: number | null; amount_stated?: string }): string {
+  if (r.amount_stated && r.amount_usd) return `${r.amount_stated} (about ${money(r.amount_usd)})`;
+  return money(r.amount_usd);
 }
 
 /** Tracker facts attached to a hub: model releases whose name matches, funding rounds whose company matches. */

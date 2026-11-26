@@ -4,7 +4,7 @@
    Like every file in api.ts: our own text (headlines, digests, key points) and links only, never a
    publisher's article text or description. Dates are written out, because an assistant quoting a file
    needs to say when the answer was true. */
-import { briefing, briefingStories, briefingAlso, latestByLab, modelReleases, releaseMonths, monthName, trackers, storiesByWeek, weekKey, formatDate, firstSentence, meta, money, type Release } from "./data";
+import { briefing, briefingStories, briefingAlso, latestByLab, modelReleases, releaseMonths, monthName, trackers, storiesByWeek, weekKey, formatDate, firstSentence, meta, money, dealAmount, type Release } from "./data";
 import { SITE, LICENSE, latestStories, storyUrl, envelope } from "./api";
 
 const day = (iso: string | null | undefined) => formatDate(iso) || "undated";
@@ -61,6 +61,27 @@ export function modelsDoc() {
     newestByLab: latestByLab.map(item),
     months: [...releaseMonths.entries()].map(([key, rows]) => ({ month: key, url: `${SITE}/models/released/${key}`, releases: rows.length })),
     releases: modelReleases.slice(0, 150).map(item),
+  });
+}
+
+/** /api/funding.json: every deal the funding tracker has listed, newest first. */
+export function fundingDoc() {
+  const rows = trackers.funding;
+  return envelope({
+    asOf: meta.generatedAt,
+    url: `${SITE}/funding`,
+    notes: "One row per deal, at the date it was first reported, listed when its story's headline reports it as done. Plans, filings, talks, results and contracts are left out; an acquisition is listed under the company bought, with the buyer first among the investors. amountUsd is the figure the sources state, converted approximately when amountStated gives it in another currency.",
+    deals: rows.map((r) => ({
+      company: r.company,
+      amountUsd: r.amount_usd || null,
+      amountStated: r.amount_stated || null,
+      round: r.round,
+      valuationUsd: r.valuation_usd || null,
+      investors: r.investors || [],
+      firstReportedAt: r.date || null,
+      sources: r.sources || null,
+      story: r.storySlug ? { headline: r.storyHeadline || null, url: storyUrl(r.storySlug) } : null,
+    })),
   });
 }
 
@@ -127,7 +148,7 @@ export function llmsFull(): string {
     out.push(`## Most important stories this week (${weekList.length} published since Monday)`, "", ...weekList.slice(0, 10).map((s) => `- ${s.headline} (${day(s.firstPublishedAt)}): ${storyUrl(s.slug)}`), "");
   }
   if (deals.length) {
-    out.push(`## Largest AI deals reported in the 30 days to ${now}`, "", ...deals.map((r) => `- ${r.company}: ${money(r.amount_usd)} (${r.round.replace(/_/g, " ")}), ${day(r.date)}${r.storySlug ? `: ${storyUrl(r.storySlug)}` : ""}`), "");
+    out.push(`## Largest AI deals reported in the 30 days to ${now}`, "", ...deals.map((r) => `- ${r.company}: ${dealAmount(r)} (${r.round.replace(/_/g, " ")}), ${day(r.date)}${r.storySlug ? `: ${storyUrl(r.storySlug)}` : ""}`), "");
   }
   out.push(
     "## Newest stories",

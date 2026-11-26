@@ -39,6 +39,7 @@ Add .json or .md to any story address. Both carry the canonical URL, headline, d
 - Latest 100 stories (JSON index, links to each story's JSON): https://digestai.news/api/latest.json
 - Today's briefing (JSON): https://digestai.news/api/briefing.json
 - Newest model from each lab and every tracked launch (JSON): https://digestai.news/api/models.json
+- Every AI funding round and acquisition the funding tracker has listed (JSON): https://digestai.news/api/funding.json
 - Newest 50 per category (JSON): https://digestai.news/api/category/<slug>.json (slugs: models, marketing, agents, research, business, policy, hardware, enterprise, robotics, society)
 - Documentation, fields and examples: https://digestai.news/api
 
