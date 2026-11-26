@@ -61,7 +61,7 @@ jobs:
     timeout-minutes: 32
     environment:
       name: github-pages
-      url: ${{ steps.pages.outputs.page_url }}
+      url: ${{ steps.pages.outputs.page_url || steps.pages2.outputs.page_url || steps.pages3.outputs.page_url }}
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -404,9 +404,33 @@ jobs:
         with:
           path: site/dist
 
+      # From 24 to 26 Nov 2026, 22 of 59 runs failed here half a second after the upload finished, with
+      # "No artifacts named github-pages were found": GitHub lists a new artifact a moment after the upload
+      # step reports it. Those runs built the site and never published it. The same deploy a little later
+      # finds it, so it is tried again twice before the run fails.
       - name: Deploy to GitHub Pages
         if: steps.data.outputs.ok == 'true' && env.CF_TOKEN == ''
         id: pages
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
+      - name: Wait before deploying again
+        if: steps.pages.outcome == 'failure'
+        run: sleep 20
+
+      - name: Deploy to GitHub Pages (second try)
+        if: steps.pages.outcome == 'failure'
+        id: pages2
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
+      - name: Wait longer before the last try
+        if: steps.pages2.outcome == 'failure'
+        run: sleep 60
+
+      - name: Deploy to GitHub Pages (last try)
+        if: steps.pages2.outcome == 'failure'
+        id: pages3
         uses: actions/deploy-pages@v4
 
       # Optional dead man's switch: healthchecks.io emails when this ping stops arriving. Create a check
