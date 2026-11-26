@@ -52,11 +52,11 @@ create policy "public can log events" on events
 --     forging engagement for a story: at most 30 events per session per minute, only known
 --     stories, only recent timestamps, bounded payload sizes. An event that does not come from
 --     one of our own pages, or comes from a program that names itself (a crawler, an automated
---     browser, a script), is dropped without an error and counted in event_gate as a daily total
---     per country. The pipeline replaces this function on every run (db.py, EVENTS_GUARD_SQL). An event that does not come from
---     one of our own pages, or comes from a program that names itself (a crawler, an automated
---     browser, a script), is dropped without an error and counted in event_gate as a daily total
---     per country. The pipeline replaces this function on every run (db.py, EVENTS_GUARD_SQL).
+--     browser, a script), or that arrives with no Origin or User-Agent header at all, is dropped
+--     without an error and counted in event_gate as a daily total per country. So is everything
+--     past a ceiling of events per minute from all senders together (db.py GATE_FLOOD_PER_MINUTE),
+--     which a script that makes up a new session for every event cannot get around.
+--     The pipeline replaces this function on every run (db.py, EVENTS_GUARD_SQL).
 create or replace function public.events_guard() returns trigger
   language plpgsql security definer set search_path = public as $$
 declare
@@ -65,7 +65,7 @@ declare
   agent text;
   land text := 'ZZ';
   verdict text := 'ok';
-  firm boolean := false;
+  firm boolean := true;
 begin
   begin
     hdr := nullif(current_setting('request.headers', true), '')::json;
@@ -89,6 +89,10 @@ begin
     hdr := null;
     verdict := 'ok';
   end;
+  if hdr is not null and verdict = 'ok'
+     and (select count(*) from events e where e.created_at > now() - interval '1 minute') >= 200 then
+    verdict := 'flood';
+  end if;
   if hdr is not null and (verdict <> 'ok' or new.type = 'view') then
     begin
       insert into event_gate (day, country, reason, n)
@@ -98,7 +102,7 @@ begin
       null;
     end;
   end if;
-  if verdict in ('origin', 'client') or (firm and verdict <> 'ok') then
+  if verdict in ('origin', 'client', 'flood') or (firm and verdict <> 'ok') then
     return null;
   end if;
   -- Page views, listens and alert sign-ups happen on pages that are not stories: story_id may be
