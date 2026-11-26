@@ -29,6 +29,7 @@ MERGE_MIN_WORDS = 0.40      # with one shared name, the headlines must also repe
 SUSPECT_MARGIN = 0.06       # this far below it, with a shared name, a pair is listed for review
 MAX_SUSPECTS = 20
 LEAD_IMPORTANCE_MARGIN = 2  # a new lead must beat the current one by this much to change the headline
+LEAD_LATE_HOURS = 36        # an article this much later than the story's coverage reports what came after
 
 STOP = set("a an the and or of to in on for with by at from as is are be its it this that new says said after over into how why what".split())
 
@@ -81,14 +82,26 @@ def news_ok(headline: str | None, content_type: str | None) -> bool:
     return is_news(content_type) and not opinion_headline(headline)
 
 
+def _lead_tier(x: dict) -> tuple[bool, bool]:
+    return news_ok(x.get("headline"), x.get("content_type")), not is_roundup(x.get("title"))
+
+
 def better_lead(new: dict, cur: dict) -> bool:
     """Whether an article just merged into a story replaces its lead (the lead's headline and digest
-    are the story's). News beats commentary and commentary never displaces news; a primary source
-    leads when it is at least as important; anything else must be clearly more important.
-    Both: headline, content_type, importance, primary."""
-    n_ok, c_ok = news_ok(new.get("headline"), new.get("content_type")), news_ok(cur.get("headline"), cur.get("content_type"))
-    if n_ok != c_ok:
-        return n_ok
+    are the story's). News beats commentary and commentary never displaces news; a round-up never
+    displaces anything else; an article published more than LEAD_LATE_HOURS after the current lead
+    reports what came after, so it does not take over; a primary source leads when it is at least as
+    important; anything else must be clearly more important.
+    Both: headline, content_type, importance, primary, and optionally title (the publisher's) and at
+    (published, a datetime)."""
+    n_tier, c_tier = _lead_tier(new), _lead_tier(cur)
+    if n_tier != c_tier:
+        return n_tier > c_tier
+    n_ok = n_tier[0]
+    if n_ok and new.get("at") and cur.get("at") and new["at"] - cur["at"] > timedelta(hours=LEAD_LATE_HOURS):
+        # On 23 Nov a note.com overview of Gemini 4 Carbon, five days on, took the lead of the 80-source
+        # Gemini 4 Neon launch story and its headline with it.
+        return False
     ni, ci = new.get("importance") or 0, cur.get("importance") or 0
     if n_ok and new.get("primary") and not cur.get("primary"):
         return ni >= ci
@@ -141,19 +154,34 @@ def coverage_share(tokens: list[str], titles: list[list[str]]) -> float:
     return sum(1 for t in titles if len(mine & set(t)) >= 2) / len(titles)
 
 
+def coverage_time(members: list):
+    """When most of a story's coverage appeared: the median publication time of its members (None
+    when none is dated). An early preview or a late analysis sits far from it; the reports of the
+    event sit around it."""
+    dates = sorted(d for m in members if (d := db.as_utc(getattr(m, "published_at", None))))
+    return dates[len(dates) // 2] if dates else None
+
+
 def pick_lead(members: list, texts: dict, primary) -> object | None:
-    """The member whose digest describes a story: news over commentary, then importance with a point
-    for a primary source and up to a point for wording the other sources share, then the earliest.
+    """The member whose digest describes a story: news over commentary, a report over a round-up, an
+    article from when the story was covered (within LEAD_LATE_HOURS of the median publication time)
+    over an earlier preview or a later follow-up, then importance with a point for a primary source
+    and up to a point for wording the other sources share, then the earliest.
     members: mirror article rows; texts: their text rows (cache.article_text); primary(row) -> bool."""
     shown = [m for m in members if m.status == "published" and m.id in texts]
     if not shown:
         return None
     titles = [headline_tokens(texts[m.id].title or texts[m.id].headline) for m in shown]
+    middle = coverage_time(shown)
+
+    def timely(m) -> bool:
+        at = db.as_utc(getattr(m, "published_at", None))
+        return middle is None or at is None or abs(at - middle) <= timedelta(hours=LEAD_LATE_HOURS)
 
     def key(m):
         t = texts[m.id]
         head = t.headline or t.title
-        return (news_ok(head, m.content_type),
+        return (news_ok(head, m.content_type), not is_roundup(t.title), timely(m),
                 (m.importance or 0) + (1 if primary(m) else 0) + coverage_share(headline_tokens(head), titles), -m.id)
 
     return max(shown, key=key)

@@ -323,7 +323,8 @@ def run() -> dict:
             story_meta[s.id] = {"importance": s.importance, "lead": s.lead_article_id,
                                 "headline": story_text[s.id].headline if s.id in story_text else None,
                                 "content_type": lead.content_type if lead is not None else None,
-                                "primary": _is_primary(lead, source_type)}
+                                "primary": _is_primary(lead, source_type),
+                                "at": db.as_utc(lead.published_at) if lead is not None else None}
 
         for row, vec in zip(rows, vectors):
             v = np.asarray(vec, dtype=np.float32)
@@ -333,6 +334,25 @@ def run() -> dict:
             # A re-clustered article keeps its slug (links to it must not change).
             article_slug = row.slug or _unique_slug(conn, base_slug, db.articles, row.url)
             status = "published"
+
+            if merge.is_roundup(row.title):
+                # A round-up of several stories ("AI News Weekly Summary | GPT-6.2, Gemini 4 Neon, ...")
+                # sits between them: shown in one it pulls the story toward the others and its headline
+                # names another event. It counts as coverage of the story it matches, unseen, and
+                # starts none of its own.
+                if best_id is not None:
+                    cand = candidates[best_id]
+                    cand["count"] += 1
+                    conn.execute(update(db.stories).where(db.stories.c.id == best_id)
+                                 .values(article_count=cand["count"], updated_at=now))
+                    conn.execute(update(db.articles).where(db.articles.c.id == row.id).values(
+                        story_id=best_id, slug=article_slug, embedding=db.pack_vec(v), status="overflow"))
+                    stats["overflow"] += 1
+                else:
+                    conn.execute(update(db.articles).where(db.articles.c.id == row.id).values(
+                        status="rejected", reject_reason="roundup: covers several stories", embedding=db.pack_vec(v)))
+                stats["roundups"] = stats.get("roundups", 0) + 1
+                continue
 
             if best_id is not None:
                 meta, cand = story_meta[best_id], candidates[best_id]
@@ -349,13 +369,15 @@ def run() -> dict:
                     merged /= np.linalg.norm(merged) or 1.0
                     cand["vec"], cand["shown"] = merged, cand["shown"] + 1
                     values["embedding"] = db.pack_vec(merged)
-                    new = {"headline": row.headline or row.title, "content_type": row.content_type,
-                           "importance": row.importance, "primary": _is_primary(row, source_type)}
+                    new = {"headline": row.headline or row.title, "title": row.title, "content_type": row.content_type,
+                           "importance": row.importance, "primary": _is_primary(row, source_type),
+                           "at": db.as_utc(row.published_at)}
                     if merge.better_lead(new, meta):
                         # The new lead's digest describes the story: news over commentary, primary
-                        # sources first, and only a clearly more important article changes the headline.
-                        meta.update(importance=row.importance, lead=row.id, headline=new["headline"],
-                                    content_type=row.content_type, primary=new["primary"])
+                        # sources first, nothing published long after the lead, and only a clearly
+                        # more important article changes the headline.
+                        meta.update(importance=row.importance, lead=row.id, headline=new["headline"], title=row.title,
+                                    content_type=row.content_type, primary=new["primary"], at=new["at"])
                         cand["lead_vec"] = v
                         values.update(headline=new["headline"], summary_md=row.summary_md, key_points=row.key_points,
                                       why_it_matters=row.why_it_matters, category=row.category, entities=row.entities,
@@ -385,7 +407,8 @@ def run() -> dict:
                 story_id = res.inserted_primary_key[0]
                 candidates[story_id] = {"vec": v, "lead_vec": v, "count": 1, "shown": 1}
                 story_meta[story_id] = {"importance": row.importance or 5, "lead": row.id, "headline": row.headline or row.title,
-                                        "content_type": row.content_type, "primary": _is_primary(row, source_type)}
+                                        "title": row.title, "content_type": row.content_type,
+                                        "primary": _is_primary(row, source_type), "at": db.as_utc(row.published_at)}
                 stats["new_stories"] += 1
 
             conn.execute(update(db.articles).where(db.articles.c.id == row.id).values(

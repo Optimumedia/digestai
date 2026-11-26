@@ -324,6 +324,88 @@ def test_roundups_are_recognised_by_their_titles():
         assert not merge.is_roundup(title), title
 
 
+def test_roundups_and_late_articles_never_take_a_story():
+    """23-25 Nov: note.com round-ups led five stories under the wrong headline, and an overview of
+    Gemini 4 Carbon five days on took the lead of the Gemini 4 Neon launch story."""
+    import tempfile
+    from datetime import datetime, timedelta, timezone
+
+    import numpy as np
+    from sqlalchemy import create_engine, insert, select
+
+    from digest import cluster, db, merge
+
+    now = datetime.now(timezone.utc)
+    neon = {"headline": "Google releases Gemini 4 Neon", "title": "Introducing Gemini 4 Neon", "content_type": "news",
+            "importance": 7, "primary": False, "at": now - timedelta(days=5)}
+    overview = {"headline": "Google announces Gemini 4 Carbon top-tier model", "title": "Overview of the Gemini 4 Carbon Launch",
+                "content_type": "news", "importance": 9, "primary": False, "at": now}
+    assert not merge.better_lead(overview, neon), "five days later: what came after, not the launch"
+    assert merge.better_lead({**overview, "at": neon["at"] + timedelta(hours=6)}, neon), "the same day it may"
+    flash = {**overview, "title": "AI News Flash: Anthropic Raises $81.3 Billion in Largest IPO Ever (November 23, 2026 Issue)",
+             "at": neon["at"], "primary": True}
+    assert not merge.better_lead(flash, neon), "a round-up never leads"
+    assert merge.better_lead(neon, flash), "and gives way to any report"
+
+    from types import SimpleNamespace as NS
+    day = now - timedelta(days=4)
+    members = [NS(id=1, status="published", content_type="news", importance=6, domain="a.test", source_id=3, published_at=day),
+               NS(id=2, status="published", content_type="news", importance=6, domain="b.test", source_id=3, published_at=day + timedelta(hours=2)),
+               NS(id=3, status="published", content_type="news", importance=9, domain="c.test", source_id=3, published_at=day + timedelta(days=4)),
+               NS(id=4, status="published", content_type="news", importance=10, domain="note.test", source_id=3, published_at=day)]
+    texts = {1: NS(title="Google launches Gemini 4 Neon", headline="Google launches Gemini 4 Neon"),
+             2: NS(title="Gemini 4 Neon is here", headline="Google releases Gemini 4 Neon"),
+             3: NS(title="Overview of the Gemini 4 Carbon Launch", headline="Google announces Gemini 4 Carbon"),
+             4: NS(title="Today's AI News | November 19: Google Releases Gemini 4 Neon", headline="Google releases Gemini 4 Neon")}
+    assert merge.pick_lead(members, texts, lambda m: False).id in (1, 2), "neither the round-up nor the late overview"
+
+    tmp = Path(tempfile.mkdtemp()) / "roundup.db"
+    eng = create_engine(f"sqlite:///{tmp.as_posix()}", future=True)
+    db.metadata.create_all(eng)
+    rng = np.random.default_rng(5)
+
+    def vec(base):
+        v = np.asarray(base, dtype=np.float32) + 0.03 * rng.standard_normal(8).astype(np.float32)
+        return (v / np.linalg.norm(v)).tolist()
+
+    event, other = [1, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 1, 0, 0]
+    with eng.begin() as conn:
+        conn.execute(insert(db.sources).values(id=1, key="s", name="S", url="https://s.test/feed"))
+        conn.execute(insert(db.stories).values(
+            id=1, slug="neon", headline="Google releases Gemini 4 Neon", lead_article_id=1, article_count=1, importance=7,
+            embedding=db.pack_vec(vec(event)), status="published", first_published_at=now - timedelta(hours=50), updated_at=now))
+        conn.execute(insert(db.articles).values(
+            id=1, url="https://s.test/1", source_id=1, story_id=1, slug="a-1", title="Introducing Gemini 4 Neon",
+            headline="Google releases Gemini 4 Neon", importance=7, embedding=vec(event), status="published", content_type="news",
+            published_at=now - timedelta(hours=50), fetched_at=now, created_at=now))
+        conn.execute(insert(db.articles), [
+            {"id": 10, "url": "https://s.test/10", "source_id": 1, "title": "AI News Weekly Summary | GPT-6.2, Gemini 4 Neon, Free Tasks",
+             "headline": "OpenAI releases GPT-6.2 and Google launches Gemini 4 Neon", "importance": 9, "embedding": vec(event),
+             "status": "enriched", "content_type": "news", "published_at": now - timedelta(hours=3), "fetched_at": now, "created_at": now},
+            {"id": 11, "url": "https://s.test/11", "source_id": 1, "title": "This Week's AI News Summary | GPT-6.2, Anthropic IPO",
+             "headline": "Anthropic IPO and GPT-6.2 lead the week", "importance": 9, "embedding": vec(other),
+             "status": "enriched", "content_type": "news", "published_at": now - timedelta(hours=2), "fetched_at": now, "created_at": now},
+            {"id": 12, "url": "https://s.test/12", "source_id": 1, "title": "Overview of the Gemini 4 Carbon Launch",
+             "headline": "Google announces Gemini 4 Carbon top-tier model", "importance": 10, "embedding": vec(event),
+             "status": "enriched", "content_type": "news", "published_at": now - timedelta(hours=1), "fetched_at": now, "created_at": now}])
+
+    saved = (db._engine, cluster._MODEL, cluster._MODEL_NAME)
+    db._engine, cluster._MODEL, cluster._MODEL_NAME = eng, False, "fallback-hash"
+    try:
+        stats = cluster.run()
+    finally:
+        db._engine, cluster._MODEL, cluster._MODEL_NAME = saved
+    assert stats["roundups"] == 2 and stats["new_stories"] == 0, stats
+    with eng.connect() as conn:
+        story = conn.execute(select(db.stories).where(db.stories.c.id == 1)).one()
+        arts = {a.id: a for a in conn.execute(select(db.articles)).all()}
+    assert (arts[10].story_id, arts[10].status) == (1, "overflow"), "counted as coverage, not shown"
+    assert arts[11].status == "rejected" and arts[11].story_id is None, "matches nothing: no story of its own"
+    assert arts[12].story_id == 1 and arts[12].status == "published"
+    assert story.lead_article_id == 1 and story.headline == "Google releases Gemini 4 Neon", "the late overview did not take over"
+    assert story.article_count == 3
+
+
 def test_cluster_repairs_oversized_story_and_reclusters():
     import tempfile
     from datetime import datetime, timedelta, timezone
