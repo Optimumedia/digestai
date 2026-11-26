@@ -529,6 +529,48 @@ def _parse_reset(value: str | None) -> float:
     return total
 
 
+def groq_429_wait(headers, message: str) -> tuple[bool, float]:
+    """(out of requests for the day, seconds to wait) for a Groq 429.
+
+    Groq's headers (console.groq.com/docs/rate-limits): x-ratelimit-*-requests are the requests
+    per DAY and x-ratelimit-*-tokens the tokens per MINUTE; retry-after, sent with a 429, is the
+    wait that clears whichever limit was hit, the tokens per day (TPD) included. Until 26 Nov 2026
+    the wait was the larger of the two resets, and the requests reset is the time the day's bucket
+    takes to refill (86.4 s for each request in it at 1,000 a day), not a limit: a 429 on the
+    minute's tokens parked a model for 86-173 s when it needed 10-30, and the article went to the
+    3B local model instead."""
+    if headers.get("x-ratelimit-remaining-requests") == "0" and _parse_reset(headers.get("x-ratelimit-reset-requests")) > 120:
+        return True, 0.0
+    try:
+        after = float(headers.get("retry-after") or 0)
+    except ValueError:
+        after = 0.0
+    if not after:
+        m = re.search(r"try again in ((?:\d+h)?(?:\d+m)?[\d.]+s)", message or "")
+        after = _parse_reset(m.group(1)) if m else _parse_reset(headers.get("x-ratelimit-reset-tokens"))
+    return False, max(after, 2.0)
+
+
+# Tokens assumed for a summary call before one has been answered (the measured prompt of an
+# average article, ~2,300, plus ~600 written).
+GROQ_TYPICAL_CALL_TOKENS = 3000
+
+
+def groq_pace(headers, need: int) -> float:
+    """Seconds until the minute's token window holds `need` tokens again, from a successful answer's
+    headers. The window refills evenly (reset-tokens is the time to full), so the wait is the share
+    of that time the missing tokens take, not the whole of it."""
+    try:
+        limit = int(headers.get("x-ratelimit-limit-tokens") or 0)
+        remaining = int(headers.get("x-ratelimit-remaining-tokens") or limit)
+    except ValueError:
+        return 0.0
+    if not limit or remaining >= need:
+        return 0.0
+    full = _parse_reset(headers.get("x-ratelimit-reset-tokens"))
+    return full * min(1.0, (need - remaining) / max(1, limit - remaining)) + 0.5
+
+
 def call_groq(prompt: str) -> dict:
     """Try the primary model, then the fallbacks; each Groq model has its own daily quota and
     a tokens-per-minute window that the response headers report."""
@@ -545,35 +587,41 @@ def call_groq(prompt: str) -> dict:
                 last = RuntimeError(f"groq {model} rate limited for {wait:.0f}s")
                 continue
             time.sleep(wait)
+        body = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,
+            "response_format": {"type": "json_object"},
+            "max_tokens": 3000,
+        }
+        if model.startswith("openai/gpt-oss"):
+            # gpt-oss reasons before answering, and on a summary those tokens are pure cost: 413 of
+            # 709 written at the default effort (measured 26 Nov 2026), out of a 200,000-token day.
+            body["reasoning_effort"] = "low"
         resp = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {config.GROQ_API_KEY}"},
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3,
-                "response_format": {"type": "json_object"},
-                "max_tokens": 3000,
-            },
+            json=body,
             timeout=_request_timeout(90),
         )
         h = resp.headers
         if resp.status_code == 429:
             detail = ""
             try:
-                detail = resp.json().get("error", {}).get("message", "")[:100]
+                detail = resp.json().get("error", {}).get("message", "")[:300]
             except Exception:  # noqa: BLE001
                 pass
             # A per-minute limit resets in seconds; a daily one does not. Only the latter kills the model.
-            reset_tokens = _parse_reset(h.get("x-ratelimit-reset-tokens"))
-            reset_requests = _parse_reset(h.get("x-ratelimit-reset-requests"))
-            if h.get("x-ratelimit-remaining-requests") == "0" and reset_requests > 120:
+            out_for_day, wait = groq_429_wait(h, detail)
+            limit = "tokens per day" if "(TPD)" in detail else "tokens per minute" if "(TPM)" in detail else "requests"
+            if out_for_day:
                 _groq_dead.add(model)
-                last = QuotaExhausted(f"groq {model} daily quota: {detail}")
+                last = QuotaExhausted(f"groq {model} daily quota: {detail[:100]}")
                 log.warning("groq %s daily quota reached; trying next model", model)
             else:
-                _groq_wait_until[model] = time.time() + max(reset_tokens, reset_requests, 5.0)
-                last = RuntimeError(f"groq {model} rate limited for {max(reset_tokens, reset_requests):.0f}s")
+                _groq_wait_until[model] = time.time() + wait
+                last = RuntimeError(f"groq {model} rate limited for {wait:.0f}s ({limit})")
+                log.info("groq %s rate limited for %.0fs (%s); trying next model", model, wait, limit)
             continue
         if resp.status_code == 404:
             _groq_dead.add(model)
@@ -588,14 +636,17 @@ def call_groq(prompt: str) -> dict:
             continue
         if resp.status_code >= 400:
             raise RuntimeError(f"groq {model} http {resp.status_code}: {resp.text[:160]}")
-        # Pace the next call from the tokens-per-minute window so we never trip the limit.
+        data = resp.json()
+        # Pace the next call from the tokens-per-minute window so we never trip the limit: the next
+        # call is assumed to be about the size of this one.
         try:
-            remaining = int(h.get("x-ratelimit-remaining-tokens", "99999"))
-            if remaining < 4500:
-                _groq_wait_until[model] = time.time() + _parse_reset(h.get("x-ratelimit-reset-tokens")) + 1
-        except ValueError:
-            pass
-        content = resp.json()["choices"][0]["message"]["content"]
+            used = int((data.get("usage") or {}).get("total_tokens") or 0)
+        except (TypeError, ValueError):
+            used = 0
+        pause = groq_pace(h, max(used, GROQ_TYPICAL_CALL_TOKENS))
+        if pause > 0:
+            _groq_wait_until[model] = time.time() + pause
+        content = data["choices"][0]["message"]["content"]
         return _parse_json(content)
     raise last or QuotaExhausted("groq: no model available")
 
