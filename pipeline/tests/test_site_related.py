@@ -92,6 +92,9 @@ def test_story_pages_use_the_index():
     data = (SITE / "src" / "lib" / "data.ts").read_text(encoding="utf-8")
     assert "relatedFinder(stories)" in data
     assert "stories\n    .filter((s) => s.id !== story.id)" not in data  # the old scan is gone from data.ts
+    # The rail's "Biggest this week" is sorted once per build, not on every page that shows it.
+    rail = (SITE / "src" / "components" / "Rail.astro").read_text(encoding="utf-8")
+    assert "biggestThisWeek(exclude" in rail and ".sort(" not in rail.split("---")[1]
 
 
 if __name__ == "__main__":

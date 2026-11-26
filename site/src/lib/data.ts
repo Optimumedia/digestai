@@ -480,6 +480,19 @@ export const byRecency: Story[] = [...stories].sort(
   (a, b) => Date.parse(b.updatedAt || b.firstPublishedAt || "0") - Date.parse(a.updatedAt || a.firstPublishedAt || "0"),
 );
 
+/** The rail's "Biggest this week": stories updated in the last seven days, most important first.
+    Sorted once per build, not on each of the ~7,500 pages that show the rail (3 ms a page). */
+let weekImportant: Story[] | null = null;
+export function biggestThisWeek(exclude: number | undefined, limit = 8): Story[] {
+  if (!weekImportant) {
+    const weekAgo = Date.now() - 7 * 864e5;
+    weekImportant = byScore
+      .filter((s) => Date.parse(s.updatedAt || "0") > weekAgo)
+      .sort((a, b) => b.importance - a.importance || b.score - a.score);
+  }
+  return weekImportant.slice(0, limit + 1).filter((s) => s.id !== exclude).slice(0, limit);
+}
+
 export const briefingStories: Story[] = briefing.storyIds.map(storyFor).filter((s): s is Story => Boolean(s));
 export const briefingAlso: Story[] = briefing.alsoIds.map(storyFor).filter((s): s is Story => Boolean(s));
 

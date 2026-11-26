@@ -1,15 +1,11 @@
 ---
-import { byScore, byRecency, entities, entitySlug, hubHref, categories, threads, trackers, shortDate } from "../lib/data";
+import { biggestThisWeek, byRecency, entities, entitySlug, hubHref, categories, threads, trackers, shortDate } from "../lib/data";
 import SocialLinks from "./SocialLinks.astro";
 import { evergreenIndexable } from "../lib/evergreen-data";
 
 interface Props { exclude?: number }
 const { exclude } = Astro.props;
-const weekAgo = Date.now() - 7 * 864e5;
-const important = byScore
-  .filter((s) => s.id !== exclude && Date.parse(s.updatedAt || "0") > weekAgo)
-  .sort((a, b) => b.importance - a.importance || b.score - a.score)
-  .slice(0, 8);
+const important = biggestThisWeek(exclude, 8);
 const latest = byRecency.filter((s) => s.id !== exclude).slice(0, 6);
 const topics = entities.slice(0, 18);
 // The daily email needs the Kit form (PUBLIC_KIT_FORM_URL). Until it is connected, offer what works today.
