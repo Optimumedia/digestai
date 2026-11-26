@@ -1,24 +1,80 @@
 {
   "items": [
-    {"key": "bing-note", "text": "Send the Bing support note: every page shows as blocked on Bing.", "owner": "Martin", "level": "watch", "done": false,
-     "impact": "readers", "weight": 30,
-     "fix": "Send the prepared note through the support form in Bing Webmaster Tools.",
-     "why": "Bing, and DuckDuckGo which shows Bing's results, send no readers while every page is blocked."},
-    {"key": "kit-sender", "text": "Confirm the Kit sender address, so the newsletter can send.", "owner": "Martin", "level": "watch", "done": false,
-     "impact": "readers", "weight": 15,
-     "fix": "Confirm the sender address in your Kit account.",
-     "why": "Until then no subscriber gets the newsletter."},
-    {"key": "outreach-drafts", "text": "Approve the prepared directory and list submissions before they are sent in your name.", "owner": "Martin", "level": "watch", "done": false,
-     "impact": "readers", "weight": 10,
-     "fix": "Read the drafts and reply which ones may go out.",
-     "why": "Each listing is a lasting link that brings readers and helps search engines find the site."},
-    {"key": "start-photos", "text": "Approve the photos for the new landing page (/start), so the page can be built.", "owner": "Martin", "level": "watch", "done": false,
-     "impact": "readers", "weight": 5,
-     "fix": "Pick the photos you accept and say so; the page is built from those.",
-     "why": "The landing page is for first-time visitors from posts and listings."},
-    {"key": "github-token", "text": "Make a new GitHub token for the admin page: the saved one is refused (401), so Run now, Pin and Unpublish do not work.", "owner": "Martin", "level": "act", "done": false,
-     "impact": "ops",
-     "fix": "On github.com/settings/tokens make a classic token with the repo and workflow scopes, paste it on the admin page under Settings, then press Check token.",
-     "url": "/admin#settings"}
+    {
+      "key": "bing-note",
+      "text": "Send the Bing support note: every page shows as blocked on Bing.",
+      "owner": "Martin",
+      "level": "watch",
+      "done": false,
+      "impact": "readers",
+      "weight": 30,
+      "fix": "Send the prepared note through the support form in Bing Webmaster Tools.",
+      "why": "Bing, and DuckDuckGo which shows Bing's results, send no readers while every page is blocked."
+    },
+    {
+      "key": "kit-sender",
+      "text": "Confirm the Kit sender address, so the newsletter can send.",
+      "owner": "Martin",
+      "level": "watch",
+      "done": false,
+      "impact": "readers",
+      "weight": 15,
+      "fix": "Confirm the sender address in your Kit account.",
+      "why": "Until then no subscriber gets the newsletter."
+    },
+    {
+      "key": "outreach-drafts",
+      "text": "Approve the prepared directory and list submissions before they are sent in your name.",
+      "owner": "Martin",
+      "level": "watch",
+      "done": true,
+      "impact": "readers",
+      "weight": 10,
+      "fix": "Read the drafts and reply which ones may go out.",
+      "why": "Each listing is a lasting link that brings readers and helps search engines find the site."
+    },
+    {
+      "key": "start-photos",
+      "text": "Approve the photos for the new landing page (/start), so the page can be built.",
+      "owner": "Martin",
+      "level": "watch",
+      "done": false,
+      "impact": "readers",
+      "weight": 5,
+      "fix": "Pick the photos you accept and say so; the page is built from those.",
+      "why": "The landing page is for first-time visitors from posts and listings."
+    },
+    {
+      "key": "github-token",
+      "text": "Make a new fine-grained GitHub token for this repository (Contents and Actions read and write, with an expiry) and save it in admin Settings: the saved one is refused (401).",
+      "owner": "Martin",
+      "level": "act",
+      "done": false,
+      "impact": "ops",
+      "fix": "On github.com/settings/tokens make a classic token with the repo and workflow scopes, paste it on the admin page under Settings, then press Check token.",
+      "url": "/admin#settings"
+    },
+    {
+      "key": "podcast-index",
+      "text": "Finish the Podcast Index submission: the feed address is filled in at podcastindex.org/add; tick the human check and press Add.",
+      "owner": "Martin",
+      "level": "watch",
+      "done": false,
+      "fix": "Open podcastindex.org/add, paste https://digestai.news/podcast.xml, tick the check, press Add.",
+      "impact": "readers",
+      "weight": 8,
+      "why": "Podcast Index feeds many independent podcast apps; the briefing is in no directory yet."
+    },
+    {
+      "key": "supabase-signups",
+      "text": "Turn off new sign-ups in Supabase (Authentication settings): the site needs none, and one unused email account exists from 3 Nov.",
+      "owner": "Martin",
+      "level": "watch",
+      "done": false,
+      "fix": "Supabase dashboard, Authentication, Sign In / Providers: switch off Allow new users to sign up.",
+      "impact": "ops",
+      "weight": 0,
+      "why": "An open sign-up the site does not use; no effect on readers."
+    }
   ]
 }
