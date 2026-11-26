@@ -131,6 +131,18 @@ def test_read_meter_counts_rows_on_sqlite_and_postgres_results():
         got = db.bytes_read() - before
         assert got < 120, got
 
+    # The same bytes per statement: a step's stats name the query that read the most (readTop).
+    with fresh_db() as (eng, _tmp):
+        with eng.begin() as conn:
+            conn.execute(insert(db.sources).values(key="k", name="N", url="https://x.test/" + "a" * 3000))
+        before = db.reads_by_statement()
+        with eng.connect() as conn:
+            conn.execute(select(db.sources.c.url)).all()
+            conn.execute(select(db.sources.c.id)).all()
+        top = db.top_reads(before)
+        assert top[0][1].startswith("sources: SELECT sources.url") and top[0][0] >= 2.9 and len(top) == 2, top
+        assert db.statement_key("select count(*) from (select a from stories) s").startswith("stories:")
+
     class FakeResult:  # psycopg's pgresult: row count, column count and each value's length
         ntuples, nfields = 2, 3
 

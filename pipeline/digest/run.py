@@ -48,6 +48,10 @@ CAN_WAIT = {"discuss": 20, "pulse": 10, "upgrade": 20, "repair": 10, "topics": 1
 LAST = {"audio": 150, "media": 90, "backup": 25, "admin": 30, "team": 5, "morning": 20, "notify": 5, "readme": 5, "indexnow": 5}
 
 
+# A step that reads at least this many KB names its two largest statements in its stats (readTop).
+READ_TOP_KB = 50
+
+
 def time_kept(steps: list[str], i: int) -> float:
     """Seconds kept for the steps after position i that always run."""
     return float(sum(LAST.get(s, 0) for s in steps[i + 1:]))
@@ -103,6 +107,7 @@ def main(argv: list[str]) -> int:
         t0 = time.time()
         b0 = db.bytes_read()
         damaged_before = len(cache.DAMAGED)
+        by_statement = db.reads_by_statement()
         try:
             stats = STEPS[step]()
         except Exception:
@@ -116,6 +121,9 @@ def main(argv: list[str]) -> int:
         # also carries the connection's start-up reads.
         stats["readKB"] = round((db.bytes_read() - b0 + startup_bytes) / 1024, 1)
         startup_bytes = 0
+        if stats["readKB"] >= READ_TOP_KB:
+            # Which statement read the most: where to look when the monthly reads climb.
+            stats["readTop"] = db.top_reads(by_statement)
         summary[step] = stats
         with eng.begin() as conn:
             conn.execute(update(db.runs).where(db.runs.c.id == run_id).values(finished_at=db.utcnow(), stats=stats))
