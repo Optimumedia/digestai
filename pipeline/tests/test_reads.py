@@ -846,6 +846,70 @@ def test_a_wave_that_closes_its_pages_is_still_left_out():
         assert per_day["clicks"] == 1
 
 
+def test_new_story_scores_reach_the_runner_copy_without_being_read_back():
+    """rank.py writes the hourly-changing story scores without a new revision and puts them in the
+    runner's copy itself: the copy matches the database, and the next run reads none of those rows."""
+    from digest import rank
+
+    with fresh_db() as (eng, _tmp):
+        seed(eng)
+        with eng.begin() as conn:
+            conn.execute(update(db.stories).values(score=0.0))
+        with eng.connect() as conn:
+            cache.stories(conn)
+        new_process()
+        stats = rank.run()
+        assert stats["scores_changed"] == 12, stats
+        new_process()
+        b0 = db.bytes_read()
+        with eng.connect() as conn:
+            copy = {i: r.score for i, r in cache.stories(conn).items()}
+        assert db.bytes_read() - b0 < 1500, db.bytes_read() - b0  # watermark and deletions only, no rows
+        with eng.connect() as conn:
+            stored = dict(conn.execute(select(db.stories.c.id, db.stories.c.score)).all())
+        assert copy == stored and all(v > 0 for v in stored.values()), (copy, stored)
+        # A copy that missed the write (the run stopped before it was saved) is mended by the next rank.
+        with eng.begin() as conn:
+            conn.execute(update(db.stories).values(score=0.0))
+        with eng.connect() as conn:
+            cache.stories(conn)
+        new_process()
+        rank.run()
+        cache.reset()  # stopped before the copy was saved: the copy on disk still says 0.0
+        with eng.connect() as conn:
+            assert cache.stories(conn)[3].score == 0.0
+        cache.reset()
+        assert rank.run()["scores_changed"] == 12
+        new_process()
+        with eng.connect() as conn:
+            copy = {i: r.score for i, r in cache.stories(conn).items()}
+            assert copy == dict(conn.execute(select(db.stories.c.id, db.stories.c.score)).all())
+        # The export from the copy equals one from a cold read.
+        _tmp2 = _tmp / "x"
+        warm, cold = _export_both_ways(eng, _tmp2)
+        assert warm == cold
+
+
+def test_social_reads_only_the_stories_that_are_not_live():
+    from digest import social
+
+    with fresh_db() as (eng, _tmp):
+        seed(eng)
+        with eng.begin() as conn:
+            conn.execute(update(db.stories).where(db.stories.c.id.in_([4, 7])).values(status="unpublished"))
+        with eng.connect() as conn:
+            b0 = db.bytes_read()
+            assert social.live_story_ids(conn, list(range(1, 13))) == set(range(1, 13)) - {4, 7}
+            narrow = db.bytes_read() - b0
+            b0 = db.bytes_read()
+            full = {r.id for r in conn.execute(select(db.stories.c.id).where(db.stories.c.status == "published")).all()}
+            wide = db.bytes_read() - b0
+            assert full == set(range(1, 13)) - {4, 7} and narrow < wide, (narrow, wide)
+            # An id the table does not hold is never called live.
+            assert social.live_story_ids(conn, [1, 4, 999]) == {1}
+            assert social.live_story_ids(conn, []) == set()
+
+
 def test_daily_history_reads_its_table_once_and_matches_a_full_read():
     """history.update kept the whole daily_stats table in the runner's copy: later runs read two
     numbers to know it is unchanged, and never read it back for admin.json."""

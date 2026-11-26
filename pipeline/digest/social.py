@@ -283,6 +283,20 @@ class Bluesky:
         return r.json().get("uri", "")
 
 
+def live_story_ids(conn, ids: list[int]) -> set[int]:
+    """The ids among `ids` whose story is published in the database now. Asked as "which are not"
+    (a handful) plus a count, rather than reading back every id of stories.json (7,000 ids, about
+    110 KB a run); only when some id is missing from the table altogether are the published ones
+    read in full."""
+    s = db.stories.c
+    ids = ids or [-1]
+    found = conn.execute(select(func.count()).select_from(db.stories).where(s.id.in_(ids))).scalar() or 0
+    if found == len(set(ids)):
+        held = {r.id for r in conn.execute(select(s.id).where(s.id.in_(ids), s.status != "published")).all()}
+        return set(ids) - held
+    return {r.id for r in conn.execute(select(s.id).where(s.id.in_(ids), s.status == "published")).all()}
+
+
 def _plan(now: datetime) -> list[dict]:
     data = config.SITE_DATA_DIR
     try:
@@ -303,8 +317,7 @@ def _plan(now: datetime) -> list[dict]:
             db.social_posts.c.network == "bluesky", db.social_posts.c.kind == "story")).scalar()
         # stories.json already leaves out held and unpublished stories; check the database as well, so
         # a stale file can never put a story on Bluesky that is now waiting for approval.
-        live = {r.id for r in conn.execute(select(db.stories.c.id).where(
-            db.stories.c.id.in_(list(by_id) or [-1]), db.stories.c.status == "published")).all()}
+        live = live_story_ids(conn, list(by_id))
     stories = [s for s in stories if s["id"] in live]
     by_id = {s["id"]: s for s in stories}
 

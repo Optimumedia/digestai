@@ -244,7 +244,9 @@ def train_and_predict(conn) -> dict:
     return stats
 
 
-def score_stories(conn) -> int:
+def score_stories(conn, written: dict | None = None) -> int:
+    """Score every story in the export window; returns how many. `written` collects {story id: new
+    score} for the scores that changed (run() puts them into the runner's copy after the commit)."""
     now = db.utcnow()
     since = now - timedelta(days=config.EXPORT_DAYS)
     stories_rows = sorted((s for s in cache.stories(conn).values() if (db.as_utc(s.updated_at) or now) >= since), key=lambda s: s.id)
@@ -295,7 +297,14 @@ def score_stories(conn) -> int:
         if s.score is None or abs(s.score - score) > 1e-4:
             updates.append({"sid": s.id, "sc": score})
     if updates:
-        conn.execute(update(db.stories).where(db.stories.c.id == bindparam("sid")).values(score=bindparam("sc")), updates)
+        # Freshness decays every hour, so most of the week's stories get a new score each run. Written
+        # with a new revision, each of them was read back by the next run's copy of the stories
+        # (cache.py): about 700 rows, the largest repeated read of a run. The score is the only
+        # column written here and the runner's copy is told the new values instead (run()).
+        with db.revision_kept(conn):
+            conn.execute(update(db.stories).where(db.stories.c.id == bindparam("sid")).values(score=bindparam("sc")), updates)
+        if written is not None:
+            written.update({u["sid"]: u["sc"] for u in updates})
     return n
 
 
@@ -412,9 +421,15 @@ def discover(conn) -> int:
 
 def run() -> dict:
     eng = db.engine()
+    written: dict[int, float] = {}
     with eng.begin() as conn:
         stats = train_and_predict(conn)
-        stats["stories_scored"] = score_stories(conn)
+        stats["stories_scored"] = score_stories(conn, written)
         update_source_weights(conn)
         stats["discovered_sources"] = discover(conn)
+    # Committed: the runner's copy takes the new scores (a run stopped before the copy is saved
+    # leaves old ones there, which the next run's comparison above finds and writes again).
+    with eng.connect() as conn:
+        cache.patch_rows(conn, cache.STORIES, {sid: {"score": sc} for sid, sc in written.items()})
+    stats["scores_changed"] = len(written)
     return stats

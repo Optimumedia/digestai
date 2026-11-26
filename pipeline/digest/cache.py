@@ -296,6 +296,23 @@ class Mirror(_Store):
         return dict(rows)
 
 
+def patch_rows(conn, mirror: Mirror, changes: dict[int, dict]) -> int:
+    """Put values just written into the runner's copy of a mirror, for a write made inside
+    db.revision_kept (which leaves the rows' revision as it was, so the copy would not read them).
+    Only for columns whose new value the writer knows exactly. Returns the rows changed."""
+    st = mirror.state(conn)
+    rows = st["rows"]
+    n = 0
+    for i, values in changes.items():
+        r = rows.get(int(i))
+        if r is not None:
+            rows[int(i)] = r._replace(**values)
+            n += 1
+    if n:
+        st["_dirty"] = True
+    return n
+
+
 def _len(col):
     return func.coalesce(func.length(cast(col, Text)), -1)
 
