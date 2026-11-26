@@ -196,14 +196,41 @@ def should_start_article(elapsed: float, durations: list[float], budget: float, 
 
 # ----------------------------------------------------------------- budget
 
-def _today() -> str:
-    return db.utcnow().date().isoformat()
+# Providers whose free day does not start at 00:00 UTC. Gemini's requests-per-day quotas reset at
+# midnight Pacific time (08:00 UTC in winter, 07:00 in summer), so its llm_usage row and its
+# "exhausted" mark are kept per Pacific day: a mark set at 01:00 UTC, while yesterday's quota was
+# still spent, must not hold it off after its new quota arrives at 08:00.
+PACIFIC_DAY = frozenset({"gemini"})
+
+
+def _pacific_offset_hours(now: datetime) -> int:
+    """UTC-7 from the second Sunday of March 10:00 UTC to the first Sunday of November 09:00 UTC
+    (the US rule), else UTC-8. Computed here so the runner needs no time-zone database."""
+    march = datetime(now.year, 3, 8, 10, tzinfo=timezone.utc)
+    start = march + timedelta(days=(6 - march.weekday()) % 7)
+    nov = datetime(now.year, 11, 1, 9, tzinfo=timezone.utc)
+    end = nov + timedelta(days=(6 - nov.weekday()) % 7)
+    return -7 if start <= now < end else -8
+
+
+def _provider_now(provider: str | None = None) -> datetime:
+    now = db.utcnow()
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    if provider in PACIFIC_DAY:
+        return now + timedelta(hours=_pacific_offset_hours(now))
+    return now
+
+
+def _today(provider: str | None = None) -> str:
+    """The provider's current quota day: UTC, or the Pacific date for PACIFIC_DAY providers."""
+    return _provider_now(provider).date().isoformat()
 
 
 def usage_today(conn, provider: str) -> tuple[int, bool]:
     row = conn.execute(
         select(db.llm_usage.c.requests, db.llm_usage.c.exhausted)
-        .where(db.llm_usage.c.day == _today(), db.llm_usage.c.provider == provider)
+        .where(db.llm_usage.c.day == _today(provider), db.llm_usage.c.provider == provider)
     ).first()
     return (row.requests, row.exhausted) if row else (0, False)
 
@@ -222,7 +249,7 @@ def record_usage(eng, provider: str, n: int = 1, exhausted: bool = False) -> Non
         return
     with eng.begin() as conn:
         row = conn.execute(
-            select(db.llm_usage.c.id).where(db.llm_usage.c.day == _today(), db.llm_usage.c.provider == provider)
+            select(db.llm_usage.c.id).where(db.llm_usage.c.day == _today(provider), db.llm_usage.c.provider == provider)
         ).first()
         if row:
             values = {"requests": db.llm_usage.c.requests + n}
@@ -230,11 +257,11 @@ def record_usage(eng, provider: str, n: int = 1, exhausted: bool = False) -> Non
                 values["exhausted"] = True
             conn.execute(update(db.llm_usage).where(db.llm_usage.c.id == row.id).values(**values))
         else:
-            conn.execute(insert(db.llm_usage).values(day=_today(), provider=provider, requests=n, exhausted=exhausted))
+            conn.execute(insert(db.llm_usage).values(day=_today(provider), provider=provider, requests=n, exhausted=exhausted))
 
 
-def _minutes_left_today() -> int:
-    now = db.utcnow()
+def _minutes_left_today(provider: str | None = None) -> int:
+    now = _provider_now(provider)
     return 24 * 60 - (now.hour * 60 + now.minute)
 
 
@@ -251,7 +278,7 @@ def allowance(conn, provider: str) -> int:
     if exhausted:
         return 0
     remaining = max(0, budget - used)
-    runs_left = max(1, -(-_minutes_left_today() * config.RUNS_PER_DAY // (24 * 60)))  # ceil
+    runs_left = max(1, -(-_minutes_left_today(provider) * config.RUNS_PER_DAY // (24 * 60)))  # ceil
     return max(0, min(config.MAX_ENRICH_PER_RUN, -(-remaining // runs_left)))
 
 
@@ -267,7 +294,7 @@ def spare(conn, provider: str) -> int:
     used, exhausted = usage_today(conn, provider)
     if exhausted:
         return 0
-    return int(max(0, budget - used) - budget * (_minutes_left_today() / (24 * 60)))
+    return int(max(0, budget - used) - budget * (_minutes_left_today(provider) / (24 * 60)))
 
 
 # ----------------------------------------------------------------- queue order
@@ -370,14 +397,58 @@ def pick_queue(conn, limit: int) -> list[int]:
     return [r.id for r in order_queue(list(rows.values()), db.utcnow(), front)[:limit]]
 
 
-_gemini_dead: set[str] = set()  # models that answered 404/429 in this run
+# Gemini's free quotas, as the 429 bodies name them: requests per day per model (reset at midnight
+# Pacific time, not UTC: https://aistudio.google.com/docs/rate-limits) and requests or tokens per
+# minute per model. Only the first kind ends a model's day. Until 26 Nov 2026 any 429 did, and the
+# per-UTC-day "exhausted" mark then held Gemini off from 08:00 UTC, when its quota had just come
+# back, to midnight: on 24 and 26 Nov the whole day got 3 and 2 Gemini summaries.
+_gemini_dead: set[str] = set()        # models out of their day's quota (429 per day) or gone (404), this run
+_gemini_skip: set[str] = set()        # models that timed out this run: not asked again until the next run
+_gemini_wait_until: dict[str, float] = {}  # model -> time.time() when its per-minute window or overload has passed
+_gemini_run: dict = {"timeouts": 0}
+GEMINI_TIMEOUT_SECONDS = 60.0   # a summary takes 5-30 s; three 90-second hangs cost one run 4.5 minutes (26 Nov)
+GEMINI_OVERLOAD_PAUSE_SECONDS = 60.0  # a 503 "high demand" lasts minutes: the next model takes this one
+
+
+def gemini_reset() -> None:
+    """Forget this run's per-model state (each run is a new process; tests call this)."""
+    _gemini_dead.clear()
+    _gemini_skip.clear()
+    _gemini_wait_until.clear()
+    _gemini_run.update(timeouts=0)
+
+
+def gemini_quota(body) -> tuple[str, float, str]:
+    """What a Gemini 429 says: ("day" | "minute", seconds to wait, the quota ids). A quota per day
+    ends the model's day; anything else (per minute, tokens per minute, unnamed) is a wait."""
+    err = body.get("error", {}) if isinstance(body, dict) else {}
+    details = err.get("details", []) if isinstance(err, dict) else []
+    quotas = [str(v.get("quotaId", "")) for d in details if isinstance(d, dict)
+              for v in (d.get("violations") or []) if isinstance(v, dict)]
+    wait = 0.0
+    for d in details:
+        if isinstance(d, dict) and d.get("retryDelay"):
+            wait = _parse_reset(str(d["retryDelay"]))
+    if not wait:
+        m = re.search(r"retry in ([\d.]+)\s*s", str(err.get("message", "") if isinstance(err, dict) else ""))
+        wait = float(m.group(1)) if m else 60.0
+    kind = "day" if any("PerDay" in q for q in quotas) else "minute"
+    return kind, wait, ",".join(q for q in quotas if q) or str(err.get("message", ""))[:120]
 
 
 def call_gemini(prompt: str) -> dict:
-    """Try the primary model, then the fallbacks; each model has its own free-tier quota."""
+    """Try the primary model, then the fallbacks; each model has its own free-tier quota.
+
+    Raises QuotaExhausted only when every model is out of its day's quota (the caller then marks
+    the day), ProviderPaused when the rest are out for this run (timeouts), and RuntimeError when a
+    model is only waiting out a per-minute window or an overload, so a later article tries again."""
     last: Exception | None = None
-    for model in [config.GEMINI_MODEL, *config.GEMINI_FALLBACK_MODELS]:
-        if model in _gemini_dead:
+    models = [config.GEMINI_MODEL, *config.GEMINI_FALLBACK_MODELS]
+    for model in models:
+        if model in _gemini_dead or model in _gemini_skip:
+            continue
+        if _gemini_wait_until.get(model, 0.0) > time.time():
+            last = RuntimeError(f"gemini {model} waiting out a per-minute limit")
             continue
         # Gemini 3 models think before answering and the thoughts count against maxOutputTokens,
         # so keep the ceiling high and the thinking short; summarising does not need deliberation.
@@ -387,21 +458,41 @@ def call_gemini(prompt: str) -> dict:
         body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen}
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         # The key travels in a header, never in the URL, so it can never appear in an error message.
-        resp = requests.post(url, headers={"x-goog-api-key": config.GEMINI_API_KEY}, json=body, timeout=_request_timeout(90))
-        if resp.status_code in (404, 429):
+        try:
+            resp = requests.post(url, headers={"x-goog-api-key": config.GEMINI_API_KEY}, json=body,
+                                 timeout=_request_timeout(GEMINI_TIMEOUT_SECONDS))
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            # A hang is the free tier being congested: this model sits out the run, and a second one
+            # takes Gemini out of the run, so hangs cost at most two timeouts (not one per article).
+            _gemini_skip.add(model)
+            _gemini_run["timeouts"] += 1
+            log.warning("gemini %s did not answer (%s); skipped for this run", model, type(exc).__name__)
+            if _gemini_run["timeouts"] >= 2:
+                raise ProviderPaused(f"gemini: {_gemini_run['timeouts']} timeouts this run") from exc
+            last = RuntimeError(f"gemini {model} timed out")
+            continue
+        if resp.status_code == 404:
             _gemini_dead.add(model)
-            detail = ""
+            last = QuotaExhausted(f"gemini {model} 404")
+            log.warning("gemini %s not available (404); trying next model", model)
+            continue
+        if resp.status_code == 429:
             try:
-                err = resp.json().get("error", {})
-                quotas = [v.get("quotaId", "") for d in err.get("details", []) for v in d.get("violations", [])]
-                detail = ",".join(q for q in quotas if q) or err.get("message", "")[:120]
+                kind, wait, detail = gemini_quota(resp.json())
             except Exception:  # noqa: BLE001
-                pass
-            last = QuotaExhausted(f"gemini {model} {resp.status_code} {detail}")
-            log.warning("gemini %s unavailable (%s %s); trying next model", model, resp.status_code, detail)
+                kind, wait, detail = "minute", 60.0, ""
+            if kind == "day":
+                _gemini_dead.add(model)
+                last = QuotaExhausted(f"gemini {model} 429 {detail}")
+                log.warning("gemini %s out of its day's quota (%s); trying next model", model, detail)
+            else:
+                _gemini_wait_until[model] = time.time() + max(5.0, wait)
+                last = RuntimeError(f"gemini {model} rate limited for {wait:.0f}s ({detail})")
+                log.info("gemini %s rate limited for %.0fs (%s); trying next model", model, wait, detail)
             continue
         if resp.status_code >= 500:
-            # Overloaded: try the next model this time, keep this one for later articles.
+            # Overloaded: the next model takes this article, and this one rests for a minute.
+            _gemini_wait_until[model] = time.time() + GEMINI_OVERLOAD_PAUSE_SECONDS
             last = RuntimeError(f"gemini {model} http {resp.status_code}")
             continue
         if resp.status_code >= 400:
@@ -413,7 +504,11 @@ def call_gemini(prompt: str) -> dict:
         if not text.strip():
             raise RuntimeError(f"gemini {model} returned no text (finish={cand.get('finishReason')})")
         return _parse_json(text)
-    raise last or QuotaExhausted("gemini: no model available")
+    if all(m in _gemini_dead for m in models):
+        raise last if isinstance(last, QuotaExhausted) else QuotaExhausted("gemini: no model available")
+    if all(m in _gemini_dead or m in _gemini_skip for m in models):
+        raise ProviderPaused(f"gemini: no model left this run ({last})")
+    raise last or RuntimeError("gemini: every model is waiting out a limit")
 
 
 _groq_dead: set[str] = set()

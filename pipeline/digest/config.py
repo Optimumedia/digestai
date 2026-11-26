@@ -44,7 +44,9 @@ BROWSER_AGENT = (
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 # Verified 2026-09-11: the 2.5 generation is closed to new accounts; these three accept requests.
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-3.8-flash"
-GEMINI_FALLBACK_MODELS = [m.strip() for m in (os.environ.get("GEMINI_FALLBACK_MODELS") or "gemini-3.5-flash,gemini-flash-latest").split(",") if m.strip()]
+# The two Flash-Lite models (checked 26 Nov 2026: both answer on the free tier, 5-8 s for a full
+# summary prompt, with the hedging and attribution kept) have quotas of their own, after the Flash ones.
+GEMINI_FALLBACK_MODELS = [m.strip() for m in (os.environ.get("GEMINI_FALLBACK_MODELS") or "gemini-3.5-flash,gemini-flash-latest,gemini-3.5-flash-lite,gemini-3.1-flash-lite").split(",") if m.strip()]
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 # Verified 2026-09-11 against the Groq model list; each model has its own free-tier quota.
 GROQ_MODEL = os.environ.get("GROQ_MODEL") or "qwen/qwen3.8-27b"
@@ -128,7 +130,8 @@ SUPABASE_EGRESS_GB = float(os.environ.get("SUPABASE_EGRESS_GB") or "5")
 SUPABASE_DB_MB = float(os.environ.get("SUPABASE_DB_MB") or "500")
 SUPABASE_CYCLE_DAY = int(os.environ.get("SUPABASE_CYCLE_DAY") or "11")
 DAILY_BUDGET = {
-    "gemini": int(os.environ.get("GEMINI_DAILY_BUDGET") or "54"),
+    # 18 of each model's 20 requests a day (their quota day is the Pacific one: enrich.PACIFIC_DAY).
+    "gemini": int(os.environ.get("GEMINI_DAILY_BUDGET") or str(18 * (1 + len(GEMINI_FALLBACK_MODELS)))),
     "groq": int(os.environ.get("GROQ_DAILY_BUDGET") or "2400"),
     # Ollama's free allowance is usage-based (hourly and weekly); a 429 pauses it for the rest of the run.
     "cloud": int(os.environ.get("OLLAMA_CLOUD_DAILY_BUDGET") or "400"),  # 3 models x 1,000/day, 80%
