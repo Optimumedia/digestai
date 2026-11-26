@@ -2,7 +2,8 @@
 
 A thread is a run of stories over days about the same saga: an exodus at a lab, a lawsuit,
 a model family's rollout. Stories join a thread when they are close in meaning to the
-thread's centre AND share at least one named entity, within a rolling window.
+thread's latest episode AND share at least one named entity, within a rolling window; a story
+that is only fairly close must also say something the thread's headlines say (joins_thread).
 """
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ from datetime import timedelta
 import numpy as np
 from sqlalchemy import insert, select, update
 
-from . import cache, config, db
+from . import cache, config, db, merge
 from .textutil import short_hash, slugify
 
 log = logging.getLogger("digest.threads")
@@ -28,6 +29,28 @@ MAX_EPISODES = 10  # past this a "thread" is a topic; the next episode starts a 
 # Entities present in more than this share of recent stories (Anthropic, OpenAI, Claude...) say
 # nothing about which saga a story belongs to, so they do not count as a shared entity.
 UBIQUITOUS_SHARE = 0.06
+
+
+def event_words(headline: str | None, common: set[str]) -> set[str]:
+    """The words of a headline that say what happened (merge.event_words), without the words of
+    names that are in every other story (common)."""
+    return set(merge.event_words(headline)) - common
+
+
+def joins_thread(sim_latest: float, names: set[str], thread_names: set[str], ubiquitous: set[str],
+                 words: set[str], thread_words: set[str]) -> bool:
+    """Whether a story is the thread's next episode. Very close to its latest episode with any shared
+    name; or fairly close with a shared name that is not in every other story AND a word the
+    thread's headlines use. The second way alone ran threads into topics: "Anthropic paid $740k to
+    a firm run by Rubio's ex-aide" was an episode of a thread on Nvidia chips for China, "Claude Code
+    recurring tasks extended" one of OpenAI's and Cisco's Shirudo (the 26 Nov sample: about one
+    episode in four of 267 shared no event word with its thread)."""
+    if not names & thread_names:
+        return False
+    if sim_latest >= THRESHOLD_ANY:
+        return True
+    specific = bool((names - ubiquitous) & (thread_names - ubiquitous))
+    return specific and sim_latest >= THRESHOLD_SPECIFIC and bool(words & thread_words)
 
 
 def _names(entities: dict | None) -> set[str]:
@@ -144,22 +167,26 @@ def run() -> dict:
                 freq[n] = freq.get(n, 0) + 1
         total = max(1, len(window))
         ubiquitous = {n for n, c in freq.items() if c >= 3 and c / total > UBIQUITOUS_SHARE}
+        # What the thread's headlines say: its name and the headlines of its episodes in the window.
+        common = {w for n in ubiquitous for w in merge.event_words(n)}
+        for tid in meta:
+            meta[tid]["words"] = event_words(t_text[tid].title, common)
+        for x in window:
+            if x.thread_id in meta and x.id in text:
+                meta[x.thread_id]["words"] |= event_words(text[x.id].headline, common)
 
         for s in stories:
             v = story_vecs[s.id]
             names_all = _names(s.entities)
-            names = names_all - ubiquitous
+            words = event_words(s.headline, common)
             best, best_sim = None, 0.0
             for tid, tv in vecs.items():
-                if meta[tid]["count"] >= MAX_EPISODES:
-                    continue
-                shared_any = names_all & meta[tid]["names"]
-                if not shared_any:
+                if meta[tid]["count"] >= MAX_EPISODES or not names_all & meta[tid]["names"]:
                     continue
                 sim = float(np.dot(v, tv))
                 sim_latest = float(np.dot(v, latest_vec[tid])) if tid in latest_vec else sim
-                specific = bool(names & (meta[tid]["names"] - ubiquitous))
-                if (sim_latest >= THRESHOLD_ANY or (specific and sim_latest >= THRESHOLD_SPECIFIC)) and sim_latest > best_sim:
+                if sim_latest > best_sim and joins_thread(sim_latest, names_all, meta[tid]["names"], ubiquitous,
+                                                          words, meta[tid]["words"]):
                     best, best_sim = tid, sim_latest
             if best is not None:
                 n = meta[best]["count"]
@@ -168,6 +195,7 @@ def run() -> dict:
                 vecs[best] = merged
                 meta[best]["count"] = n + 1
                 meta[best]["names"] |= names_all
+                meta[best]["words"] |= words
                 ents = meta[best]["ents"]
                 for kind in ("companies", "models", "people"):
                     have = [x.lower() for x in ents.get(kind, [])]
@@ -191,7 +219,7 @@ def run() -> dict:
                 ))
                 tid = res.inserted_primary_key[0]
                 vecs[tid] = v
-                meta[tid] = {"names": set(names_all), "count": 1, "ents": copy.deepcopy(s.entities or {})}
+                meta[tid] = {"names": set(names_all), "count": 1, "ents": copy.deepcopy(s.entities or {}), "words": set(words)}
                 conn.execute(update(db.stories).where(db.stories.c.id == s.id).values(thread_id=tid))
                 stats["new_threads"] += 1
     stats["named"] = name_threads(eng)

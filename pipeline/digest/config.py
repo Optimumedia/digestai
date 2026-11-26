@@ -311,6 +311,9 @@ MERGE_DUPLICATES = os.environ.get("MERGE_DUPLICATES", "1") == "1"
 MERGE_THRESHOLD_MODEL = float(os.environ.get("MERGE_THRESHOLD_MODEL") or "0.97")
 MERGE_THRESHOLD_FALLBACK = float(os.environ.get("MERGE_THRESHOLD_FALLBACK") or "0.72")
 MERGE_PAIR_DAYS = int(os.environ.get("MERGE_PAIR_DAYS") or "7")
+# Similarity merges only between stories that broke this close together (merge.same_event): one event
+# is covered within a day or two; past that, two alike stories are a saga's episodes, which threads link.
+MERGE_CLOSE_HOURS = float(os.environ.get("MERGE_CLOSE_HOURS") or "36")
 MERGE_LOOKBACK_DAYS = int(os.environ.get("MERGE_LOOKBACK_DAYS") or "14")
 MERGE_MAX_PER_RUN = int(os.environ.get("MERGE_MAX_PER_RUN") or "10")
 # Enrichment: time assumed for one article before any has finished in this run.

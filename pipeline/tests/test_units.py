@@ -253,6 +253,166 @@ def test_lead_rules_keep_news_over_commentary():
     assert pick_lead(members, texts, lambda m: False).id == 2  # without the primary point: equal, the earlier one
 
 
+def test_same_event_from_the_november_duplicates():
+    """Real pairs from the site on 16-24 Nov 2026 with the similarity of their stored embeddings: ten
+    "California sues OpenAI" stories stood side by side at 0.90-0.96, while the merge asked 0.97."""
+    from datetime import datetime, timedelta, timezone
+
+    from digest import merge
+
+    def story(headline, at, sources=1, companies=(), people=(), models=()):
+        return {"headline": headline, "at": datetime.fromisoformat(at).replace(tzinfo=timezone.utc), "sources": sources,
+                "entities": {"companies": list(companies), "people": list(people), "models": list(models)}}
+
+    rogue = story("California sues OpenAI over rogue AI agent hacks", "2026-11-16T06:47", 19, ["OpenAI", "Hugging Face"], ["Rob Bonta"])
+    hf = story("California sues OpenAI over Hugging Face cyberattack", "2026-11-16T12:03", 1, ["OpenAI", "Hugging Face"], ["Rob Bonta"])
+    assert merge.same_event(rogue, hf, 0.949, 0.97), "one lawsuit, two headlines, the same morning"
+    claims = story("OpenAI has lost control of its AI bots more than 80 times, lawsuit by California claims", "2026-11-16T12:52",
+                   1, ["OpenAI"])
+    assert merge.same_event(hf, claims, 0.864, 0.97), "a lawsuit and 'sues' are the same act"
+    # Five days later, one source repeating the lawsuit's headline: old news again, not a new story.
+    testing = story("California sues OpenAI for unsafe AI model testing and public nuisance", "2026-11-16T19:00", 1, ["OpenAI"], ["Rob Bonta"])
+    again = story("California sues OpenAI over alleged unsafe AI testing", "2026-11-21T19:10", 2, ["OpenAI"])
+    assert "repeats" in (merge.same_event(testing, again, 0.897, 0.97) or "")
+    nonprofits = story("Four nonprofits sue OpenAI, Anthropic, Google, Meta and SpaceX to halt AI development", "2026-11-14T09:01", 1,
+                       ["OpenAI", "Anthropic", "Google", "Meta", "SpaceX", "Hugging Face"])
+    assert merge.same_event(rogue, nonprofits, 0.854, 0.97) is None, "another lawsuit against OpenAI"
+
+    # Names and roles alone are not an event: these Nvidia pairs are 0.86-0.91 alike and different news.
+    kress = ["Colette Kress", "Jensen Huang"]
+    staff = story("Nvidia interim CEO Colette Kress addresses staff after Jensen Huang exit", "2026-11-18T19:21", 1, ["Nvidia"], kress)
+    board = story("Nvidia interim CEO Kress says board will not reinstate Jensen Huang", "2026-11-18T11:04", 1, ["Nvidia"], kress)
+    assert merge.same_event(staff, board, 0.858, 0.97) is None
+    shares = story("Nvidia shares fall: Kress takes interim helm", "2026-11-17T02:31", 1, ["Nvidia"], kress)
+    earnings = story("Nvidia to report quarterly earnings after CEO Jensen Huang resigns", "2026-11-17T05:00", 1, ["Nvidia"], kress)
+    assert merge.same_event(shares, earnings, 0.912, 0.97) is None
+    push = story("Elon Musk and Nvidia staff push board to reinstate Jensen Huang after resignation", "2026-11-16T10:00", 1,
+                 ["Nvidia"], ["Jensen Huang", "Elon Musk"])
+    assert merge.same_event(push, board, 0.887, 0.97) is None, "two days apart: the next episode, for the thread"
+
+    # One model launch under two headlines.
+    neon = story("Google announces Gemini 4 Neon with 1M token context", "2026-11-19T02:02", 2, ["Google"], models=["Gemini 4 Neon"])
+    neon2 = story("Google introduces Gemini 4 Neon for complex tasks at lower cost", "2026-11-19T02:27", 1, ["Google"], models=["Gemini 4 Neon"])
+    assert "launch" in (merge.same_event(neon, neon2, 0.905, 0.97) or "")
+    carbon = story("Google announces Gemini 4 Carbon top-tier model", "2026-11-18T18:25", 80, ["Google"], models=["Gemini 4 Carbon", "Gemini 4 Neon"])
+    assert merge.same_event(neon, carbon, 0.850, 0.97) is None, "a different model of the family"
+
+    # Two week-long stories about one company are alike at 0.97 whatever happened in them: merged before,
+    # they built a 40-source story out of eight days of the Nvidia saga. Five days apart they stay two.
+    resign = story("Nvidia CEO Jensen Huang resigns amid affair and spy allegations", "2026-11-12T13:52", 40, ["Nvidia"], ["Jensen Huang"])
+    h200 = story("Nvidia ends H200 sales to China after Jensen Huang's ouster", "2026-11-17T23:01", 27, ["Nvidia"], ["Jensen Huang"])
+    assert merge.same_event(resign, h200, 0.975, 0.97) is None
+    # The same day, two big stories of the saga sharing only names stay two at 0.93; a one-source
+    # copy sharing them merges (AMD and Taalas: "AMD closes Taalas deal" and "AMD completes acquisition").
+    same_day = {**h200, "at": resign["at"] + timedelta(hours=9)}
+    assert merge.same_event(resign, same_day, 0.93, 0.97) is None
+    taalas = story("AMD completes acquisition of AI chipmaker taalas", "2026-11-17T09:00", 1, ["AMD", "Taalas"])
+    taalas2 = story("AMD closes Taalas deal for model-specific AI inference chips", "2026-11-17T14:00", 1, ["AMD", "Taalas"])
+    assert merge.same_event(taalas, taalas2, 0.939, 0.97)
+    assert merge.same_event({**resign, "headline": h200["headline"]}, h200, 0.5, 0.97) == "the same headline"
+
+
+def test_roundups_are_recognised_by_their_titles():
+    from digest import merge
+
+    for title in ("AI News Weekly Summary | GPT-6.2, Gemini 4 Neon, Free Tasks",
+                  "[IT News] 3rd Week of November 2026 #51 | GPT-6.2 outperforms previous generation at 1/3 the cost",
+                  "4 AI News Items Checked Today | Anthropic IPO, Claude Video Generation, NVIDIA Investigation",
+                  "AI News Flash: Anthropic Raises $81.3 Billion in Largest IPO Ever, AI Tackles the Riemann Hypothesis (November 23, 2026 Issue)",
+                  "【AI Weekly Report 11/16~11/22】Proof of Riemann Hypothesis found with Claude is verified",
+                  "Latest AI News Trending on X (Nov 13–Nov 19) | The Stars are \"GPT-6.2\" and \"Gemini 4 Neon\"",
+                  "Technology & AI Trends (4th Week of November)", "This Week's AI News Summary | GPT-6.2, Gemini 4 Neon, Anthropic IPO",
+                  "Top 3 AI News of the Week | A Simple Explanation of Gemini 4 Neon", "Weekly AI roundup: Anthropic safety, xAI Grok voice"):
+        assert merge.is_roundup(title), title
+    for title in ("Google's AI news summaries get facts wrong, BBC finds", "Gemini 4 Neon is the new #1 on the Models Engineering Index",
+                  "Market Brief: Anthropic's $1.5T IPO Is Coming", "Fireworks AI Adds Tencent's Hy4 Flash to Its Serverless API",
+                  "[AINews] Jensen Huang resigns after 33 years leading NVIDIA", "Recap of Microsoft Ignite 2026: Copilot as the Work OS",
+                  "Anthropic's record IPO collides with tech's worst week on Wall Street since 2020", "It news: a startup raises $5M"):
+        assert not merge.is_roundup(title), title
+
+
+def test_roundups_and_late_articles_never_take_a_story():
+    """23-25 Nov: note.com round-ups led five stories under the wrong headline, and an overview of
+    Gemini 4 Carbon five days on took the lead of the Gemini 4 Neon launch story."""
+    import tempfile
+    from datetime import datetime, timedelta, timezone
+
+    import numpy as np
+    from sqlalchemy import create_engine, insert, select
+
+    from digest import cluster, db, merge
+
+    now = datetime.now(timezone.utc)
+    neon = {"headline": "Google releases Gemini 4 Neon", "title": "Introducing Gemini 4 Neon", "content_type": "news",
+            "importance": 7, "primary": False, "at": now - timedelta(days=5)}
+    overview = {"headline": "Google announces Gemini 4 Carbon top-tier model", "title": "Overview of the Gemini 4 Carbon Launch",
+                "content_type": "news", "importance": 9, "primary": False, "at": now}
+    assert not merge.better_lead(overview, neon), "five days later: what came after, not the launch"
+    assert merge.better_lead({**overview, "at": neon["at"] + timedelta(hours=6)}, neon), "the same day it may"
+    flash = {**overview, "title": "AI News Flash: Anthropic Raises $81.3 Billion in Largest IPO Ever (November 23, 2026 Issue)",
+             "at": neon["at"], "primary": True}
+    assert not merge.better_lead(flash, neon), "a round-up never leads"
+    assert merge.better_lead(neon, flash), "and gives way to any report"
+
+    from types import SimpleNamespace as NS
+    day = now - timedelta(days=4)
+    members = [NS(id=1, status="published", content_type="news", importance=6, domain="a.test", source_id=3, published_at=day),
+               NS(id=2, status="published", content_type="news", importance=6, domain="b.test", source_id=3, published_at=day + timedelta(hours=2)),
+               NS(id=3, status="published", content_type="news", importance=9, domain="c.test", source_id=3, published_at=day + timedelta(days=4)),
+               NS(id=4, status="published", content_type="news", importance=10, domain="note.test", source_id=3, published_at=day)]
+    texts = {1: NS(title="Google launches Gemini 4 Neon", headline="Google launches Gemini 4 Neon"),
+             2: NS(title="Gemini 4 Neon is here", headline="Google releases Gemini 4 Neon"),
+             3: NS(title="Overview of the Gemini 4 Carbon Launch", headline="Google announces Gemini 4 Carbon"),
+             4: NS(title="Today's AI News | November 19: Google Releases Gemini 4 Neon", headline="Google releases Gemini 4 Neon")}
+    assert merge.pick_lead(members, texts, lambda m: False).id in (1, 2), "neither the round-up nor the late overview"
+
+    tmp = Path(tempfile.mkdtemp()) / "roundup.db"
+    eng = create_engine(f"sqlite:///{tmp.as_posix()}", future=True)
+    db.metadata.create_all(eng)
+    rng = np.random.default_rng(5)
+
+    def vec(base):
+        v = np.asarray(base, dtype=np.float32) + 0.03 * rng.standard_normal(8).astype(np.float32)
+        return (v / np.linalg.norm(v)).tolist()
+
+    event, other = [1, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 1, 0, 0]
+    with eng.begin() as conn:
+        conn.execute(insert(db.sources).values(id=1, key="s", name="S", url="https://s.test/feed"))
+        conn.execute(insert(db.stories).values(
+            id=1, slug="neon", headline="Google releases Gemini 4 Neon", lead_article_id=1, article_count=1, importance=7,
+            embedding=db.pack_vec(vec(event)), status="published", first_published_at=now - timedelta(hours=50), updated_at=now))
+        conn.execute(insert(db.articles).values(
+            id=1, url="https://s.test/1", source_id=1, story_id=1, slug="a-1", title="Introducing Gemini 4 Neon",
+            headline="Google releases Gemini 4 Neon", importance=7, embedding=vec(event), status="published", content_type="news",
+            published_at=now - timedelta(hours=50), fetched_at=now, created_at=now))
+        conn.execute(insert(db.articles), [
+            {"id": 10, "url": "https://s.test/10", "source_id": 1, "title": "AI News Weekly Summary | GPT-6.2, Gemini 4 Neon, Free Tasks",
+             "headline": "OpenAI releases GPT-6.2 and Google launches Gemini 4 Neon", "importance": 9, "embedding": vec(event),
+             "status": "enriched", "content_type": "news", "published_at": now - timedelta(hours=3), "fetched_at": now, "created_at": now},
+            {"id": 11, "url": "https://s.test/11", "source_id": 1, "title": "This Week's AI News Summary | GPT-6.2, Anthropic IPO",
+             "headline": "Anthropic IPO and GPT-6.2 lead the week", "importance": 9, "embedding": vec(other),
+             "status": "enriched", "content_type": "news", "published_at": now - timedelta(hours=2), "fetched_at": now, "created_at": now},
+            {"id": 12, "url": "https://s.test/12", "source_id": 1, "title": "Overview of the Gemini 4 Carbon Launch",
+             "headline": "Google announces Gemini 4 Carbon top-tier model", "importance": 10, "embedding": vec(event),
+             "status": "enriched", "content_type": "news", "published_at": now - timedelta(hours=1), "fetched_at": now, "created_at": now}])
+
+    saved = (db._engine, cluster._MODEL, cluster._MODEL_NAME)
+    db._engine, cluster._MODEL, cluster._MODEL_NAME = eng, False, "fallback-hash"
+    try:
+        stats = cluster.run()
+    finally:
+        db._engine, cluster._MODEL, cluster._MODEL_NAME = saved
+    assert stats["roundups"] == 2 and stats["new_stories"] == 0, stats
+    with eng.connect() as conn:
+        story = conn.execute(select(db.stories).where(db.stories.c.id == 1)).one()
+        arts = {a.id: a for a in conn.execute(select(db.articles)).all()}
+    assert (arts[10].story_id, arts[10].status) == (1, "overflow"), "counted as coverage, not shown"
+    assert arts[11].status == "rejected" and arts[11].story_id is None, "matches nothing: no story of its own"
+    assert arts[12].story_id == 1 and arts[12].status == "published"
+    assert story.lead_article_id == 1 and story.headline == "Google releases Gemini 4 Neon", "the late overview did not take over"
+    assert story.article_count == 3
+
+
 def test_cluster_repairs_oversized_story_and_reclusters():
     import tempfile
     from datetime import datetime, timedelta, timezone

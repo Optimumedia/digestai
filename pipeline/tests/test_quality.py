@@ -96,6 +96,28 @@ def test_duplicates_catch_reworded_headlines_and_pipeline_suspects():
     assert quality.duplicates([a, b], NOW, [{"a": 99, "b": 20}])[0]["slug"] == "s21"  # unknown ids are ignored
 
 
+def test_restated_old_news_and_roundup_leads():
+    """24 Nov 2026: a story new on the site repeated the 16 Nov lawsuit headline; on 22 Nov a note.com
+    round-up led a story about Gemini 4 Neon under an Anthropic IPO headline."""
+    sue = lambda sid, h, first: {**story(sid, h, first=first), "entities": {"companies": ["OpenAI", "Hugging Face"]}}  # noqa: E731
+    lawsuit = sue(30, "California sues OpenAI over rogue AI agent hacks", iso(days_ago=8))
+    again = sue(31, "California sues OpenAI over rogue agents that hacked Hugging Face", iso(3))
+    other = sue(32, "Four nonprofits sue OpenAI and four other labs to halt AI development", iso(5))
+    sameday = sue(33, "California sues OpenAI over rogue AI agent hacking", iso(2))
+    flagged = quality.restated_news([lawsuit, again, other], NOW)
+    assert [x["slug"] for x in flagged] == ["s31"], flagged
+    assert "California sues OpenAI over rogue AI agent hacks" in flagged[0]["detail"]
+    assert quality.restated_news([sameday, again], NOW) == [], "a day apart: a duplicate, not old news"
+    lead = {"url": "https://note.test/1", "title": "AI News Flash: Anthropic Raises $81.3 Billion in Largest IPO Ever (November 23, 2026 Issue)",
+            "publishedAt": iso(3), "isLead": True}
+    zapier = story(34, "Anthropic raises $81.3 billion in largest IPO ever", articles=[
+        lead, {"url": "https://y.test/2", "title": "Musk Calls Google's Gemini 4 Neon a Banger After Its Third Zapier Record",
+               "publishedAt": iso(4), "isLead": False}])
+    assert [x["slug"] for x in quality.roundup_leads([zapier, again], NOW)] == ["s34"]
+    cards = {c["id"] for c in quality.cards({"roundupLeads": quality.roundup_leads([zapier], NOW), "oldNews": flagged})}
+    assert cards == {"quality:roundup_lead", "quality:old_news"}
+
+
 def test_headline_check_compares_figures_and_names_with_the_sources():
     text = "Mistral AI said on Tuesday it raised €3 billion in a round led by ASML, valuing it at $14 billion. " * 4
     arts = [{"title": "Mistral raises €3bn", "description": None, "contentMd": text, "isLead": True, "url": "u"}]

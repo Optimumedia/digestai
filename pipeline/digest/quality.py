@@ -114,6 +114,37 @@ def old_news(stories: list[dict], now: datetime) -> list[dict]:
     return out
 
 
+def restated_news(stories: list[dict], now: datetime) -> list[dict]:
+    """Live stories whose headline repeats an older story's event (merge.restates): a follow-up
+    written up as the event itself. On 24 Nov "California sues OpenAI over rogue agents that hacked
+    Hugging Face" was new on the site, eight days after the lawsuit, from a piece about something else."""
+    facts = [(s, merge.facts_of(s.get("headline"), s.get("entities"), _dt(s.get("firstPublishedAt")))) for s in stories]
+    facts = [(s, f) for s, f in facts if f["at"]]
+    out = []
+    for s in live_stories(stories, now):
+        mine = next((f for x, f in facts if x is s), None)
+        if mine is None or len(mine["words"]) < 3:
+            continue
+        older = [(o, f) for o, f in facts if o is not s
+                 and timedelta(hours=config.MERGE_CLOSE_HOURS) < mine["at"] - f["at"] <= timedelta(days=merge.RESTATED_DAYS)]
+        hit = next((o for o, f in sorted(older, key=lambda of: of[1]["at"]) if merge.restates(mine, f)), None)
+        if hit:
+            out.append(_item(s, f"Shown as new, but it repeats \"{hit.get('headline')}\" from {_dt(hit.get('firstPublishedAt')):%d %b}.",
+                             _unpublish(s)))
+    return out
+
+
+def roundup_leads(stories: list[dict], now: datetime) -> list[dict]:
+    """Live stories led by a round-up of several stories (merge.is_roundup): the headline is likely
+    about another event than the sources."""
+    out = []
+    for s in live_stories(stories, now):
+        title = _lead(s).get("title")
+        if merge.is_roundup(title):
+            out.append(_item(s, f"Its main source is a round-up of several stories: \"{title}\".", _unpublish(s)))
+    return out
+
+
 def single_source_lead(briefing: dict, by_id: dict[int, dict]) -> dict | None:
     ids = briefing.get("storyIds") or []
     lead = by_id.get(ids[0]) if ids else None
@@ -399,6 +430,11 @@ def cards(flags: dict[str, list[dict]]) -> list[dict]:
     add("old_news", "warning", n(f.get("oldNews", []), "An old story is on the site as new.", "{n} old stories are on the site as new."),
         "Readers trust a news site that shows today's news. An article from years ago presented as new makes the whole site look careless.",
         "Check the story. If it really is old, unpublish it (the button removes it on the next run).", f.get("oldNews", []))
+    add("roundup_lead", "warning", n(f.get("roundupLeads", []), "A story is led by a round-up of several stories.",
+                                     "{n} stories are led by a round-up of several stories."),
+        "A round-up names several events, so the story's headline and summary can be about another event than its sources.",
+        "Open the story. The repair step gives such stories another lead on its next run; if the story has no other source, unpublish it.",
+        f.get("roundupLeads", []))
     add("single_lead", "info", "The briefing leads with a story only one source has reported.",
         "The first story sets the tone of the day. A single blog post may be minor or wrong, and nobody else has confirmed it yet.",
         "Usually nothing: the order changes as more sources arrive. If it is still first in a few hours and does not deserve it, unpublish it.",
@@ -438,6 +474,16 @@ def cards(flags: dict[str, list[dict]]) -> list[dict]:
 
 # ---------------------------------------------------------------------------- step
 
+def _unique(items: list[dict]) -> list[dict]:
+    """One item per story, the first reason kept."""
+    seen, out = set(), []
+    for item in items:
+        if item.get("slug") not in seen:
+            seen.add(item.get("slug"))
+            out.append(item)
+    return out
+
+
 def _load(name: str, default):
     try:
         return json.loads((config.SITE_DATA_DIR / name).read_text(encoding="utf-8"))
@@ -454,7 +500,8 @@ def run(now: datetime, own_pages: list[dict] | None = None, fetch: Callable[[str
     briefing = _load("briefing.json", {})
     by_id = {s.get("id"): s for s in stories}
     flags: dict = {
-        "oldNews": old_news(stories, now),
+        "oldNews": _unique(old_news(stories, now) + restated_news(stories, now)),
+        "roundupLeads": roundup_leads(stories, now),
         "singleLead": single_source_lead(briefing, by_id),
         "overMerged": over_merged(stories),
         "duplicates": duplicates(stories, now, _load("duplicates.json", [])),

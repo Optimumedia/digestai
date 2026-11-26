@@ -13,6 +13,11 @@ Two mistakes from before their fixes are still in the database and on the pages:
   stop showing their text; a story left with no other readable source is unpublished.
 - Oversized stories. Before CLUSTER_MAX_TOTAL, chained merges and unbounded overflow grew one story
   to 161 sources; members furthest from its centroid are detached to be clustered again.
+- Round-ups and late leads. Until 26 November a round-up of the week's news could lead a story, or
+  form one, and an article days after the event could take a story's lead and headline (cluster.py
+  and merge.py now prevent both). A round-up member stops being shown (overflow), a story made of
+  round-ups only is unpublished, and a story whose lead is a round-up or long after its coverage
+  gets the lead merge.pick_lead chooses, with that article's headline and digest.
 
 Unlike tidy.py these changes are what the pages show, so they must look changed to the runner's
 copy (cache.py): no revision_kept here. Every query is narrow (ids, addresses, lengths) and capped,
@@ -22,9 +27,11 @@ from __future__ import annotations
 
 import logging
 
+from datetime import timedelta
+
 from sqlalchemy import and_, func, or_, select, update
 
-from . import cache, cluster, config, db
+from . import cache, cluster, config, db, merge
 from .extract import TEASER_MAX_WORDS
 from .textutil import domain_of, normalize_url
 
@@ -40,6 +47,7 @@ TEASER_PHRASES = ["Subscribe to unlock", "Subscribe to read", "undefined now und
 LIVE_STATUSES = ("extracted", "gated", "enriched", "published")
 READABLE_DESCRIPTION_CHARS = 200  # about 40 words: what extract.py accepts as a digest-only article
 OVERSIZED_STORIES_PER_RUN = 3
+LEADS_PER_RUN = 20
 
 
 def bing_links(eng, limit: int = BING_ROWS_PER_RUN) -> dict[str, int]:
@@ -157,10 +165,74 @@ def oversized_stories(eng, max_total: int | None = None, limit: int | None = Non
     return {k: v for k, v in done.items() if v}
 
 
+def story_leads(eng, limit: int = LEADS_PER_RUN) -> dict[str, int]:
+    """Published stories of the merge window (MERGE_LOOKBACK_DAYS) with a round-up among their shown
+    members, or a lead published long after their coverage. Round-up members become overflow
+    (counted, not shown); a story with nothing else is unpublished; a story whose lead was a
+    round-up or late gets the lead merge.pick_lead chooses among the rest, and its headline and digest.
+    Members and titles come from the runner's copy (cache.py), which the export reads anyway; at most
+    `limit` stories change per run."""
+    done = {"roundups_hidden": 0, "stories_unpublished": 0, "leads_changed": 0}
+    now = db.utcnow()
+    since = now - timedelta(days=config.MERGE_LOOKBACK_DAYS)
+    with eng.begin() as conn:
+        stories = {s.id: s for s in cache.stories(conn).values()
+                   if s.status == "published" and (db.as_utc(s.first_published_at) or now) >= since}
+        members_of: dict[int, list] = {}
+        for m in cache.articles(conn).values():
+            if m.story_id in stories and m.status == "published":
+                members_of.setdefault(m.story_id, []).append(m)
+        texts = cache.article_text(conn, [m for ms in members_of.values() for m in ms])
+        source_type = None
+        changed = 0
+        for sid in sorted(members_of):
+            if changed >= limit:
+                break
+            s, shown = stories[sid], sorted((m for m in members_of[sid] if m.id in texts), key=lambda m: m.id)
+            if not shown:
+                continue
+            roundups = [m for m in shown if merge.is_roundup(texts[m.id].title)]
+            rest = [m for m in shown if m not in roundups]
+            lead = next((m for m in shown if m.id == s.lead_article_id), None)
+            if not rest:
+                conn.execute(update(db.stories).where(db.stories.c.id == sid).values(status="unpublished", updated_at=now))
+                done["stories_unpublished"] += 1
+                changed += 1
+                log.info("story #%s: every source is a round-up of several stories; unpublished", sid)
+                continue
+            middle = merge.coverage_time(rest)
+            late = (lead is not None and middle is not None and db.as_utc(lead.published_at) is not None
+                    and db.as_utc(lead.published_at) - middle > timedelta(hours=merge.LEAD_LATE_HOURS))
+            if not roundups and not late:
+                continue
+            if source_type is None:
+                source_type = dict(conn.execute(select(db.sources.c.id, db.sources.c.source_type)).all())
+            primary = lambda m: m.domain in config.PRIMARY_DOMAINS or source_type.get(m.source_id) == "primary"  # noqa: E731
+            new = merge.pick_lead(rest, texts, primary)
+            if not roundups and (new is None or new.id == s.lead_article_id):
+                continue  # late, but no better lead among the rest: nothing to write, now or next run
+            if roundups:
+                conn.execute(update(db.articles).where(db.articles.c.id.in_([m.id for m in roundups])).values(status="overflow"))
+                done["roundups_hidden"] += len(roundups)
+            values = {"updated_at": now}
+            if new is not None and new.id != s.lead_article_id:
+                t = texts[new.id]
+                values.update(lead_article_id=new.id, headline=t.headline or t.title, summary_md=t.summary_md,
+                              key_points=t.key_points, why_it_matters=t.why_it_matters, entities=t.entities,
+                              source_notes=None, **({"category": new.category} if new.category else {}))
+                done["leads_changed"] += 1
+                log.info("story #%s: lead #%s (%s) replaced by #%s: %s", sid, s.lead_article_id,
+                         "a round-up" if lead in roundups else "long after its coverage", new.id, values["headline"])
+            conn.execute(update(db.stories).where(db.stories.c.id == sid).values(**values))
+            changed += 1
+    return {k: v for k, v in done.items() if v}
+
+
 def run() -> dict:
     eng = db.engine()
     stats: dict = {}
-    for name, fn in (("bing_links", bing_links), ("teasers", teasers), ("oversized_stories", oversized_stories)):
+    for name, fn in (("bing_links", bing_links), ("teasers", teasers), ("oversized_stories", oversized_stories),
+                     ("story_leads", story_leads)):
         try:
             done = fn(eng)
         except Exception as exc:  # noqa: BLE001 - a repair that fails waits for the next run
