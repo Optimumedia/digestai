@@ -78,6 +78,17 @@ Test extraction on one URL:
 cd pipeline && ../.venv/Scripts/python tests/run_harness.py --url https://example.com/article
 ```
 
+Run the tests as CI does (`.github/workflows/postgres-tests.yml`). The runner finds every
+`tests/test_*.py` itself, so a new test file needs no list entry anywhere:
+
+```bash
+cd pipeline && ../.venv/Scripts/python tests/run_all.py --group python
+# The built-site checks, on made-up test data instead of a real export
+# (--force replaces what is in site/src/data):
+../.venv/Scripts/python tests/site_fixture.py --force
+(cd ../site && npm run build) && ../.venv/Scripts/python tests/run_all.py --group site --strict
+```
+
 ## Site
 
 ```bash
