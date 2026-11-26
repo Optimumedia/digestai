@@ -44,6 +44,37 @@ def test_repair_hides_roundups_and_replaces_late_leads():
         assert repair.story_leads(eng) == {}, "nothing left to do on the next run"
 
 
+def test_a_thread_takes_only_stories_that_say_what_its_headlines_say():
+    """Episodes from the 26 Nov thread pages, with the similarity of their stories."""
+    from digest import threads
+
+    ubiquitous = {"nvidia", "anthropic", "openai"}
+    common = {"nvidia", "anthropic", "openai"}
+    chips = {"nvidia", "megaspeed", "alice huang", "jensen huang"}
+    words = set()
+    for h in ("About 600,000 Nvidia H200 chips are stored in Hong Kong awaiting shipment to mainland China",
+              "US approved Nvidia H200 chip sales to two Chinese firms with empty offices and sanctioned ties",
+              "Trump approves curbs on companies diverting Nvidia chips to China"):
+        words |= threads.event_words(h, common)
+    rubio = threads.event_words("Anthropic paid $740k to firm run by Rubio's ex-aide", common)
+    assert not threads.joins_thread(0.79, {"anthropic", "jensen huang"}, chips, ubiquitous, rubio, words)
+    rent = threads.event_words("Chinese AI firms rent overseas Nvidia capacity fearing tighter U.S. remote-access rules", common)
+    assert threads.joins_thread(0.79, {"nvidia", "megaspeed"}, chips, ubiquitous, rent, words), "chinese: the saga's word"
+    smuggling = threads.event_words("Nvidia still faces inquiries over alleged GPU smuggling to China", common)
+    assert threads.joins_thread(0.89, {"nvidia"}, chips, ubiquitous, smuggling, words), "very close: any shared name"
+    assert not threads.joins_thread(0.95, {"openai"}, chips, ubiquitous, rent, words), "no shared name at all"
+
+
+def test_threads_step_runs_with_the_word_rule():
+    from digest import threads
+
+    with fresh_db() as (eng, _tmp):
+        seed(eng, stories=8, per_story=2)
+        new_process()
+        stats = threads.run()
+        assert stats["assigned"] + stats["new_threads"] == 5, stats  # stories 4-8 had no thread
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):
