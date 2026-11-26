@@ -560,111 +560,114 @@ def run() -> dict:
     # Each source's outcome, written in one statement at the end: a transaction per source was about
     # half a second of round trips each, some 45 seconds a run, for sources with nothing new.
     outcomes: list[dict] = []
-    for source, items, exc in fetch_all(due):
-        stats["sources"] += 1
-        if isinstance(exc, Skipped):
-            stats["skipped"] = stats.get("skipped", 0) + 1
-            log.info("source %s not asked: %s", source.key, exc)
-            continue
-        if exc is not None:  # one bad source must not stop the run
-            stats["errors"] += 1
-            if rate_limited(exc):
-                stats["rate_limited"] = stats.get("rate_limited", 0) + 1
-            log.warning("source %s failed: %s", source.key, exc)
-            outcomes.append({"sid": source.id, "err": str(exc)[:500], "cnt": (source.error_count or 0) + 1})
-            continue
-        note = health_note(source.key, items, now)
-        if note:
-            stats["unhealthy"] = stats.get("unhealthy", 0) + 1
-            log.warning("source %s answered but looks unhealthy: %s", source.key, note)
-        outcomes.append({"sid": source.id, "err": note, "cnt": 0})
+    try:
+        for source, items, exc in fetch_all(due):
+            stats["sources"] += 1
+            if isinstance(exc, Skipped):
+                stats["skipped"] = stats.get("skipped", 0) + 1
+                log.info("source %s not asked: %s", source.key, exc)
+                continue
+            if exc is not None:  # one bad source must not stop the run
+                stats["errors"] += 1
+                if rate_limited(exc):
+                    stats["rate_limited"] = stats.get("rate_limited", 0) + 1
+                log.warning("source %s failed: %s", source.key, exc)
+                outcomes.append({"sid": source.id, "err": str(exc)[:500], "cnt": (source.error_count or 0) + 1})
+                continue
+            note = health_note(source.key, items, now)
+            if note:
+                stats["unhealthy"] = stats.get("unhealthy", 0) + 1
+                log.warning("source %s answered but looks unhealthy: %s", source.key, note)
+            outcomes.append({"sid": source.id, "err": note, "cnt": 0})
 
-        limit = _max_items(source.key) if not source.discovered else config.MAX_DISCOVERED_ITEMS
-        candidates = []
-        for item in newest_first(items)[:limit]:
-            stats["items"] += 1
-            try:
-                url = normalize_url(item["url"])
-            except ValueError:
-                continue
-            dom = domain_of(url)
-            if not dom or is_skipped_domain(dom):
-                continue
-            if item["published_at"] and item["published_at"] < cutoff:
-                continue
-            # "... (2019)": an old piece re-posted to HN/Reddit. The submission time is new,
-            # the story is not (MAX_ARTICLE_AGE_DAYS applies to the piece, not the re-post).
-            year = title_year(item["title"])
-            if year and year < this_year:
-                stats["too_old_title_year"] = stats.get("too_old_title_year", 0) + 1
-                continue
-            # Addresses this runner saw in the database before are not asked about again: feeds
-            # repeat their items for days, and each question is a round trip the plan meters.
-            url_key = cache.url_hash(url)
-            if url_key in known:
-                continue
-            title = clean_title(item["title"])
-            if len(title) < 15:
-                continue
-            candidates.append((item, url, dom, url_key, title))
-        inserted = 0
-        added: list[str] = []
-        if not candidates:  # nothing the database has to be asked about
-            log.info("%-22s %3d items, %2d new", source.key, len(items), 0)
-            continue
-        with eng.begin() as conn:
-            for item, url, dom, url_key, title in candidates:
-                exists = conn.execute(select(db.articles.c.id).where(db.articles.c.url == url)).first()
-                if exists:
-                    known[url_key] = time.time()
+            limit = _max_items(source.key) if not source.discovered else config.MAX_DISCOVERED_ITEMS
+            candidates = []
+            for item in newest_first(items)[:limit]:
+                stats["items"] += 1
+                try:
+                    url = normalize_url(item["url"])
+                except ValueError:
                     continue
-                disc = item.get("discussion") or (None, None, None)
-                h = simhash(title)
-                dup = near_duplicate(h, recent)
-                if dup is not None:
-                    if should_merge_discussion(item.get("discussion"), dup):
-                        conn.execute(update(db.articles).where(db.articles.c.id == dup["id"]).values(
-                            discussion_site=disc[0], discussion_url=disc[1], discussion_points=disc[2],
-                            discussion_checked_at=db.utcnow()))
-                        dup.update(discussion_url=disc[1], points=disc[2])
-                        stats["discussions_merged"] = stats.get("discussions_merged", 0) + 1
-                    # A repeat from the same publisher, or any search-feed repeat, is never fetched.
-                    # Other publishers' copies still go through (the gate keeps the first one).
-                    if dup["domain"] == dom or source.discovered:
-                        stats["title_duplicates"] = stats.get("title_duplicates", 0) + 1
+                dom = domain_of(url)
+                if not dom or is_skipped_domain(dom):
+                    continue
+                if item["published_at"] and item["published_at"] < cutoff:
+                    continue
+                # "... (2019)": an old piece re-posted to HN/Reddit. The submission time is new,
+                # the story is not (MAX_ARTICLE_AGE_DAYS applies to the piece, not the re-post).
+                year = title_year(item["title"])
+                if year and year < this_year:
+                    stats["too_old_title_year"] = stats.get("too_old_title_year", 0) + 1
+                    continue
+                # Addresses this runner saw in the database before are not asked about again: feeds
+                # repeat their items for days, and each question is a round trip the plan meters.
+                url_key = cache.url_hash(url)
+                if url_key in known:
+                    continue
+                title = clean_title(item["title"])
+                if len(title) < 15:
+                    continue
+                candidates.append((item, url, dom, url_key, title))
+            inserted = 0
+            added: list[str] = []
+            if not candidates:  # nothing the database has to be asked about
+                log.info("%-22s %3d items, %2d new", source.key, len(items), 0)
+                continue
+            with eng.begin() as conn:
+                for item, url, dom, url_key, title in candidates:
+                    exists = conn.execute(select(db.articles.c.id).where(db.articles.c.url == url)).first()
+                    if exists:
+                        known[url_key] = time.time()
                         continue
-                res = conn.execute(insert(db.articles).values(
-                    discussion_site=disc[0],
-                    discussion_url=disc[1],
-                    discussion_points=disc[2],
-                    trend_score=item.get("trend_score"),
-                    discussion_checked_at=db.utcnow() if disc[0] else None,
-                    url=url,
-                    source_id=source.id,
-                    raw_title=item["title"][:500],
-                    title=title[:500],
-                    author=item["author"],
-                    domain=dom[:200],
-                    published_at=item["published_at"],
-                    fetched_at=db.utcnow(),
-                    description=item["description"] or None,
-                    feed_content=item["feed_content"],
-                    image_url=item["image_url"],
-                    show_fulltext=bool(source.fulltext),
-                    simhash=db.to_signed64(h),
-                    status="new",
-                    created_at=db.utcnow(),
-                ))
-                recent.append({"id": res.inserted_primary_key[0], "hash": h, "domain": dom,
-                               "discussion_url": disc[1], "points": disc[2]})
-                inserted += 1
-                added.append(url_key)
-        # Remembered only once the insert is committed.
-        for url_key in added:
-            known[url_key] = time.time()
-        stats["inserted"] += inserted
-        log.info("%-22s %3d items, %2d new", source.key, len(items), inserted)
-    record_outcomes(eng, outcomes)
+                    disc = item.get("discussion") or (None, None, None)
+                    h = simhash(title)
+                    dup = near_duplicate(h, recent)
+                    if dup is not None:
+                        if should_merge_discussion(item.get("discussion"), dup):
+                            conn.execute(update(db.articles).where(db.articles.c.id == dup["id"]).values(
+                                discussion_site=disc[0], discussion_url=disc[1], discussion_points=disc[2],
+                                discussion_checked_at=db.utcnow()))
+                            dup.update(discussion_url=disc[1], points=disc[2])
+                            stats["discussions_merged"] = stats.get("discussions_merged", 0) + 1
+                        # A repeat from the same publisher, or any search-feed repeat, is never fetched.
+                        # Other publishers' copies still go through (the gate keeps the first one).
+                        if dup["domain"] == dom or source.discovered:
+                            stats["title_duplicates"] = stats.get("title_duplicates", 0) + 1
+                            continue
+                    res = conn.execute(insert(db.articles).values(
+                        discussion_site=disc[0],
+                        discussion_url=disc[1],
+                        discussion_points=disc[2],
+                        trend_score=item.get("trend_score"),
+                        discussion_checked_at=db.utcnow() if disc[0] else None,
+                        url=url,
+                        source_id=source.id,
+                        raw_title=item["title"][:500],
+                        title=title[:500],
+                        author=item["author"],
+                        domain=dom[:200],
+                        published_at=item["published_at"],
+                        fetched_at=db.utcnow(),
+                        description=item["description"] or None,
+                        feed_content=item["feed_content"],
+                        image_url=item["image_url"],
+                        show_fulltext=bool(source.fulltext),
+                        simhash=db.to_signed64(h),
+                        status="new",
+                        created_at=db.utcnow(),
+                    ))
+                    recent.append({"id": res.inserted_primary_key[0], "hash": h, "domain": dom,
+                                   "discussion_url": disc[1], "points": disc[2]})
+                    inserted += 1
+                    added.append(url_key)
+            # Remembered only once the insert is committed.
+            for url_key in added:
+                known[url_key] = time.time()
+            stats["inserted"] += inserted
+            log.info("%-22s %3d items, %2d new", source.key, len(items), inserted)
+    finally:
+        # Also when an insert fails: the sources fetched so far keep their status.
+        record_outcomes(eng, outcomes)
     return stats
 
 
