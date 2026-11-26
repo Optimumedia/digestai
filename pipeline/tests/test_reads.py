@@ -645,6 +645,28 @@ def test_tidy_empties_unused_columns_in_bounded_batches():
         assert total == 70 + 40
 
 
+def test_tidy_keeps_step_rows_and_vectors_only_as_long_as_something_reads_them():
+    from digest import config as cfg
+    from digest import tidy
+
+    with fresh_db() as (eng, _tmp):
+        seed(eng, stories=4, per_story=1)
+        s, t, r = db.stories.c, db.threads.c, db.runs.c
+        with eng.begin() as conn:
+            conn.execute(update(db.stories).where(s.id == 1).values(first_published_at=NOW - timedelta(days=31)))
+            conn.execute(update(db.stories).where(s.id == 2).values(first_published_at=NOW - timedelta(days=cfg.MERGE_LOOKBACK_DAYS + 2)))
+            conn.execute(update(db.threads).where(t.id == 1).values(updated_at=NOW - timedelta(days=31)))
+            conn.execute(insert(db.runs), [{"started_at": NOW - timedelta(days=d), "step": "fetch", "stats": {"readKB": 1}} for d in (2, 29, 31, 80)])
+        tidy.clean(eng)
+        with eng.connect() as conn:
+            kept = {i for i, e in conn.execute(select(s.id, s.embedding)).all() if e is not None}
+            assert kept == {2, 3, 4}, kept  # merging and threads look back 14 days: 30 leaves a margin
+            assert conn.execute(select(t.embedding).where(t.id == 1)).scalar() is None
+            ages = sorted(round((NOW - db.as_utc(x)).total_seconds() / 86400) for x in conn.execute(select(r.started_at)).scalars())
+            assert ages == [2, 29], ages
+        assert tidy.RUNS_DAYS >= 14 + 3  # the dashboard's two weeks and the history's three days
+
+
 # ---------------------------------------------------------------------------- rank
 
 def test_rank_reuses_its_model_and_counts_engagement_incrementally():
