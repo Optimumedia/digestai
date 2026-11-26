@@ -7,6 +7,7 @@ import { withCanonicalLabs, canonicalLab, releaseList, newestByLab, releasesByMo
 // Indexing rules live in indexing.mjs so the sitemap in astro.config.mjs applies the same ones.
 export { entitySlug, dateKey, weekKey, storyIndexable, storySearchWorthy, storyConfirmed, TOPIC_MIN_STORIES, DAILY_MIN_STORIES, WEEK_MIN_STORIES, WORK_MIN_ITEMS };
 import { loadRedirects } from "./redirects.mjs";
+import { relatedFinder } from "./related.mjs";
 
 export interface Discussion {
   site: "hn" | "reddit";
@@ -680,19 +681,11 @@ export function storiesByDay(): Map<string, Story[]> {
   return new Map([...map.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)));
 }
 
+// Related reading: same names first, then the same category, nearest in time (related.mjs, indexed
+// once instead of scanning every story on every story page).
+const relatedIn: (story: Story, limit?: number) => Story[] = relatedFinder(stories);
 export function related(story: Story, limit = 5): Story[] {
-  const names = new Set(Object.values(story.entities || {}).flat().map((n) => n.toLowerCase()));
-  const scored = stories
-    .filter((s) => s.id !== story.id)
-    .map((s) => {
-      const shared = Object.values(s.entities || {}).flat().filter((n) => names.has(n.toLowerCase())).length;
-      const sameCat = s.category === story.category ? 1 : 0;
-      const age = Math.abs(Date.parse(s.updatedAt || "0") - Date.parse(story.updatedAt || "0")) / 864e5;
-      return { s, w: shared * 3 + sameCat - Math.min(age, 30) / 10 };
-    })
-    .filter((x) => x.w > 0)
-    .sort((a, b) => b.w - a.w);
-  return scored.slice(0, limit).map((x) => x.s);
+  return relatedIn(story, limit);
 }
 
 function escapeHtmlInMarkdown(md: string): string {
