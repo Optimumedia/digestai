@@ -8,7 +8,7 @@ on:
     - cron: "7,27,47 * * * *"
   # GitHub delivers scheduled events late or not at all under load: from 11 Oct 2026 this one fired
   # a few times a day instead of 72. So each run also queues the next one (the "next" job below),
-  # which waits for the next 7/27/47 slot (the "pace" job) before it starts work. A scheduled event
+  # which waits until 20 minutes after this one started (the "pace" job) before it starts work. A scheduled event
   # that does arrive finds a run already queued and is dropped by the concurrency rule, so the two
   # never double up.
   workflow_dispatch:
@@ -17,9 +17,12 @@ on:
         description: "Pipeline steps (all, or e.g. 'fetch extract')"
         default: "all"
       chained:
-        description: "Queued by the previous run: wait for the next 7/27/47 slot first"
+        description: "Queued by the previous run: wait for its turn first"
         type: boolean
         default: false
+      after:
+        description: "Queued by the previous run: when its pipeline job started (Unix seconds)"
+        default: ""
 
 concurrency:
   group: pipeline
@@ -35,21 +38,28 @@ permissions:
   issues: write
 
 jobs:
-  # A run queued by the one before waits here for its slot, so the cadence stays at RUN_MINUTES
-  # (and the free-model and database budgets, which assume RUNS_PER_DAY, stay right).
+  # A run queued by the one before waits here until 20 minutes after that run's pipeline job started
+  # (pipeline/digest/pace.py), so runs never start closer together than that and the free-model and
+  # database budgets, which assume RUNS_PER_DAY, stay right. Until 26 Nov 2026 it waited for the next
+  # 7, 27 or 47 past the hour instead: a 21-minute job always just missed its slot and runs started
+  # every 40 minutes. A run queued without a start time (by an older copy of this file) still does.
   pace:
     if: github.event_name == 'workflow_dispatch' && inputs.chained
     runs-on: ubuntu-latest
     timeout-minutes: 22
     steps:
-      - name: Wait for the next 7, 27 or 47 past the hour
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: pipeline/digest
+      - name: Wait for this run's turn
+        working-directory: pipeline
+        env:
+          AFTER: ${{ inputs.after }}
+          PACE_MINUTES: "20"
+          RUN_MINUTES: "7,27,47"
         run: |
-          now_m=$((10#$(date -u +%M))); now_s=$((10#$(date -u +%S)))
-          wait=0
-          for slot in 7 27 47 67; do
-            if [ "$slot" -gt "$now_m" ]; then wait=$(( (slot - now_m) * 60 - now_s )); break; fi
-          done
-          echo "waiting ${wait}s for the next slot"
+          wait=$(python3 -m digest.pace) || wait=0
+          case "$wait" in ''|*[!0-9]*) wait=0;; esac
           sleep "$wait"
 
   pipeline:
@@ -59,6 +69,9 @@ jobs:
     runs-on: ubuntu-latest
     # Set-up, the 20-minute pipeline step, a five-minute build and the deploy: 28 left no room.
     timeout-minutes: 32
+    outputs:
+      # When this job started, for the next run's pace job.
+      started: ${{ steps.start.outputs.at }}
     environment:
       name: github-pages
       url: ${{ steps.pages.outputs.page_url || steps.pages2.outputs.page_url || steps.pages3.outputs.page_url }}
@@ -117,6 +130,10 @@ jobs:
       # Optional: a healthchecks.io ping URL, pinged at the end of every run.
       HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
     steps:
+      - name: Note the start
+        id: start
+        run: echo "at=$(date +%s)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
@@ -457,6 +474,7 @@ jobs:
           REPO: ${{ github.repository }}
           THIS_RUN: ${{ github.run_id }}
           REF: ${{ github.ref_name }}
+          STARTED: ${{ needs.pipeline.outputs.started }}
         run: |
           waiting=$(gh run list -R "$REPO" --workflow pipeline.yml --limit 20 --json status,databaseId \
             -q "[.[] | select(.databaseId != $THIS_RUN) | select(.status == \"queued\" or .status == \"pending\" or .status == \"waiting\" or .status == \"requested\")] | length")
@@ -464,7 +482,7 @@ jobs:
             # GitHub sometimes answers a dispatch with HTTP 500 (14 Oct: the chain stopped for an hour
             # on one), so try a few times before giving up to the watchdog.
             for attempt in 1 2 3 4 5; do
-              if gh workflow run pipeline.yml -R "$REPO" --ref "$REF" -f chained=true; then echo "queued the next run"; exit 0; fi
+              if gh workflow run pipeline.yml -R "$REPO" --ref "$REF" -f chained=true -f after="$STARTED"; then echo "queued the next run"; exit 0; fi
               echo "dispatch failed (attempt $attempt); trying again"; sleep $((attempt * 15))
             done
             exit 1
