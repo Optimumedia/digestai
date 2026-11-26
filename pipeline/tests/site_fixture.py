@@ -8,8 +8,8 @@ real person. Dates are relative to now, so /today, the briefing and the daily pa
 
 The fixture covers what the built-site tests and the smoke test (test_site_smoke.py) look for: a
 story confirmed by three outlets with full text, a single-outlet one, a thread, a model launch with a
-price, a funding round, an AI at Work card, a story merged into another (a redirect page) and a run
-history for the admin pages.
+price, a funding round, an AI at Work card, a story merged into another (a redirect page), a spoken
+briefing that names a story with no page, and a run history for the admin pages.
 
 It refuses to overwrite a real export in site/src/data unless --force is given."""
 from __future__ import annotations
@@ -163,6 +163,8 @@ PRIMARY_IMAGES = {"northwind-labs-releases-atlas-3": {"url": "https://northwind.
                                                       "ideal": True}}
 # A duplicate of the first story, merged into it: its address becomes a redirect page.
 MERGED_SLUG = "atlas-3-is-out-now"
+# A story an episode names that has no page (never in the database).
+GONE_SLUG = "a-story-that-was-unpublished"
 
 
 def seed(eng, now) -> None:
@@ -214,6 +216,18 @@ def seed(eng, now) -> None:
             conn.execute(insert(db.runs).values(started_at=at, finished_at=at + timedelta(seconds=20), step=step, stats=stats))
 
 
+def episodes(now) -> list[dict]:
+    """Today's spoken briefing (the audio step writes this file). It also names a story that has no page
+    any more, as an old episode can (unpublished since): /listen must not link to it."""
+    day = now.date().isoformat()
+    named = [(slug, headline) for _h, slug, headline, *_rest in STORIES[:2]] + [(GONE_SLUG, "A story that was unpublished")]
+    return [{"date": day, "title": f"AI briefing, {day}: Atlas 3 and an ad writer for small shops",
+             "file": f"briefing-{day}.mp3", "url": "", "bytes": 1_200_000, "seconds": 300,
+             "publishedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "description": "Today's AI news in five minutes.",
+             "stories": [{"slug": s, "headline": h} for s, h in named],
+             "transcript": "Northwind Labs released Atlas 3.\n\nShopfront added an ad writer for small shops."}]
+
+
 def build(out: Path) -> dict:
     """Seed a temporary database and run the real export, admin and team steps into `out`."""
     import test_reads as tr
@@ -234,6 +248,7 @@ def build(out: Path) -> dict:
         stats["admin"] = bool(admin.run())
         stats["team"] = team.run()
     (out / "primary-images.json").write_text(json.dumps(PRIMARY_IMAGES), encoding="utf-8")
+    (out / "episodes.json").write_text(json.dumps(episodes(now)), encoding="utf-8")
     meta_path = out / "meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     meta["fixture"] = MARK

@@ -2,7 +2,7 @@
 
 CI builds the site from the test fixture (tests/site_fixture.py) and runs this before anything is
 deployed; it also works on a build from a real export. For home, /today, a story, /models, /work,
-/admin and /admin/team: the page is complete, shows no template leftovers ("undefined", "NaN",
+/listen, /admin and /admin/team: the page is complete, shows no template leftovers ("undefined", "NaN",
 "[object Object]"), does not show its empty state when the data it is built from has items, and links
 to what that data says it should. Every internal link on every built page leads to a built file."""
 from __future__ import annotations
@@ -154,6 +154,22 @@ def test_admin_pages_show_the_pipeline_and_the_team():
         assert len(names) == 6, names
         missing = [n for n in names if n not in text]
         assert not missing, f"/admin/team does not show the roles {missing}"
+
+
+def test_listen_lists_the_episodes_and_links_only_stories_with_a_page():
+    if not _built():
+        return
+    episodes = _read("episodes.json", [])
+    if not episodes:
+        return skip("no episodes in the data")
+    page = _page("listen.html")
+    _no_leftovers("listen.html", page)
+    text, links = visible_text(page), _links(page)
+    live = {s["slug"] for s in _stories().values()}
+    for s in episodes[0]["stories"]:
+        assert s["headline"] in text, f"/listen does not name {s['headline']!r}"
+        if s["slug"] in live:
+            assert f"/story/{s['slug']}" in links, f"/listen does not link {s['slug']}"
 
 
 def resolve(href: str) -> Path | None:

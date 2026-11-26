@@ -33,7 +33,7 @@ def _json(name: str):
 def test_the_export_admin_and_team_steps_run_on_it():
     out, stats = _fixture()
     for name in ("stories.json", "briefing.json", "entities.json", "threads.json", "trackers.json", "work.json", "redirects.json",
-                 "meta.json", "admin.json", "team.json", "primary-images.json"):
+                 "meta.json", "admin.json", "team.json", "primary-images.json", "episodes.json"):
         assert (out / name).exists(), name
     assert stats["export"]["stories"] == len(site_fixture.STORIES), stats["export"]
     assert stats["admin"] and stats["team"]["status"], stats
@@ -57,6 +57,10 @@ def test_it_holds_what_the_built_site_tests_look_for():
     assert [t["tool"] for t in _json("work.json")["tools"]] == ["Shopfront Ad Writer"]
     assert _json("threads.json")[0]["slug"] == "northwind-atlas-3"
     assert len(_json("team.json")["roles"]) == 6
+    # Today's episode names two live stories and one with no page (test_site_smoke: /listen must not link it).
+    named = [s["slug"] for s in _json("episodes.json")[0]["stories"]]
+    assert named[-1] == site_fixture.GONE_SLUG and site_fixture.GONE_SLUG not in {s["slug"] for s in stories.values()}
+    assert all(slug in {s["slug"] for s in stories.values()} for slug in named[:-1])
 
 
 def test_every_address_in_it_is_made_up():
