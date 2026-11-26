@@ -377,7 +377,11 @@ def normalize(f: dict, headline: str) -> tuple[dict | None, str | None]:
         figures = _figures(main)
         # A figure in another currency only has to agree within the conversion's slack.
         slack = AMOUNT_TOLERANCE if cur in RATES else 0.01
-        if not amount or (len(figures) == 1 and not (close(amount, value, slack) or close(amount, value / RATES.get(cur, 1.0), slack))):
+        # "for $400M and $95M", "$29M equity and $35M debt": the figure is one of several.
+        several = re.search(re.escape(written) + r"\S*\s+(?:[\w-]+\s+){0,2}?(?:and|then|plus)\s+(?:about |over |another )?(?:[$€£₹]|\d)", main, re.I)
+        if not amount and not several:
+            row["amount_usd"] = value
+        elif amount and len(figures) == 1 and not (close(amount, value, slack) or close(amount, value / RATES.get(cur, 1.0), slack)):
             row["amount_usd"] = value
         if cur in RATES:
             row["amount_stated"] = stated_label(written, cur)
@@ -584,11 +588,31 @@ def fold(cands: list[dict]) -> list[dict]:
     return out
 
 
+RAISE_HEAD = re.compile(r"^(?P<who>.+?)\s+(?:raises|secures|closes|lands|bags|nets|gets|receives|finalizes|finalises)\b", re.I)
+
+
+def from_headline(headline: str) -> dict | None:
+    """A deal read from a story headline alone: "<Company> raises <figure>" or "<Buyer> acquires
+    <Company>". None when the headline is not that plain."""
+    main = main_clause(headline)
+    m = RAISE_HEAD.match(main)
+    if m and NAME_LIKE.match(m.group("who").strip()):
+        who = m.group("who").strip()
+        fig = headline_figure(who, main)
+        if fig:
+            return {"company": who, "amount_usd": fig[0], "round": "other", "investors": []}
+    bought = _buyer_target(main)
+    if bought and _clean_target(bought[1]):
+        return {"company": _clean_target(bought[1]), "amount_usd": None, "round": "acquisition", "investors": [bought[0]]}
+    return None
+
+
 def build(stories: list[dict], now: datetime) -> tuple[list[dict], dict]:
     """The Funding tracker rows from the exported stories (export.py's stories_out), newest first,
     and how many raw extractions each rule dropped."""
     cands, dropped = [], Counter()
     for st in stories:
+        found = False
         for a in st.get("articles") or []:
             f = a.get("funding")
             if not f or not f.get("company"):
@@ -599,8 +623,18 @@ def build(stories: list[dict], now: datetime) -> tuple[list[dict], dict]:
             if why:
                 dropped[why] += 1
                 continue
+            found = True
             cands.append({**row, "date": a.get("publishedAt"), "isLead": bool(a.get("isLead")),
                           "storySlug": st.get("slug"), "storyHeadline": st.get("headline")})
+        # A story whose headline states a round or a purchase that no article's extraction caught
+        # ("Cournot raises $5M ...", "BlackSky acquires EpochGeo ..."): the headline's own facts.
+        f = None if found else from_headline(st.get("headline") or "")
+        if f:
+            row, why = review(f, st.get("headline") or "", "", now)
+            if row:
+                dropped["(added) read from the headline alone"] += 1
+                cands.append({**row, "date": st.get("firstPublishedAt"), "isLead": True,
+                              "storySlug": st.get("slug"), "storyHeadline": st.get("headline")})
     rows = fold(cands)
     rows.sort(key=lambda r: r["date"] or "", reverse=True)
     return rows, dict(dropped)

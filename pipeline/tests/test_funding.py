@@ -326,6 +326,25 @@ def test_two_spellings_and_a_retold_deal_are_one_row():
     assert sorted((r["company"], r["date"][:10]) for r in rows) == [("OpenAI", "2026-10-13"), ("Warp", "2026-10-22"), ("Warp Sciences", "2026-10-22")], rows
 
 
+def test_a_deal_no_extraction_caught_is_read_from_the_headline():
+    # 25-26 Nov: two deal stories had no row because no article's extraction produced one.
+    bare = [{"id": 1, "title": "t", "headline": "t", "funding": None, "keyPoints": [], "summaryMd": "", "description": None,
+             "publishedAt": "2026-11-25T11:00:00Z", "isLead": True}]
+    stories = [
+        story("cournot", "Cournot raises $5M to build verifiable AI reasoning for onchain applications", bare, first="2026-11-26T09:03:05Z"),
+        story("blacksky", "BlackSky acquires EpochGeo to add AI tools for fusing defense data", bare, first="2026-11-25T11:20:02Z"),
+        # Not deals: no figure, a price, a plan, a forecast.
+        story("prices", "OpenAI raises prices for ChatGPT Pro subscribers", bare),
+        story("concern", "Researchers raise concerns about AI agents in hospitals", bare),
+        story("plan", "Acme plans to acquire Foo for $20M", bare),
+        story("forecast", "Nvidia raises $5B revenue forecast as AI demand grows", bare),
+    ]
+    rows, dropped = funding.build(stories, NOV)
+    got = sorted((r["company"], r["amount_usd"], r["round"], tuple(r["investors"])) for r in rows)
+    assert got == [("Cournot", 5e6, "other", ()), ("EpochGeo", None, "acquisition", ("BlackSky",))], got
+    assert dropped == {"(added) read from the headline alone": 2}, dropped
+
+
 # ---- The kept ledger: deals stay after their stories leave the export window ----
 
 import shutil  # noqa: E402
