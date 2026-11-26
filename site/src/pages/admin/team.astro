@@ -6,10 +6,11 @@ import Base from "../../layouts/Base.astro";
 import fs from "node:fs";
 import path from "node:path";
 
-type Finding = { key: string; text: string; level: "act" | "watch" | "info"; owner: string };
+type Finding = { key: string; text: string; level: "act" | "watch" | "info"; owner: string; fix?: string; why?: string; url?: string; impact?: string };
 type Role = { id: string; name: string; title: string; job: string; ranAt: string; status: "act" | "watch" | "ok" | "idle";
   headline: string; findings: Finding[]; [k: string]: any };
-type Item = { key: string; role: string; text: string; level: string; owner: string; openedAt: string; closedAt: string | null; ageDays: number };
+type Item = { key: string; role: string; text: string; level: string; owner: string; openedAt: string; closedAt: string | null; ageDays: number;
+  fix?: string; url?: string; reopened?: number };
 let team: { generatedAt: string; order: string[]; handoffs: { from: string; to: string; what: string }[]; roles: Record<string, Role> } | null = null;
 try { team = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "src/data/team.json"), "utf-8")); } catch {}
 
@@ -48,6 +49,10 @@ const edges = (team?.handoffs || []).map((h) => {
   return { ...h, x1, y1, x2, y2, label, every: h.to === "finisher", lx: (x1 + x2) / 2, ly: (y1 + y2) / 2 };
 });
 const nodeStatus = (id: string) => (id === "owners" ? "owners" : roles[id]?.status || "idle");
+// Readers a day, the last 14 complete days (readers only), as small bars beside the number.
+const trend: { day: string; readers: number }[] = brain?.goal?.last || [];
+const trendMax = Math.max(1, ...trend.map((d) => d.readers));
+const IMPACT: Record<string, string> = { outage: "stops new stories", readers: "brings or keeps readers", ops: "keeps the machinery working" };
 ---
 
 <Base title="AI team · Digest AI Admin" description="The six roles that run Digest AI's pipeline checks, how they work together and today's plan." noindex={true}>
@@ -73,11 +78,16 @@ const nodeStatus = (id: string) => (id === "owners" ? "owners" : roles[id]?.stat
           {brain.goal?.readersPerDay != null && (
             <div class="goal">
               <span class="goal-n">{Math.round(brain.goal.readersPerDay)}</span>
-              <span class="goal-l">readers a day, last {brain.goal.days} days</span>
+              <span class="goal-l">readers a day, last {brain.goal.days} complete days</span>
               {brain.goal.changePct != null && (
                 <span class:list={["goal-c", brain.goal.changePct >= 0 ? "up" : "down"]}>
                   {brain.goal.changePct >= 0 ? "▲" : "▼"} {Math.abs(brain.goal.changePct)}% on the week before ({Math.round(brain.goal.previous)})
                 </span>
+              )}
+              {trend.length > 1 && (
+                <svg class="trend" viewBox={`0 0 ${trend.length * 8} 30`} role="img" aria-label={`Readers a day: ${trend.map((d) => `${d.day.slice(5)} ${d.readers}`).join(", ")}`}>
+                  {trend.map((d, i) => <rect x={i * 8 + 1} y={30 - Math.max(1, (d.readers / trendMax) * 30)} width="6" height={Math.max(1, (d.readers / trendMax) * 30)} class:list={{ recent: i >= trend.length - 7 }}><title>{d.day}: {d.readers} readers</title></rect>)}
+                </svg>
               )}
             </div>
           )}
@@ -90,7 +100,9 @@ const nodeStatus = (id: string) => (id === "owners" ? "owners" : roles[id]?.stat
               {brain.plan.map((p: any) => (
                 <li class:list={["plan-item", p.level]}>
                   <p>{p.text}</p>
-                  <p class="meta"><span class="owner">{p.owner}</span> · raised by {roleName(p.role)}{p.ageDays >= 1 ? ` · open ${days(p.ageDays)}` : ""}</p>
+                  {p.fix && <p class="fix"><b>Fix:</b> {p.fix}{p.url && <> <a href={p.url}>Open</a></>}</p>}
+                  {p.why && <p class="plan-why">{p.why}</p>}
+                  <p class="meta"><span class="owner">{p.owner}</span> · raised by {roleName(p.role)}{p.impact ? ` · ${IMPACT[p.impact] || p.impact}` : ""}{p.ageDays >= 1 ? ` · open ${days(p.ageDays)}` : ""}</p>
                 </li>
               ))}
             </ol>
@@ -99,7 +111,7 @@ const nodeStatus = (id: string) => (id === "owners" ? "owners" : roles[id]?.stat
 
         <section class="block" aria-labelledby="map-title">
           <h2 id="map-title">How the team works together</h2>
-          <p class="sub">Each role reads what the pipeline measured on its own rhythm. The arrows show whose work each one reads. Every finding also goes to the Finisher, who keeps it open until the role that raised it no longer sees it.</p>
+          <p class="sub">The plan puts first what stops new stories, then what brings or keeps readers, then the rest. Each role reads what the pipeline measured on its own rhythm. The arrows show whose work each one reads. Every finding also goes to the Finisher, who keeps it open until the role that raised it no longer sees it.</p>
           <svg class="map" viewBox={`0 0 ${W} ${H}`} role="img" aria-labelledby="map-title map-desc">
             <desc id="map-desc">Guard, Platform and Market report to the Brain; Market also feeds Ideas, which reports to the Brain; Guard, Platform and Market send every finding to the Finisher, who reports what is overdue to the Brain; the Brain hands today's plan to you and Claude.</desc>
             <defs>
@@ -155,13 +167,18 @@ const nodeStatus = (id: string) => (id === "owners" ? "owners" : roles[id]?.stat
                 </header>
                 <p class="job">{r.job}</p>
                 <p class="headline">{r.headline}</p>
+                {(() => { const h = r.findings.find((f) => f.text === r.headline && f.level !== "info" && f.fix); return h ? <p class="fix-line"><b>Fix:</b> {h.fix}{h.url && <> <a href={h.url}>Open</a></>} <span class="muted">· {h.owner}</span></p> : null; })()}
                 {r.id === "ideas" && r.ideas?.length > 0 ? (
                   <ul class="findings">
                     {r.ideas.map((i: any) => <li><b>{i.title}.</b> {i.why} <span class="muted">First step: {i.firstStep}</span></li>)}
                   </ul>
                 ) : r.id !== "finisher" && r.findings.some((f) => f.text !== r.headline) && (
                   <ul class="findings">
-                    {r.findings.filter((f) => f.text !== r.headline).map((f) => <li class={f.level}><span class:list={["lvl", f.level]}>{f.level === "act" ? "act" : f.level === "watch" ? "watch" : "note"}</span> {f.text}{f.level !== "info" && <span class="muted"> · {f.owner}</span>}</li>)}
+                    {r.findings.filter((f) => f.text !== r.headline).map((f) => (
+                      <li class={f.level}><span class:list={["lvl", f.level]}>{f.level === "act" ? "act" : f.level === "watch" ? "watch" : "note"}</span> {f.text}{f.level !== "info" && <span class="muted"> · {f.owner}</span>}
+                        {f.fix && f.level !== "info" && <span class="fix-line"><b>Fix:</b> {f.fix}{f.url && <> <a href={f.url}>Open</a></>}</span>}
+                      </li>
+                    ))}
                   </ul>
                 )}
                 <p class="meta">Ran {clock(r.ranAt)} · {EVERY[r.id]}</p>
@@ -180,7 +197,7 @@ const nodeStatus = (id: string) => (id === "owners" ? "owners" : roles[id]?.stat
                 <tbody>
                   {openItems.map((i) => (
                     <tr class:list={[i.level, { overdue: i.ageDays >= 7 }]}>
-                      <td><span class:list={["lvl", i.level]}>{i.level}</span> {i.text}</td>
+                      <td><span class:list={["lvl", i.level]}>{i.level}</span> {i.text}{i.fix && <span class="fix-line"><b>Fix:</b> {i.fix}</span>}{i.reopened ? <span class="fix-line muted">Came back {i.reopened} {i.reopened === 1 ? "time" : "times"} within a day of closing.</span> : ""}</td>
                       <td>{i.owner}</td><td>{roleName(i.role)}</td><td class="num">{days(i.ageDays)}</td>
                     </tr>
                   ))}
@@ -224,6 +241,12 @@ const nodeStatus = (id: string) => (id === "owners" ? "owners" : roles[id]?.stat
   .plan-item p { margin: 0; font-size: 15px; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; }
   .plan-item .meta, .role .meta { margin-top: 4px; font-size: 12.5px; color: var(--ink-3); }
   .owner { font-weight: 600; color: var(--ink-2); }
+  .plan-item .fix { margin-top: 6px; font-size: 14.5px; color: var(--ink-2); }
+  .plan-item .plan-why { margin-top: 2px; font-size: 13.5px; color: var(--ink-3); }
+  .fix-line { display: block; margin-top: 3px; font-size: 13.5px; color: var(--ink-2); }
+  .trend { width: 112px; height: 30px; margin-top: 6px; }
+  .trend rect { fill: var(--series-neutral); }
+  .trend rect.recent { fill: var(--accent); }
   .map { display: block; width: 100%; height: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
   .edge line { stroke: var(--ink-3); stroke-width: 1.6; }
   .edge.every line { stroke-dasharray: 5 5; stroke: var(--line); stroke-width: 1.4; }

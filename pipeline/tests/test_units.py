@@ -488,6 +488,17 @@ def test_source_names_for_social_apps():
         assert source_name(raw) == name, (raw, source_name(raw))
 
 
+def test_source_names_for_ai_assistants():
+    """ChatGPT tags its links utm_source=chatgpt.com; the Readers tab and the team named it "chatgpt.com"."""
+    from digest.admin import source_name
+
+    cases = {"chatgpt.com": "ChatGPT", "chat.openai.com": "ChatGPT", "www.perplexity.ai": "Perplexity", "claude.ai": "Claude",
+             "gemini.google.com": "Gemini", "google.com": "Google", "copilot.microsoft.com": "Copilot",
+             "chat.deepseek.com": "DeepSeek", "grok.com": "Grok", "notchatgpt.com": "notchatgpt.com"}
+    for raw, name in cases.items():
+        assert source_name(raw) == name, (raw, source_name(raw))
+
+
 def test_source_names_for_our_own_tags():
     """site/src/lib/passon.ts and public/app.js: passed-on links, the widget, the feeds, the home-screen app."""
     from digest.admin import source_name

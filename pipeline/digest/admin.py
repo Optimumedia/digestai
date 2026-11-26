@@ -24,6 +24,15 @@ DAYS = 14
 
 # Traffic sources as people know them. Matched on the utm_source tag or the referring host.
 _SOURCE_NAMES = [
+    # AI assistants that link to their sources. ChatGPT tags its links ?utm_source=chatgpt.com, and in
+    # November 2026 it was the largest named source of readers, shown as "chatgpt.com".
+    (("chatgpt.com", "chat.openai.com", "chatgpt", "openai"), "ChatGPT"),
+    (("perplexity.ai", "perplexity"), "Perplexity"),
+    (("claude.ai",), "Claude"),
+    (("gemini.google.com", "gemini"), "Gemini"),
+    (("copilot.microsoft.com", "copilot.cloud.microsoft", "copilot"), "Copilot"),
+    (("chat.deepseek.com", "deepseek"), "DeepSeek"),
+    (("grok.com",), "Grok"),
     (("bluesky", "bsky.app", "bsky.social"), "Bluesky"),
     (("news.ycombinator.com", "hackernews", "hn"), "Hacker News"),
     (("reddit.com", "old.reddit.com", "reddit"), "Reddit"),
@@ -671,8 +680,11 @@ def run() -> dict:
             log.warning("database size failed: %s", str(exc)[:200])
             size = None
         out["database"] = database_summary(size, step_rows, out["history"], now, out["dbMode"])
+        from .run import CAN_WAIT  # the steps a short run skips; a skipped step writes no row
+
         out["schedule"] = {"runsPerDay": config.RUNS_PER_DAY, "intervalMinutes": config.RUN_INTERVAL_MINUTES,
-                           "runMinutes": config.RUN_MINUTES}
+                           "runMinutes": config.RUN_MINUTES, "budgetSeconds": config.RUN_BUDGET_SECONDS,
+                           "canWait": sorted(CAN_WAIT)}
         actions += database_cards(out["database"])
         out["storage"] = storage_summary()
         actions += storage_cards(out["storage"], now)
