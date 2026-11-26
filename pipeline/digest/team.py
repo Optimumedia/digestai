@@ -90,9 +90,8 @@ PEOPLE = ("Martin", "Claude")
 ROLE_RANK = {"guard": 0, "platform": 1, "market": 2, "ideas": 3, "finisher": 4, "owner": 5}
 # The steps that put new stories on the site: a crash in one of these keeps readers on old news.
 SITE_STEPS = {"fetch", "extract", "gate", "enrich", "cluster", "rank", "export"}
-STEP_WORDS = {"enrich": "summaries", "extract": "reading articles", "fetch": "fetching", "topics": "topic pages",
-              "audio": "the audio briefing", "media": "uploading images", "export": "the site export",
-              "images": "share pictures", "upgrade": "better summaries", "cluster": "grouping"}
+PROVIDERS = {"cloud": "Ollama Cloud", "gemini": "Gemini", "groq": "Groq", "openrouter": "OpenRouter",
+             "mistral": "Mistral", "cloudflare": "Cloudflare"}
 
 
 def _iso(dt: datetime) -> str:
@@ -347,8 +346,14 @@ def guard(admin: dict, now: datetime, site_hours: float | None, workflow: list[d
              and not str(c.get("id") or "").startswith(COVERED_CARDS)]
     for c in cards[:3]:
         cid = str(c.get("id") or "card")
-        imp = "readers" if cid.startswith(("search", "quality", "work", "summaries")) else "ops"
-        f.append(finding(f"card:{cid}", _card_text(c), "act" if c["level"] == "critical" else "watch", "Martin",
+        imp = ("outage" if cid.startswith("pipeline") else
+               "readers" if cid.startswith(("search", "quality", "work", "summaries")) else "ops")
+        # Cards about the machinery are Claude's to fix; the rest (Search Console, editorial checks,
+        # held stories) need Martin's hands or judgement.
+        who = "Claude" if cid.startswith(("pipeline", "backup", "media", "summaries", "work", "history", "extract")) else "Martin"
+        first = next((str(i.get("headline")) for i in c.get("items") or [] if isinstance(i, dict) and i.get("headline")), None)
+        text = _card_text(c) + (f" First: {first[:80]}." if first else "")
+        f.append(finding(f"card:{cid}", text, "act" if c["level"] == "critical" else "watch", who,
                          str(c.get("todo") or "") or None, imp, str(c.get("why") or "") or None, "/admin#today"))
     head = next((x["text"] for x in f if x["level"] != "info"), None) or \
         "The site is live and changing, no run or step failed, and reader numbers leave automated visits out."
@@ -366,7 +371,7 @@ def platform(admin: dict, now: datetime) -> dict:
     slow_text = " and ".join(f"{k} {v / 60:.1f}" for k, v in slow if v >= 60)
     if seconds > budget * 0.85:
         f.append(finding("run-time", f"The last full run took {seconds / 60:.1f} of its {budget / 60:.0f} budgeted minutes"
-                                     + (f" (minutes: {slow_text})." if slow_text else "."),
+                                     + (f"; the slowest: {slow_text} minutes." if slow_text else "."),
                          "act" if seconds > budget else "watch", "Claude",
                          f"Make {slow[0][0]} faster or give it less to do per run; above the budget the steps that can wait are skipped." if slow else None))
     # Steps that can wait (run.py CAN_WAIT) are skipped when a run is short of time; a skipped step
@@ -408,7 +413,7 @@ def platform(admin: dict, now: datetime) -> dict:
                          "Fix its address in pipeline/digest/sources.yaml, or pause it with the button on the Today tab.",
                          "ops", "No articles arrive from it, and every run spends time retrying it."))
     today = now.date().isoformat()
-    spent = sorted({u["provider"] for u in (admin.get("llm") or {}).get("usage") or []
+    spent = sorted({PROVIDERS.get(u["provider"], u["provider"]) for u in (admin.get("llm") or {}).get("usage") or []
                     if u.get("day") == today and u.get("exhausted")})
     if spent:
         f.append(finding("models-spent", f"Free model allowance used up today: {', '.join(spent)}. The other models take over; the allowances return at midnight UTC."))
