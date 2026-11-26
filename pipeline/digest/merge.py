@@ -248,6 +248,7 @@ CLOSE_SIM = 0.86   # with three shared event words, one of them saying what happ
 NEAR_SIM = 0.92    # this alike, two shared event words are enough inside MERGE_CLOSE_HOURS
 LAUNCH_SIM = 0.88  # two launches of the same named model inside MERGE_CLOSE_HOURS
 RESTATED_WORDS = 0.6  # a later one-source story whose headline repeats this much of an older one's restates it
+RESTATED_DAYS = 14    # how far back such a repeat is looked for (the merge window, MERGE_LOOKBACK_DAYS by default)
 
 
 def _shared_words(a: dict, b: dict) -> tuple[set, set]:
@@ -257,6 +258,15 @@ def _shared_words(a: dict, b: dict) -> tuple[set, set]:
     return shared, shared - a["name_words"] - b["name_words"] - ROLE_WORDS
 
 
+def restates(a: dict, b: dict) -> bool:
+    """Whether one headline repeats the other's event: three shared event words, one of them saying
+    what happened, and most of either headline's event words (RESTATED_WORDS of both together)."""
+    a, b = _facts(a), _facts(b)
+    words, plain = _shared_words(a, b)
+    union = a["words"] | b["words"]
+    return bool(plain) and len(words) >= 3 and bool(union) and len(words) / len(union) >= RESTATED_WORDS
+
+
 def same_event(a: dict, b: dict, sim: float | None, thr: float) -> str | None:
     """Why two stories are one event, or None. a and b: headline, entities, at (when each broke, a
     datetime or None), sources (article count, optional), or the same prepared by facts_of. sim: the
@@ -264,6 +274,10 @@ def same_event(a: dict, b: dict, sim: float | None, thr: float) -> str | None:
     then the wording and the names have to give it away."""
     gap = abs(a["at"] - b["at"]) if a.get("at") and b.get("at") else None
     if gap is not None and gap > timedelta(days=config.MERGE_PAIR_DAYS):
+        # Past a week only a one-source story that repeats an older headline is the same news.
+        if (gap <= timedelta(days=RESTATED_DAYS) and sim is not None and sim >= CLOSE_SIM and config.MERGE_DUPLICATES
+                and 1 in (a.get("sources"), b.get("sources")) and restates(a, b)):
+            return f"{sim:.2f} alike, a later headline repeats the earlier one"
         return None
     a, b = _facts(a), _facts(b)
     if len(a["tokens"]) >= 3 and a["sorted"] == b["sorted"]:
@@ -295,10 +309,8 @@ def same_event(a: dict, b: dict, sim: float | None, thr: float) -> str | None:
         # A one-source story days later whose headline repeats an older one ("California sues
         # OpenAI over rogue agents that hacked Hugging Face" on 24 Nov, eight days on) is the old
         # news again: it joins the older story instead of showing as new.
-        if not close and sim >= CLOSE_SIM and plain and len(words) >= 3 and 1 in (a.get("sources"), b.get("sources")):
-            union = a["words"] | b["words"]
-            if union and len(words) / len(union) >= RESTATED_WORDS:
-                return f"{sim:.2f} alike, a later headline repeats {listed}"
+        if not close and sim >= CLOSE_SIM and 1 in (a.get("sources"), b.get("sources")) and restates(a, b):
+            return f"{sim:.2f} alike, a later headline repeats {listed}"
         # A shared name alone is not evidence: "Anthropic" is in most AI stories, and trusting it at
         # 0.88 merged a dozen separate events in September. At this bar a pair also has to share two
         # names, or repeat some of the same words, or be alike enough to stand on its own. Only for
