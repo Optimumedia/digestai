@@ -30,7 +30,7 @@ GOOD_LINKS = {
     "[write to us](mailto:hello@digestai.news)": 'href="mailto:hello@digestai.news"',
     "[the story](/story/openai-ships-gpt-6)": 'href="/story/openai-ships-gpt-6"',
     "[up](#top)": 'href="#top"',
-    "[query](/search?q=a&b=c)": 'href="/search?q=a&b=c"',
+    "[query](/search?q=a&b=c)": 'href="/search?q=a&',  # marked 18 writes &amp; here, 15 wrote &: the same address
     "<https://example.com/a>": "&lt;",  # raw angle brackets are shown, as before
 }
 
