@@ -9,6 +9,9 @@ import logging
 import math
 import re
 import time
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -196,14 +199,41 @@ def should_start_article(elapsed: float, durations: list[float], budget: float, 
 
 # ----------------------------------------------------------------- budget
 
-def _today() -> str:
-    return db.utcnow().date().isoformat()
+# Providers whose free day does not start at 00:00 UTC. Gemini's requests-per-day quotas reset at
+# midnight Pacific time (08:00 UTC in winter, 07:00 in summer), so its llm_usage row and its
+# "exhausted" mark are kept per Pacific day: a mark set at 01:00 UTC, while yesterday's quota was
+# still spent, must not hold it off after its new quota arrives at 08:00.
+PACIFIC_DAY = frozenset({"gemini"})
+
+
+def _pacific_offset_hours(now: datetime) -> int:
+    """UTC-7 from the second Sunday of March 10:00 UTC to the first Sunday of November 09:00 UTC
+    (the US rule), else UTC-8. Computed here so the runner needs no time-zone database."""
+    march = datetime(now.year, 3, 8, 10, tzinfo=timezone.utc)
+    start = march + timedelta(days=(6 - march.weekday()) % 7)
+    nov = datetime(now.year, 11, 1, 9, tzinfo=timezone.utc)
+    end = nov + timedelta(days=(6 - nov.weekday()) % 7)
+    return -7 if start <= now < end else -8
+
+
+def _provider_now(provider: str | None = None) -> datetime:
+    now = db.utcnow()
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    if provider in PACIFIC_DAY:
+        return now + timedelta(hours=_pacific_offset_hours(now))
+    return now
+
+
+def _today(provider: str | None = None) -> str:
+    """The provider's current quota day: UTC, or the Pacific date for PACIFIC_DAY providers."""
+    return _provider_now(provider).date().isoformat()
 
 
 def usage_today(conn, provider: str) -> tuple[int, bool]:
     row = conn.execute(
         select(db.llm_usage.c.requests, db.llm_usage.c.exhausted)
-        .where(db.llm_usage.c.day == _today(), db.llm_usage.c.provider == provider)
+        .where(db.llm_usage.c.day == _today(provider), db.llm_usage.c.provider == provider)
     ).first()
     return (row.requests, row.exhausted) if row else (0, False)
 
@@ -222,7 +252,7 @@ def record_usage(eng, provider: str, n: int = 1, exhausted: bool = False) -> Non
         return
     with eng.begin() as conn:
         row = conn.execute(
-            select(db.llm_usage.c.id).where(db.llm_usage.c.day == _today(), db.llm_usage.c.provider == provider)
+            select(db.llm_usage.c.id).where(db.llm_usage.c.day == _today(provider), db.llm_usage.c.provider == provider)
         ).first()
         if row:
             values = {"requests": db.llm_usage.c.requests + n}
@@ -230,11 +260,11 @@ def record_usage(eng, provider: str, n: int = 1, exhausted: bool = False) -> Non
                 values["exhausted"] = True
             conn.execute(update(db.llm_usage).where(db.llm_usage.c.id == row.id).values(**values))
         else:
-            conn.execute(insert(db.llm_usage).values(day=_today(), provider=provider, requests=n, exhausted=exhausted))
+            conn.execute(insert(db.llm_usage).values(day=_today(provider), provider=provider, requests=n, exhausted=exhausted))
 
 
-def _minutes_left_today() -> int:
-    now = db.utcnow()
+def _minutes_left_today(provider: str | None = None) -> int:
+    now = _provider_now(provider)
     return 24 * 60 - (now.hour * 60 + now.minute)
 
 
@@ -251,7 +281,7 @@ def allowance(conn, provider: str) -> int:
     if exhausted:
         return 0
     remaining = max(0, budget - used)
-    runs_left = max(1, -(-_minutes_left_today() * config.RUNS_PER_DAY // (24 * 60)))  # ceil
+    runs_left = max(1, -(-_minutes_left_today(provider) * config.RUNS_PER_DAY // (24 * 60)))  # ceil
     return max(0, min(config.MAX_ENRICH_PER_RUN, -(-remaining // runs_left)))
 
 
@@ -267,7 +297,7 @@ def spare(conn, provider: str) -> int:
     used, exhausted = usage_today(conn, provider)
     if exhausted:
         return 0
-    return int(max(0, budget - used) - budget * (_minutes_left_today() / (24 * 60)))
+    return int(max(0, budget - used) - budget * (_minutes_left_today(provider) / (24 * 60)))
 
 
 # ----------------------------------------------------------------- queue order
@@ -370,14 +400,58 @@ def pick_queue(conn, limit: int) -> list[int]:
     return [r.id for r in order_queue(list(rows.values()), db.utcnow(), front)[:limit]]
 
 
-_gemini_dead: set[str] = set()  # models that answered 404/429 in this run
+# Gemini's free quotas, as the 429 bodies name them: requests per day per model (reset at midnight
+# Pacific time, not UTC: https://aistudio.google.com/docs/rate-limits) and requests or tokens per
+# minute per model. Only the first kind ends a model's day. Until 26 Nov 2026 any 429 did, and the
+# per-UTC-day "exhausted" mark then held Gemini off from 08:00 UTC, when its quota had just come
+# back, to midnight: on 24 and 26 Nov the whole day got 3 and 2 Gemini summaries.
+_gemini_dead: set[str] = set()        # models out of their day's quota (429 per day) or gone (404), this run
+_gemini_skip: set[str] = set()        # models that timed out this run: not asked again until the next run
+_gemini_wait_until: dict[str, float] = {}  # model -> time.time() when its per-minute window or overload has passed
+_gemini_run: dict = {"timeouts": 0}
+GEMINI_TIMEOUT_SECONDS = 60.0   # a summary takes 5-30 s; three 90-second hangs cost one run 4.5 minutes (26 Nov)
+GEMINI_OVERLOAD_PAUSE_SECONDS = 60.0  # a 503 "high demand" lasts minutes: the next model takes this one
+
+
+def gemini_reset() -> None:
+    """Forget this run's per-model state (each run is a new process; tests call this)."""
+    _gemini_dead.clear()
+    _gemini_skip.clear()
+    _gemini_wait_until.clear()
+    _gemini_run.update(timeouts=0)
+
+
+def gemini_quota(body) -> tuple[str, float, str]:
+    """What a Gemini 429 says: ("day" | "minute", seconds to wait, the quota ids). A quota per day
+    ends the model's day; anything else (per minute, tokens per minute, unnamed) is a wait."""
+    err = body.get("error", {}) if isinstance(body, dict) else {}
+    details = err.get("details", []) if isinstance(err, dict) else []
+    quotas = [str(v.get("quotaId", "")) for d in details if isinstance(d, dict)
+              for v in (d.get("violations") or []) if isinstance(v, dict)]
+    wait = 0.0
+    for d in details:
+        if isinstance(d, dict) and d.get("retryDelay"):
+            wait = _parse_reset(str(d["retryDelay"]))
+    if not wait:
+        m = re.search(r"retry in ([\d.]+)\s*s", str(err.get("message", "") if isinstance(err, dict) else ""))
+        wait = float(m.group(1)) if m else 60.0
+    kind = "day" if any("PerDay" in q for q in quotas) else "minute"
+    return kind, wait, ",".join(q for q in quotas if q) or str(err.get("message", ""))[:120]
 
 
 def call_gemini(prompt: str) -> dict:
-    """Try the primary model, then the fallbacks; each model has its own free-tier quota."""
+    """Try the primary model, then the fallbacks; each model has its own free-tier quota.
+
+    Raises QuotaExhausted only when every model is out of its day's quota (the caller then marks
+    the day), ProviderPaused when the rest are out for this run (timeouts), and RuntimeError when a
+    model is only waiting out a per-minute window or an overload, so a later article tries again."""
     last: Exception | None = None
-    for model in [config.GEMINI_MODEL, *config.GEMINI_FALLBACK_MODELS]:
-        if model in _gemini_dead:
+    models = [config.GEMINI_MODEL, *config.GEMINI_FALLBACK_MODELS]
+    for model in models:
+        if model in _gemini_dead or model in _gemini_skip:
+            continue
+        if _gemini_wait_until.get(model, 0.0) > time.time():
+            last = RuntimeError(f"gemini {model} waiting out a per-minute limit")
             continue
         # Gemini 3 models think before answering and the thoughts count against maxOutputTokens,
         # so keep the ceiling high and the thinking short; summarising does not need deliberation.
@@ -387,21 +461,41 @@ def call_gemini(prompt: str) -> dict:
         body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen}
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         # The key travels in a header, never in the URL, so it can never appear in an error message.
-        resp = requests.post(url, headers={"x-goog-api-key": config.GEMINI_API_KEY}, json=body, timeout=_request_timeout(90))
-        if resp.status_code in (404, 429):
+        try:
+            resp = requests.post(url, headers={"x-goog-api-key": config.GEMINI_API_KEY}, json=body,
+                                 timeout=_request_timeout(GEMINI_TIMEOUT_SECONDS))
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            # A hang is the free tier being congested: this model sits out the run, and a second one
+            # takes Gemini out of the run, so hangs cost at most two timeouts (not one per article).
+            _gemini_skip.add(model)
+            _gemini_run["timeouts"] += 1
+            log.warning("gemini %s did not answer (%s); skipped for this run", model, type(exc).__name__)
+            if _gemini_run["timeouts"] >= 2:
+                raise ProviderPaused(f"gemini: {_gemini_run['timeouts']} timeouts this run") from exc
+            last = RuntimeError(f"gemini {model} timed out")
+            continue
+        if resp.status_code == 404:
             _gemini_dead.add(model)
-            detail = ""
+            last = QuotaExhausted(f"gemini {model} 404")
+            log.warning("gemini %s not available (404); trying next model", model)
+            continue
+        if resp.status_code == 429:
             try:
-                err = resp.json().get("error", {})
-                quotas = [v.get("quotaId", "") for d in err.get("details", []) for v in d.get("violations", [])]
-                detail = ",".join(q for q in quotas if q) or err.get("message", "")[:120]
+                kind, wait, detail = gemini_quota(resp.json())
             except Exception:  # noqa: BLE001
-                pass
-            last = QuotaExhausted(f"gemini {model} {resp.status_code} {detail}")
-            log.warning("gemini %s unavailable (%s %s); trying next model", model, resp.status_code, detail)
+                kind, wait, detail = "minute", 60.0, ""
+            if kind == "day":
+                _gemini_dead.add(model)
+                last = QuotaExhausted(f"gemini {model} 429 {detail}")
+                log.warning("gemini %s out of its day's quota (%s); trying next model", model, detail)
+            else:
+                _gemini_wait_until[model] = time.time() + max(5.0, wait)
+                last = RuntimeError(f"gemini {model} rate limited for {wait:.0f}s ({detail})")
+                log.info("gemini %s rate limited for %.0fs (%s); trying next model", model, wait, detail)
             continue
         if resp.status_code >= 500:
-            # Overloaded: try the next model this time, keep this one for later articles.
+            # Overloaded: the next model takes this article, and this one rests for a minute.
+            _gemini_wait_until[model] = time.time() + GEMINI_OVERLOAD_PAUSE_SECONDS
             last = RuntimeError(f"gemini {model} http {resp.status_code}")
             continue
         if resp.status_code >= 400:
@@ -413,7 +507,11 @@ def call_gemini(prompt: str) -> dict:
         if not text.strip():
             raise RuntimeError(f"gemini {model} returned no text (finish={cand.get('finishReason')})")
         return _parse_json(text)
-    raise last or QuotaExhausted("gemini: no model available")
+    if all(m in _gemini_dead for m in models):
+        raise last if isinstance(last, QuotaExhausted) else QuotaExhausted("gemini: no model available")
+    if all(m in _gemini_dead or m in _gemini_skip for m in models):
+        raise ProviderPaused(f"gemini: no model left this run ({last})")
+    raise last or RuntimeError("gemini: every model is waiting out a limit")
 
 
 _groq_dead: set[str] = set()
@@ -434,6 +532,48 @@ def _parse_reset(value: str | None) -> float:
     return total
 
 
+def groq_429_wait(headers, message: str) -> tuple[bool, float]:
+    """(out of requests for the day, seconds to wait) for a Groq 429.
+
+    Groq's headers (console.groq.com/docs/rate-limits): x-ratelimit-*-requests are the requests
+    per DAY and x-ratelimit-*-tokens the tokens per MINUTE; retry-after, sent with a 429, is the
+    wait that clears whichever limit was hit, the tokens per day (TPD) included. Until 26 Nov 2026
+    the wait was the larger of the two resets, and the requests reset is the time the day's bucket
+    takes to refill (86.4 s for each request in it at 1,000 a day), not a limit: a 429 on the
+    minute's tokens parked a model for 86-173 s when it needed 10-30, and the article went to the
+    3B local model instead."""
+    if headers.get("x-ratelimit-remaining-requests") == "0" and _parse_reset(headers.get("x-ratelimit-reset-requests")) > 120:
+        return True, 0.0
+    try:
+        after = float(headers.get("retry-after") or 0)
+    except ValueError:
+        after = 0.0
+    if not after:
+        m = re.search(r"try again in ((?:\d+h)?(?:\d+m)?[\d.]+s)", message or "")
+        after = _parse_reset(m.group(1)) if m else _parse_reset(headers.get("x-ratelimit-reset-tokens"))
+    return False, max(after, 2.0)
+
+
+# Tokens assumed for a summary call before one has been answered (the measured prompt of an
+# average article, ~2,300, plus ~600 written).
+GROQ_TYPICAL_CALL_TOKENS = 3000
+
+
+def groq_pace(headers, need: int) -> float:
+    """Seconds until the minute's token window holds `need` tokens again, from a successful answer's
+    headers. The window refills evenly (reset-tokens is the time to full), so the wait is the share
+    of that time the missing tokens take, not the whole of it."""
+    try:
+        limit = int(headers.get("x-ratelimit-limit-tokens") or 0)
+        remaining = int(headers.get("x-ratelimit-remaining-tokens") or limit)
+    except ValueError:
+        return 0.0
+    if not limit or remaining >= need:
+        return 0.0
+    full = _parse_reset(headers.get("x-ratelimit-reset-tokens"))
+    return full * min(1.0, (need - remaining) / max(1, limit - remaining)) + 0.5
+
+
 def call_groq(prompt: str) -> dict:
     """Try the primary model, then the fallbacks; each Groq model has its own daily quota and
     a tokens-per-minute window that the response headers report."""
@@ -450,35 +590,41 @@ def call_groq(prompt: str) -> dict:
                 last = RuntimeError(f"groq {model} rate limited for {wait:.0f}s")
                 continue
             time.sleep(wait)
+        body = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,
+            "response_format": {"type": "json_object"},
+            "max_tokens": 3000,
+        }
+        if model.startswith("openai/gpt-oss"):
+            # gpt-oss reasons before answering, and on a summary those tokens are pure cost: 413 of
+            # 709 written at the default effort (measured 26 Nov 2026), out of a 200,000-token day.
+            body["reasoning_effort"] = "low"
         resp = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {config.GROQ_API_KEY}"},
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3,
-                "response_format": {"type": "json_object"},
-                "max_tokens": 3000,
-            },
+            json=body,
             timeout=_request_timeout(90),
         )
         h = resp.headers
         if resp.status_code == 429:
             detail = ""
             try:
-                detail = resp.json().get("error", {}).get("message", "")[:100]
+                detail = resp.json().get("error", {}).get("message", "")[:300]
             except Exception:  # noqa: BLE001
                 pass
             # A per-minute limit resets in seconds; a daily one does not. Only the latter kills the model.
-            reset_tokens = _parse_reset(h.get("x-ratelimit-reset-tokens"))
-            reset_requests = _parse_reset(h.get("x-ratelimit-reset-requests"))
-            if h.get("x-ratelimit-remaining-requests") == "0" and reset_requests > 120:
+            out_for_day, wait = groq_429_wait(h, detail)
+            limit = "tokens per day" if "(TPD)" in detail else "tokens per minute" if "(TPM)" in detail else "requests"
+            if out_for_day:
                 _groq_dead.add(model)
-                last = QuotaExhausted(f"groq {model} daily quota: {detail}")
+                last = QuotaExhausted(f"groq {model} daily quota: {detail[:100]}")
                 log.warning("groq %s daily quota reached; trying next model", model)
             else:
-                _groq_wait_until[model] = time.time() + max(reset_tokens, reset_requests, 5.0)
-                last = RuntimeError(f"groq {model} rate limited for {max(reset_tokens, reset_requests):.0f}s")
+                _groq_wait_until[model] = time.time() + wait
+                last = RuntimeError(f"groq {model} rate limited for {wait:.0f}s ({limit})")
+                log.info("groq %s rate limited for %.0fs (%s); trying next model", model, wait, limit)
             continue
         if resp.status_code == 404:
             _groq_dead.add(model)
@@ -493,14 +639,17 @@ def call_groq(prompt: str) -> dict:
             continue
         if resp.status_code >= 400:
             raise RuntimeError(f"groq {model} http {resp.status_code}: {resp.text[:160]}")
-        # Pace the next call from the tokens-per-minute window so we never trip the limit.
+        data = resp.json()
+        # Pace the next call from the tokens-per-minute window so we never trip the limit: the next
+        # call is assumed to be about the size of this one.
         try:
-            remaining = int(h.get("x-ratelimit-remaining-tokens", "99999"))
-            if remaining < 4500:
-                _groq_wait_until[model] = time.time() + _parse_reset(h.get("x-ratelimit-reset-tokens")) + 1
-        except ValueError:
-            pass
-        content = resp.json()["choices"][0]["message"]["content"]
+            used = int((data.get("usage") or {}).get("total_tokens") or 0)
+        except (TypeError, ValueError):
+            used = 0
+        pause = groq_pace(h, max(used, GROQ_TYPICAL_CALL_TOKENS))
+        if pause > 0:
+            _groq_wait_until[model] = time.time() + pause
+        content = data["choices"][0]["message"]["content"]
         return _parse_json(content)
     raise last or QuotaExhausted("groq: no model available")
 
@@ -748,6 +897,13 @@ def call_mistral(prompt: str) -> dict:
         _mistral_run["paused"] = "model not available on this plan"
         log.warning("Mistral model not available on this plan (%s): paused for %g hours", model, config.MISTRAL_PLAN_PAUSE_HOURS)
         raise QuotaExhausted(f"mistral {model}: model not available on this plan")
+    if resp.status_code == 402 and "billing_no_api_budget_configured" in (resp.text or ""):
+        # "You need a subscription to access this API" (every run from 25 Nov 2026): the account has
+        # no free plan any more, and paying is not an option, so it is asked once a day, not once a run.
+        _mistral_pause_for_plan()
+        _mistral_run["paused"] = "no API plan on the account"
+        log.warning("Mistral: no API plan on the account (402); paused for %g hours", config.MISTRAL_PLAN_PAUSE_HOURS)
+        raise ProviderPaused(f"mistral {model} http 402: no API plan on the account")
     if resp.status_code in (401, 402, 403, 429):
         _mistral_run["paused"] = f"http {resp.status_code}"
         raise ProviderPaused(f"mistral {model} http {resp.status_code}: {resp.text[:120]}")
@@ -1209,7 +1365,63 @@ def call_ollama(prompt: str) -> dict:
         timeout=_request_timeout(240),
     )
     resp.raise_for_status()
-    return _parse_json(resp.json()["message"]["content"])
+    data = resp.json()
+    content = data["message"]["content"]
+    try:
+        return _parse_json(content)
+    except ValueError as exc:
+        # The 3B model's answer is cut at num_predict, or breaks late in the object (26 Nov: "Expecting
+        # ',' delimiter: line 89 column 4", after 3,233 characters). A minute of CPU went into it, and
+        # the fields written before the break are whole: keep them when they hold a usable summary.
+        fixed = salvage_json(content)
+        if fixed is None:
+            raise
+        log.info("local answer repaired (%s; done_reason=%s): kept %s", str(exc)[:60], data.get("done_reason"),
+                 ", ".join(sorted(fixed))[:160])
+        return fixed
+
+
+# What a salvaged answer must still hold to be worth storing (and "is_ai_news", which may be false);
+# everything else has a default in _clean.
+SALVAGE_NEEDS = ("headline", "summary_md", "key_points", "category")
+
+
+def salvage_json(raw: str) -> dict | None:
+    """The longest prefix of a broken JSON object that ends after a complete top-level field, closed
+    and parsed, or None. Only when the summary fields are all in it (SALVAGE_NEEDS) and the summary
+    has some length: a cut answer must never become a stub on the site."""
+    start = (raw or "").find("{")
+    if start < 0:
+        return None
+    text = raw[start:]
+    cuts, depth, in_str, esc = [], 0, False, False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch in "{[":
+            depth += 1
+        elif ch in "}]":
+            depth -= 1
+        elif ch == "," and depth == 1:
+            cuts.append(i)
+    for cut in reversed(cuts[-12:]):
+        try:
+            obj = json.loads(text[:cut] + "}")
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or not all(obj.get(k) for k in SALVAGE_NEEDS) or "is_ai_news" not in obj:
+            return None
+        if len(str(obj.get("summary_md") or "").split()) < 60:
+            return None
+        return obj
+    return None
 
 
 def ollama_available() -> bool:
@@ -1584,62 +1796,42 @@ def run() -> dict:
     budget = float(config.ENRICH_TIME_BUDGET_SECONDS)
     started = time.monotonic()
     _deadline = started + budget
-    durations: list[float] = []
-    last_start: float | None = None
-    for row in rows:
-        now_m = time.monotonic()
-        if last_start is not None:
-            durations.append(now_m - last_start)
-        if not should_start_article(now_m - started, durations, budget, config.ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS):
-            # Leave the rest for the next run: slow or rate-limited providers must not push the
-            # whole run past the workflow's time limit, because a cancelled run publishes nothing.
-            # Checked before an article starts, with its expected duration, so the budget holds.
-            stats["stopped_for_time"] = True
-            break
-        last_start = now_m
-        text = row.content_text or row.description or ""
-        result, model_used, used_fn = None, "heuristic", None
-        for name, fn in list(providers):
-            provider = name.split(":")[0]
-            if provider in budgets and spent.get(provider, 0) >= budgets[provider]:
-                continue  # this provider's share for the run is spent; try the next one
-            # Shorter input and shorter examples for the CPU model (speed) and for Groq (its
-            # tokens-per-minute window); the rest, Mistral's 128k-token model included, get the full prompt.
-            prompt = build_prompt(row, text, provider, local_only)
-            try:
-                result = fn(prompt)
-                model_used = name
-                used_fn = (fn, prompt, provider)
-                spent[provider] = spent.get(provider, 0) + 1
-                if provider in budgets and provider != "ollama":
-                    record_usage(eng, provider, 1)
-                break
-            except ProviderPaused as exc:
-                log.warning("%s paused for this run (%s); switching provider", name, exc)
-                providers = [p for p in providers if p[0] != name]
-            except QuotaExhausted as exc:
-                log.warning("%s quota exhausted (%s); switching provider", name, exc)
-                if provider in budgets:
-                    record_usage(eng, provider, 0, exhausted=True)
-                providers = [p for p in providers if p[0] != name]
-            except Exception as exc:  # noqa: BLE001
-                stats["errors"] += 1
-                log.warning("%s failed on #%s: %s", name, row.id, exc)
-        if result is None:
-            remaining = [p for p in providers if spent.get(p[0].split(":")[0], 0) < budgets.get(p[0].split(":")[0], 10**9)]
-            if remaining:
-                # A transient error: leave the row for the next run rather than degrade it.
-                continue
-            if keyed or budgets.get("ollama"):
-                break  # every provider's share for this run is spent; the rest waits for the next run
-            result = heuristic(row, row.category_hint)
+    # Two workers. The API providers take the queue from the front, one article at a time, on this
+    # thread. The local model runs beside them on a thread of its own and takes the BACK of the
+    # queue, the articles the scarce models would reach last, whenever the API side cannot take the
+    # front one at that moment (every provider rate limited, or out for the run). Before, the run
+    # was one line: while the 3B model spent 60-110 s on an article, Groq's minute window refilled
+    # unused, and the next article found Groq "rate limited for 86 s" and went to the 3B model too.
+    api = [p for p in providers if not p[0].startswith("ollama")]
+    local = next((p for p in providers if p[0].startswith("ollama")), None)
+    queue = deque(rows)
+    api_durations: list[float] = []
+    local_durations: list[float] = []
+    tries: dict[int, int] = {}
+    job: dict | None = None  # the local model's article: future, row, text, prompt, started
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="enrich-local") if local else None
+
+    def share_left(provider: str) -> bool:
+        return provider not in budgets or spent.get(provider, 0) < budgets[provider]
+
+    def api_live() -> list:
+        return [p for p in api if share_left(p[0].split(":")[0])]
+
+    def local_free() -> bool:
+        return local is not None and job is None and share_left("ollama")
+
+    def elapsed() -> float:
+        return time.monotonic() - started
+
+    def store(row, text, result, model_used, used_fn) -> None:
+        """Everything after an answer: the clean-up, the check against the article, the write."""
         stats["model"] = model_used
         try:
             clean = _clean(result, row, row.category_hint)
         except Exception as exc:  # noqa: BLE001 - one malformed answer must not stop the batch
             stats["errors"] += 1
             log.warning("could not use the answer for #%s from %s: %s", row.id, model_used, exc)
-            continue  # the article stays pending and is retried next run
+            return  # the article stays pending and is retried next run
         # Every figure and name is checked against the article before anything is stored. The
         # title and the feed's own description count as source material: a figure in the headline
         # ("Last Week in AI #343") often appears nowhere else.
@@ -1652,7 +1844,7 @@ def run() -> dict:
                 stats["rejected"] += 1
                 conn.execute(update(db.articles).where(db.articles.c.id == row.id)
                              .values(status="rejected", reject_reason="llm: not ai news", enrich_model=model_used))
-                continue
+                return
             stats["enriched"] += 1
             if clean["work_card"]:
                 stats["work_cards"] = stats.get("work_cards", 0) + 1
@@ -1682,9 +1874,131 @@ def run() -> dict:
                 enrich_model=model_used,
                 status="enriched",
             ))
-        if model_used.startswith("gemini"):
-            time.sleep(4.2)  # 15 requests per minute on the free tier
-        # Groq paces itself from its rate-limit headers inside call_groq.
+        by = model_used.split(":")[0]
+        stats["by_provider"] = {**stats.get("by_provider", {}), by: stats.get("by_provider", {}).get(by, 0) + 1}
+
+    def try_api(row, text):
+        """The API providers in order on one article: (answer, name, (fn, prompt, provider)) or Nones."""
+        nonlocal api
+        for name, fn in list(api):
+            provider = name.split(":")[0]
+            if not share_left(provider):
+                continue  # this provider's share for the run is spent; try the next one
+            # Shorter input and shorter examples for Groq (its tokens-per-minute window); the rest,
+            # Mistral's 128k-token model included, get the full prompt.
+            prompt = build_prompt(row, text, provider, local_only)
+            try:
+                result = fn(prompt)
+            except ProviderPaused as exc:
+                log.warning("%s paused for this run (%s); switching provider", name, exc)
+                api = [p for p in api if p[0] != name]
+                continue
+            except QuotaExhausted as exc:
+                log.warning("%s quota exhausted (%s); switching provider", name, exc)
+                if provider in budgets:
+                    record_usage(eng, provider, 0, exhausted=True)
+                api = [p for p in api if p[0] != name]
+                continue
+            except Exception as exc:  # noqa: BLE001
+                stats["errors"] += 1
+                log.warning("%s failed on #%s: %s", name, row.id, exc)
+                continue
+            spent[provider] = spent.get(provider, 0) + 1
+            if provider in budgets:
+                record_usage(eng, provider, 1)
+            return result, name, (fn, prompt, provider)
+        return None, None, None
+
+    def start_local(row) -> None:
+        nonlocal job
+        text = row.content_text or row.description or ""
+        prompt = build_prompt(row, text, "ollama", local_only)
+        spent["ollama"] = spent.get("ollama", 0) + 1
+        job = {"future": pool.submit(local[1], prompt), "row": row, "text": text, "prompt": prompt,
+               "started": time.monotonic()}
+
+    def finish_local(wait: float | None) -> bool:
+        """Store the local model's answer if it is ready (waiting up to `wait` seconds; None: until
+        it is, which the request's own timeout bounds). True when the worker is free again."""
+        nonlocal job
+        if job is None:
+            return True
+        try:
+            result = job["future"].result(timeout=wait)
+        except FutureTimeout:
+            return False
+        except Exception as exc:  # noqa: BLE001 - the article stays pending and is retried next run
+            stats["errors"] += 1
+            log.warning("%s failed on #%s: %s", local[0], job["row"].id, exc)
+            local_durations.append(time.monotonic() - job["started"])
+            job = None
+            return True
+        done, job = job, None
+        local_durations.append(time.monotonic() - done["started"])
+        store(done["row"], done["text"], result, local[0], (local[1], done["prompt"], "ollama"))
+        return True
+
+    def api_wait() -> float:
+        """Seconds until the soonest rate-limited API model may be asked again (1 to 20)."""
+        now = time.time()
+        waits = [t - now for m, t in list(_groq_wait_until.items()) + list(_gemini_wait_until.items())
+                 if t > now and m not in _groq_dead and m not in _gemini_dead]
+        return max(1.0, min(20.0, min(waits) if waits else 5.0))
+
+    try:
+        while queue:
+            finish_local(0)
+            if not (should_start_article(elapsed(), api_durations, budget, config.ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS)
+                    or (local_free() and should_start_article(elapsed(), local_durations, budget,
+                                                               config.ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS))):
+                # Leave the rest for the next run: slow or rate-limited providers must not push the
+                # whole run past the workflow's time limit, because a cancelled run publishes nothing.
+                # Checked before an article starts, with its expected duration, so the budget holds.
+                stats["stopped_for_time"] = True
+                break
+            row = queue[0]
+            api_on = bool(api_live()) and should_start_article(elapsed(), api_durations, budget,
+                                                               config.ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS)
+            if api_on:
+                t0 = time.monotonic()
+                text = row.content_text or row.description or ""
+                result, name, used_fn = try_api(row, text)
+                if result is not None:
+                    queue.popleft()
+                    api_durations.append(time.monotonic() - t0)
+                    store(row, text, result, name, used_fn)
+                    if name.startswith("gemini"):
+                        time.sleep(4.2)  # Gemini's per-minute windows; Groq paces itself inside call_groq
+                    continue
+                tries[row.id] = tries.get(row.id, 0) + 1
+                api_on = bool(api_live())  # a provider may have dropped out on this article
+            # The API side could not take the front article just now.
+            if local_free() and should_start_article(elapsed(), local_durations, budget, config.ENRICH_FIRST_ARTICLE_ESTIMATE_SECONDS):
+                # The local model takes the back of the queue while the API side may still come back,
+                # and the front once it is out for the run (or out of time for another article).
+                start_local(queue.pop() if api_on and len(queue) > 1 else queue.popleft())
+                continue
+            if job is not None:
+                if not api_on:
+                    finish_local(None)  # nothing else can work: wait for the local model
+                elif tries.get(row.id, 0) >= 3:
+                    queue.rotate(-1)  # three tries: this article goes to the back, where the local model takes it
+                    finish_local(api_wait())
+                else:
+                    finish_local(api_wait())  # the API side waits out its window, or the local model ends first
+                continue
+            if api_live():
+                queue.popleft()  # a transient error: leave the row for the next run rather than degrade it
+                continue
+            if keyed or budgets.get("ollama"):
+                break  # every provider's share for this run is spent; the rest waits for the next run
+            queue.popleft()
+            text = row.content_text or row.description or ""
+            store(row, text, heuristic(row, row.category_hint), "heuristic", None)
+        finish_local(max(1.0, _time_left() + 15.0))
+    finally:
+        if pool is not None:
+            pool.shutdown(wait=False, cancel_futures=True)
     _deadline = None
     stats["seconds_used"] = round(time.monotonic() - started, 1)
     if check_stats["checked"]:

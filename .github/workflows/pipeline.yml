@@ -119,7 +119,8 @@ jobs:
       OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'qwen2.5:3b' }}
       # Pinned release of the local model's server (the "Start local model" step).
       OLLAMA_VERSION: "0.12.3"
-      GEMINI_DAILY_BUDGET: ${{ vars.GEMINI_DAILY_BUDGET || '54' }}
+      # Empty: config.py's default, 18 requests a day for each Gemini model in the chain.
+      GEMINI_DAILY_BUDGET: ${{ vars.GEMINI_DAILY_BUDGET }}
       MAX_ENRICH_PER_RUN: ${{ vars.MAX_ENRICH_PER_RUN || '20' }}
       GH_TOKEN: ${{ github.token }}
       # The morning note (pipeline/digest/morning.py): written on the first run from this hour UTC and

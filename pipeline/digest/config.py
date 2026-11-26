@@ -44,7 +44,9 @@ BROWSER_AGENT = (
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 # Verified 2026-09-11: the 2.5 generation is closed to new accounts; these three accept requests.
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-3.8-flash"
-GEMINI_FALLBACK_MODELS = [m.strip() for m in (os.environ.get("GEMINI_FALLBACK_MODELS") or "gemini-3.5-flash,gemini-flash-latest").split(",") if m.strip()]
+# The two Flash-Lite models (checked 26 Nov 2026: both answer on the free tier, 5-8 s for a full
+# summary prompt, with the hedging and attribution kept) have quotas of their own, after the Flash ones.
+GEMINI_FALLBACK_MODELS = [m.strip() for m in (os.environ.get("GEMINI_FALLBACK_MODELS") or "gemini-3.5-flash,gemini-flash-latest,gemini-3.5-flash-lite,gemini-3.1-flash-lite").split(",") if m.strip()]
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 # Verified 2026-09-11 against the Groq model list; each model has its own free-tier quota.
 GROQ_MODEL = os.environ.get("GROQ_MODEL") or "qwen/qwen3.8-27b"
@@ -101,9 +103,12 @@ WORK_AUDIO_MIN_BUDGET_SECONDS = int(os.environ.get("WORK_AUDIO_MIN_BUDGET_SECOND
 NEWSLETTER_HOUR_UTC = int(os.environ.get("NEWSLETTER_HOUR_UTC", "5"))
 
 # Free tiers, measured 2026-09-11: Gemini 3.x Flash models allow only 20 requests per day per
-# model on the free tier (quota id GenerateRequestsPerDayPerProjectPerModel-FreeTier), so the
-# three-model chain gives ~60 calls a day; they go to the highest-weight sources. Groq's free
-# tier is 14,400/day, so a Groq key lifts the ceiling for everything else. The daily budget is
+# model on the free tier (quota id GenerateRequestsPerDayPerProjectPerModel-FreeTier, reset at
+# midnight Pacific), so the five-model chain (two of them Flash-Lite, added 26 Nov) gives ~100
+# calls a day; they go to the front of the queue. Groq's free tier (checked 26 Nov 2026) is, per
+# model, 1,000 requests and 200,000 tokens a day and 8,000 tokens a minute: the tokens a day, about
+# 65 summaries per model, are what runs out (gpt-oss-120b and -20b both stood at 197,000 by 10:30
+# UTC). Its DAILY_BUDGET below counts requests, so it only caps runaway use. The daily budget is
 # spread over the day's runs; unused allowance rolls forward within the day.
 # ~30 s per Gemini call on long articles: 20 per run keeps the job well inside the 30-minute cadence.
 MAX_ENRICH_PER_RUN = int(os.environ.get("MAX_ENRICH_PER_RUN") or "20")
@@ -128,7 +133,8 @@ SUPABASE_EGRESS_GB = float(os.environ.get("SUPABASE_EGRESS_GB") or "5")
 SUPABASE_DB_MB = float(os.environ.get("SUPABASE_DB_MB") or "500")
 SUPABASE_CYCLE_DAY = int(os.environ.get("SUPABASE_CYCLE_DAY") or "11")
 DAILY_BUDGET = {
-    "gemini": int(os.environ.get("GEMINI_DAILY_BUDGET") or "54"),
+    # 18 of each model's 20 requests a day (their quota day is the Pacific one: enrich.PACIFIC_DAY).
+    "gemini": int(os.environ.get("GEMINI_DAILY_BUDGET") or str(18 * (1 + len(GEMINI_FALLBACK_MODELS)))),
     "groq": int(os.environ.get("GROQ_DAILY_BUDGET") or "2400"),
     # Ollama's free allowance is usage-based (hourly and weekly); a 429 pauses it for the rest of the run.
     "cloud": int(os.environ.get("OLLAMA_CLOUD_DAILY_BUDGET") or "400"),  # 3 models x 1,000/day, 80%

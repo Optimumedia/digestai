@@ -331,15 +331,21 @@ def test_upgrade_rule_is_bounded_and_never_repeats_itself():
 
 
 def test_spare_allowance_is_what_the_day_is_ahead_by():
+    winter = datetime(2026, 1, 15, tzinfo=timezone.utc)
     with fresh_db() as eng:
         with eng.connect() as conn:
             for hour, expected_positive in ((23, True), (0, False)):
-                with Patch((db, "utcnow", lambda: NOW.replace(hour=hour, minute=0))):
-                    assert (enrich.spare(conn, "gemini") > 0) is expected_positive
+                with Patch((db, "utcnow", lambda: winter.replace(hour=hour, minute=0))):
+                    assert (enrich.spare(conn, "groq") > 0) is expected_positive
+            # Gemini's day is the Pacific one (UTC-8 in January): it ends at 08:00 UTC.
+            for hour, expected_positive in ((7, True), (8, False)):
+                with Patch((db, "utcnow", lambda: winter.replace(hour=hour, minute=0))):
+                    assert (enrich.spare(conn, "gemini") > 0) is expected_positive, hour
         # A day that has spent its share is never ahead.
-        enrich.record_usage(eng, "gemini", config.DAILY_BUDGET["gemini"])
-        with eng.connect() as conn, Patch((db, "utcnow", lambda: NOW.replace(hour=23, minute=0))):
-            assert enrich.spare(conn, "gemini") <= 0
+        with Patch((db, "utcnow", lambda: winter.replace(hour=23, minute=0))):
+            enrich.record_usage(eng, "groq", config.DAILY_BUDGET["groq"])
+            with eng.connect() as conn:
+                assert enrich.spare(conn, "groq") <= 0
 
 
 def test_pick_articles_takes_one_per_publisher_lead_first():
