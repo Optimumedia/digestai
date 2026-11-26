@@ -24,6 +24,15 @@ DAYS = 14
 
 # Traffic sources as people know them. Matched on the utm_source tag or the referring host.
 _SOURCE_NAMES = [
+    # AI assistants that link to their sources. ChatGPT tags its links ?utm_source=chatgpt.com, and in
+    # November 2026 it was the largest named source of readers, shown as "chatgpt.com".
+    (("chatgpt.com", "chat.openai.com", "chatgpt", "openai"), "ChatGPT"),
+    (("perplexity.ai", "perplexity"), "Perplexity"),
+    (("claude.ai",), "Claude"),
+    (("gemini.google.com", "gemini"), "Gemini"),
+    (("copilot.microsoft.com", "copilot.cloud.microsoft", "copilot"), "Copilot"),
+    (("chat.deepseek.com", "deepseek"), "DeepSeek"),
+    (("grok.com",), "Grok"),
     (("bluesky", "bsky.app", "bsky.social"), "Bluesky"),
     (("news.ycombinator.com", "hackernews", "hn"), "Hacker News"),
     (("reddit.com", "old.reddit.com", "reddit"), "Reddit"),

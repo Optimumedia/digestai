@@ -244,7 +244,7 @@ def test_growth_counts_readers_not_crawlers():
              + [("chatgpt.com", "America/New_York", f"c{i}") for i in range(3)])
     g = morning.growth_facts(admin, pairs, NOW.replace(day=29))
     assert g["visitors"] == 27 and g["visitorsBefore"] == 15 and g["automated"] == 84, g
-    assert [(s["name"], s["visitors"]) for s in g["sources"]] == [("direct", 24), ("chatgpt.com", 3)], g["sources"]
+    assert [(s["name"], s["visitors"]) for s in g["sources"]] == [("direct", 24), ("ChatGPT", 3)], g["sources"]
     assert g["countries"] and g["countries"][0]["name"] != "China", g["countries"]
     text = morning.s_growth(g)
     assert text.startswith("Visitors rose to 27 on 28 Sep from 15 the day before; 24 came direct") and \
