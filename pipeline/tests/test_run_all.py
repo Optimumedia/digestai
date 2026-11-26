@@ -74,6 +74,21 @@ def test_skips_fail_only_in_strict_mode_unless_allowed():
     assert _run(body, strict=True, allow=["site not built"]).ok
 
 
+def test_a_write_into_a_real_runs_folders_is_noticed():
+    with tempfile.TemporaryDirectory() as d:
+        saved = run_all.GUARDED
+        run_all.GUARDED = [Path(d)]
+        try:
+            (Path(d) / "kept.json").write_text("{}", encoding="utf-8")
+            before = run_all.snapshot()
+            assert run_all.touched(before, run_all.snapshot()) == []
+            (Path(d) / "cache").mkdir()
+            (Path(d) / "cache" / "work-prices.json.gz").write_bytes(b"x")
+            assert [p.replace("\\", "/").endswith("cache/work-prices.json.gz") for p in run_all.touched(before, run_all.snapshot())] == [True]
+        finally:
+            run_all.GUARDED = saved
+
+
 def test_every_test_file_is_found_and_grouped():
     names = {p.name for p in run_all.discover()}
     assert {"test_run_all.py", "test_units.py", "test_site_smoke.py"} <= names, names

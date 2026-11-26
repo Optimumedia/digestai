@@ -10,6 +10,8 @@ Each file runs as its own process, exactly as `python tests/test_x.py` does, and
   otherwise pass without running anything);
 - with --strict, it printed no SKIP line except the ones --allow-skip names. A check that cannot run
   in CI (no Node, no built site) then fails instead of passing quietly.
+The run also fails (with --strict; otherwise it warns) when any test wrote into pipeline/data or
+site/src/data, which belong to a real run.
 
 Groups: "site" is the files that read the built site (site/dist); CI runs them after building the
 site from the test fixture (tests/site_fixture.py). "python" is every other file. "all" is both.
@@ -41,6 +43,26 @@ EXPECTED_SKIPS: list[tuple[str, str]] = []
 REPORT = re.compile(r"^(PASS|ok|FAIL)\s+(test_\w+)", re.M)
 SKIP = re.compile(r"^.*\bSKIP\b.*$", re.M)
 PER_FILE_TIMEOUT = 600
+
+
+# Folders a test must never write to: the runner's cache and the site's data are a real run's.
+GUARDED = [PIPELINE / "data", PIPELINE.parent / "site" / "src" / "data"]
+
+
+def snapshot() -> dict[str, tuple[int, int]]:
+    out = {}
+    for root in GUARDED:
+        if root.exists():
+            for p in root.rglob("*"):
+                if p.is_file():
+                    st = p.stat()
+                    out[str(p)] = (st.st_mtime_ns, st.st_size)
+    return out
+
+
+def touched(before: dict, after: dict) -> list[str]:
+    root = str(PIPELINE.parent)
+    return sorted(p.replace(root, "").lstrip("\\/") for p in set(before) | set(after) if before.get(p) != after.get(p))
 
 
 def discover() -> list[Path]:
@@ -155,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     pg_url = base.pop("TEST_POSTGRES_URL", None)
     t0 = time.monotonic()
     results: list[Result] = []
+    before = snapshot()
 
     def report(r: Result) -> None:
         mark = "ok  " if r.ok else "FAIL"
@@ -173,6 +196,11 @@ def main(argv: list[str] | None = None) -> int:
 
     failed = [r for r in results if not r.ok]
     gha = os.environ.get("GITHUB_ACTIONS") == "true"
+    leaked = touched(before, snapshot())
+    if leaked:
+        print(f"\n{'FAIL' if args.strict else 'WARNING'}: the tests wrote into a real run's folders: {', '.join(leaked[:10])}")
+        if gha:
+            print(f"::error::tests wrote into {', '.join(leaked[:5])}")
     for r in failed:
         print(f"\n===== {r.path.name} ({r.label or 'run'}) =====")
         for p in r.problems:
@@ -184,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
     skipped = sum(len(r.skips) for r in results)
     print(f"\n{len(results)} runs of {len(files)} files, {total} tests passed, {skipped} SKIP lines, "
           f"{len(failed)} failed, {time.monotonic() - t0:.0f}s")
-    return 1 if failed else 0
+    return 1 if failed or (leaked and args.strict) else 0
 
 
 if __name__ == "__main__":

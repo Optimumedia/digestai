@@ -42,11 +42,25 @@ def fresh_db(tracking: bool = True):
     if tracking:
         assert db.install_change_tracking(eng)
     db._engine, config.CACHE_DIR, config.SITE_DATA_DIR = eng, tmp / "cache", tmp / "site"
+    # Paths some modules work out once, at import, from those two folders: without this an export in a
+    # test wrote the price history into the real pipeline/data/cache (found 26 Nov 2026).
+    from digest import howto, prices, simplify
+
+    paths = [(prices, "HISTORY_FILE", tmp / "cache" / prices.HISTORY_FILE.name),
+             (prices, "PAGE_CACHE_FILE", tmp / "cache" / prices.PAGE_CACHE_FILE.name),
+             (prices, "EXPORT_FILE", tmp / "site" / prices.EXPORT_FILE.name),
+             (howto, "CACHE_FILE", tmp / "cache" / howto.CACHE_FILE.name),
+             (simplify, "CACHE_FILE", tmp / "cache" / simplify.CACHE_FILE.name)]
+    saved_paths = [(mod, name, getattr(mod, name)) for mod, name, _ in paths]
+    for mod, name, value in paths:
+        setattr(mod, name, value)
     cache.reset()
     try:
         yield eng, tmp
     finally:
         db._engine, config.CACHE_DIR, config.SITE_DATA_DIR = saved
+        for mod, name, value in saved_paths:
+            setattr(mod, name, value)
         cache.reset()
         eng.dispose()
         shutil.rmtree(tmp, ignore_errors=True)
