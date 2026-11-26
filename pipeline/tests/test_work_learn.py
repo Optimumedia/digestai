@@ -1,5 +1,6 @@
 """AI at Work: the order readers teach (work_learn.py). Shrinkage, the blend's cap, the hard rules,
-recency, the one grouped read and its cache. Offline: python tests/test_work_learn.py"""
+recency, the one grouped read and its cache. Offline: python tests/test_work_learn.py (or on Postgres
+with TEST_POSTGRES_URL, as the tests workflow does: its grouped read is Postgres SQL)."""
 from __future__ import annotations
 
 import sys
