@@ -1365,7 +1365,63 @@ def call_ollama(prompt: str) -> dict:
         timeout=_request_timeout(240),
     )
     resp.raise_for_status()
-    return _parse_json(resp.json()["message"]["content"])
+    data = resp.json()
+    content = data["message"]["content"]
+    try:
+        return _parse_json(content)
+    except ValueError as exc:
+        # The 3B model's answer is cut at num_predict, or breaks late in the object (26 Nov: "Expecting
+        # ',' delimiter: line 89 column 4", after 3,233 characters). A minute of CPU went into it, and
+        # the fields written before the break are whole: keep them when they hold a usable summary.
+        fixed = salvage_json(content)
+        if fixed is None:
+            raise
+        log.info("local answer repaired (%s; done_reason=%s): kept %s", str(exc)[:60], data.get("done_reason"),
+                 ", ".join(sorted(fixed))[:160])
+        return fixed
+
+
+# What a salvaged answer must still hold to be worth storing (and "is_ai_news", which may be false);
+# everything else has a default in _clean.
+SALVAGE_NEEDS = ("headline", "summary_md", "key_points", "category")
+
+
+def salvage_json(raw: str) -> dict | None:
+    """The longest prefix of a broken JSON object that ends after a complete top-level field, closed
+    and parsed, or None. Only when the summary fields are all in it (SALVAGE_NEEDS) and the summary
+    has some length: a cut answer must never become a stub on the site."""
+    start = (raw or "").find("{")
+    if start < 0:
+        return None
+    text = raw[start:]
+    cuts, depth, in_str, esc = [], 0, False, False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch in "{[":
+            depth += 1
+        elif ch in "}]":
+            depth -= 1
+        elif ch == "," and depth == 1:
+            cuts.append(i)
+    for cut in reversed(cuts[-12:]):
+        try:
+            obj = json.loads(text[:cut] + "}")
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or not all(obj.get(k) for k in SALVAGE_NEEDS) or "is_ai_news" not in obj:
+            return None
+        if len(str(obj.get("summary_md") or "").split()) < 60:
+            return None
+        return obj
+    return None
 
 
 def ollama_available() -> bool:

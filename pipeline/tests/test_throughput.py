@@ -86,6 +86,10 @@ class Resp:
     def json(self):
         return self._body
 
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"http {self.status_code}")
+
 
 def gemini_429(quota_id: str, delay: str = "41s"):
     return Resp(429, {"error": {"code": 429, "message": "You exceeded your current quota.", "details": [
@@ -303,6 +307,44 @@ def test_mistral_without_a_plan_is_asked_once_a_day_not_once_a_run():
             enrich.mistral_reset()  # the next run, a new process: the pause is read back from llm_usage
             assert "not available on this plan" in (enrich.mistral_block() or ""), enrich.mistral_block()
             assert len(calls) == 1
+
+
+# ---------------------------------------------------------------------------- the local model's broken answers
+
+LONG_SUMMARY = " ".join(["Acme released a model on Monday, the company said in a post."] * 8)
+
+
+def cut_answer(extra: str) -> str:
+    """A local answer, pretty-printed as qwen2.5 writes it, broken inside the work card."""
+    import json
+    head = {**ANSWER, "summary_md": LONG_SUMMARY}
+    head.pop("work_card")
+    return json.dumps(head, indent=2)[:-2] + ',\n  "work_card": {\n    "fits": true,\n    "tool": "Acme' + extra
+
+
+def test_a_cut_local_answer_keeps_its_complete_fields():
+    fixed = enrich.salvage_json(cut_answer(" Studio\",\n    \"maker\": \"Acme\"\n    \"who_for\""))
+    assert fixed is not None
+    assert fixed["headline"] == "Acme ships a model" and fixed["summary_md"] == LONG_SUMMARY
+    assert "work_card" not in fixed and fixed["is_ai_news"] is True
+    # Through call_ollama, as the run sees it.
+    with Patch((config, "OLLAMA_URL", "http://127.0.0.1:11434"),
+               (enrich.requests, "post", lambda url, json=None, timeout=None: Resp(
+                   200, {"message": {"content": cut_answer('"')}, "done_reason": "length"}))):
+        assert enrich.call_ollama("p")["summary_md"] == LONG_SUMMARY
+
+
+def test_a_cut_answer_without_a_whole_summary_is_not_kept():
+    import json
+    stub = json.dumps({"headline": "Acme ships a model", "summary_md": "Acme released a model.",
+                       "key_points": ["x"], "category": "models", "is_ai_news": True}, indent=2)[:-2] + ',\n  "entities": {'
+    assert enrich.salvage_json(stub) is None  # a 4-word summary is a stub
+    early = '{\n  "headline": "Acme ships a model",\n  "summary_md": "Acme released'
+    assert enrich.salvage_json(early) is None
+    no_flag = json.dumps({"headline": "H", "summary_md": LONG_SUMMARY, "key_points": ["x"], "category": "models"},
+                         indent=2)[:-2] + ',\n  "content_type": "ne'
+    assert enrich.salvage_json(no_flag) is None  # whether it is AI news at all is not known
+    assert enrich.salvage_json("no json here") is None
 
 
 # ---------------------------------------------------------------------------- the two workers
