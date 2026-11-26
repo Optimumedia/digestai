@@ -506,7 +506,9 @@ jobs:
         if: always() && env.HEALTHCHECK_URL != ''
         continue-on-error: true
         run: |
-          if [ "${{ steps.pipeline.outcome }}" = "success" ]; then url="$HEALTHCHECK_URL"; else url="$HEALTHCHECK_URL/fail"; fi
+          # A run that did not publish is a failure too: no usable data, or every deploy try failed.
+          if [ "${{ steps.pipeline.outcome }}" = "success" ] && [ "${{ steps.data.outputs.ok }}" = "true" ] && [ "${{ steps.pages3.outcome }}" != "failure" ]; then
+            url="$HEALTHCHECK_URL"; else url="$HEALTHCHECK_URL/fail"; fi
           curl -fsS -m 10 --retry 3 -o /dev/null "$url" || echo "healthcheck ping failed"
 
   # Queue the following run, whatever this one's result, unless one is already waiting its turn.

@@ -41,9 +41,10 @@ KEEPALIVE_WEEKDAY = 0  # Monday
 # A stuck run holds the "pipeline" concurrency group: every later run queues behind it and is
 # cancelled by the next one to arrive. From 6 to 13 Oct 2026 one run sat "waiting" on the
 # github-pages environment (no reviewers, no timer: a GitHub fault) and some 450 runs were cancelled,
-# so the site did not change for a week. The job's own limit is 28 minutes; a run waiting this long
-# for its deployment, or running this long, is cancelled here, and the next scheduled run goes ahead.
-STUCK_MINUTES = {"waiting": 30, "in_progress": 60}
+# so the site did not change for a week. A run is its pace job (up to 20 minutes), the pipeline job
+# (limit 32) and the job that queues the next (limit 6); a run waiting this long for its deployment,
+# or running this long, is cancelled here, and the next scheduled run goes ahead.
+STUCK_MINUTES = {"waiting": 30, "in_progress": 75}
 KICK_MINUTES = 45  # a run starts every 20 minutes when all is well
 KEEPALIVE_HOUR = 4
 
