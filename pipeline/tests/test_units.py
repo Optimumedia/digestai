@@ -256,7 +256,7 @@ def test_lead_rules_keep_news_over_commentary():
 def test_same_event_from_the_november_duplicates():
     """Real pairs from the site on 16-24 Nov 2026 with the similarity of their stored embeddings: ten
     "California sues OpenAI" stories stood side by side at 0.90-0.96, while the merge asked 0.97."""
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
 
     from digest import merge
 
@@ -302,6 +302,13 @@ def test_same_event_from_the_november_duplicates():
     resign = story("Nvidia CEO Jensen Huang resigns amid affair and spy allegations", "2026-11-12T13:52", 40, ["Nvidia"], ["Jensen Huang"])
     h200 = story("Nvidia ends H200 sales to China after Jensen Huang's ouster", "2026-11-17T23:01", 27, ["Nvidia"], ["Jensen Huang"])
     assert merge.same_event(resign, h200, 0.975, 0.97) is None
+    # The same day, two big stories of the saga sharing only names stay two at 0.93; a one-source
+    # copy sharing them merges (AMD and Taalas: "AMD closes Taalas deal" and "AMD completes acquisition").
+    same_day = {**h200, "at": resign["at"] + timedelta(hours=9)}
+    assert merge.same_event(resign, same_day, 0.93, 0.97) is None
+    taalas = story("AMD completes acquisition of AI chipmaker taalas", "2026-11-17T09:00", 1, ["AMD", "Taalas"])
+    taalas2 = story("AMD closes Taalas deal for model-specific AI inference chips", "2026-11-17T14:00", 1, ["AMD", "Taalas"])
+    assert merge.same_event(taalas, taalas2, 0.939, 0.97)
     assert merge.same_event({**resign, "headline": h200["headline"]}, h200, 0.5, 0.97) == "the same headline"
 
 

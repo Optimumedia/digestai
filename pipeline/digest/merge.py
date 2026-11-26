@@ -298,7 +298,10 @@ def same_event(a: dict, b: dict, sim: float | None, thr: float) -> str | None:
         # bar below asked 0.97. Two stories that alike, that close in time, sharing the words that
         # say what happened, are one event; sharing only names and roles ("Nvidia interim CEO
         # Kress ...") is not enough.
-        if close and sim >= NEAR_SIM and len(words) >= 2:
+        # Names alone ("AMD", "Taalas") are enough only when one of the two is a small story: two
+        # big stories of one saga, a day apart, are that alike on average whatever happened in them.
+        small = min((x for x in (a.get("sources"), b.get("sources")) if x), default=1) <= 2
+        if close and sim >= NEAR_SIM and len(words) >= 2 and (plain or small):
             return f"{sim:.2f} alike, both headlines say {listed}"
         if close and sim >= CLOSE_SIM and len(words) >= 3 and plain:
             return f"{sim:.2f} alike, both headlines say {listed}"
