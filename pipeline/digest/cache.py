@@ -402,6 +402,47 @@ def stories(conn) -> dict[int, tuple]:
     return STORIES.rows(conn)
 
 
+class Stamped(Mirror):
+    """A whole small table whose every write sets an updated_at column (topics): a run reads the
+    row count and the rows stamped since the newest stamp it saw (less a margin), and the whole
+    table only when the count disagrees (a row deleted by hand), the copy is a day old or missing."""
+
+    MARGIN_SECONDS = 3600
+    FULL_HOURS = 24
+
+    def __init__(self, name: str, table, columns: list, stamp):
+        super().__init__(name, table, columns, scope=lambda now: True, keeper=lambda now: (lambda r: True))
+        self.stamp = stamp
+
+    def rows(self, conn) -> dict[int, tuple]:
+        st = self.state(conn)
+        total = int(conn.execute(select(func.count()).select_from(self.table)).scalar() or 0)
+        rows: dict[int, tuple] = st["rows"]
+        fresh = st["wm"] is not None and time.time() - st["full_at"] < self.FULL_HOURS * 3600
+        if fresh:
+            since = datetime.fromtimestamp(st["wm"] / 1e6, tz=db.utcnow().tzinfo) - timedelta(seconds=self.MARGIN_SECONDS)
+            for r in conn.execute(select(*self.columns).where(self.stamp >= since)).all():
+                rows[r[0]] = self.Row(*r)
+        if not fresh or len(rows) != total:
+            rows = {r[0]: self.Row(*r) for r in conn.execute(select(*self.columns)).all()}
+            st["full_at"] = time.time()
+        i = self.names.index(self.stamp.name)
+        newest = max((db.as_utc(r[i]) for r in rows.values() if r[i] is not None), default=None)
+        st.update(wm=int(newest.timestamp() * 1e6) if newest else 0, rows=rows, _dirty=True)
+        return dict(rows)
+
+
+_tp = db.topics.c
+TOPICS = Stamped("topics", db.topics, [_tp.id, _tp.slug, _tp.name, _tp.kind, _tp.story_count, _tp.described_at_count, _tp.updated_at],
+                 _tp.updated_at)
+
+
+def topics(conn) -> dict[int, tuple]:
+    """Every topic and page row without its description (id, slug, name, kind, story_count,
+    described_at_count, updated_at)."""
+    return TOPICS.rows(conn)
+
+
 # ---------------------------------------------------------------------------- details
 
 class Details(_Store):

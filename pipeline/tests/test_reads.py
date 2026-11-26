@@ -912,6 +912,44 @@ def test_new_story_scores_reach_the_runner_copy_without_being_read_back():
         assert warm == cold
 
 
+def test_topic_copy_reads_only_new_stamps_and_matches_the_table():
+    tp = db.topics.c
+
+    def table(conn):
+        return {r.id: tuple(r) for r in conn.execute(select(*cache.TOPICS.columns)).all()}
+
+    def as_rows(copy):
+        return {i: tuple(r) for i, r in copy.items()}
+
+    with fresh_db() as (eng, _tmp):
+        old = NOW - timedelta(days=3)
+        with eng.begin() as conn:
+            conn.execute(insert(db.topics), [{"slug": f"t{i}", "name": f"Topic {i} " * 3, "kind": "companies", "story_count": i,
+                                              "described_at_count": 0, "updated_at": old - timedelta(hours=i)} for i in range(1, 401)])
+        with eng.connect() as conn:
+            b0 = db.bytes_read()
+            first = cache.topics(conn)
+            cold = db.bytes_read() - b0
+            assert as_rows(first) == table(conn) and len(first) == 400
+        new_process()
+        with eng.begin() as conn:
+            conn.execute(update(db.topics).where(tp.id == 7).values(story_count=70, updated_at=NOW))
+            conn.execute(insert(db.topics).values(slug="new", name="New", kind="page", story_count=1, described_at_count=0, updated_at=NOW))
+        with eng.connect() as conn:
+            b0 = db.bytes_read()
+            got = cache.topics(conn)
+            warm = db.bytes_read() - b0
+            assert as_rows(got) == table(conn) and got[7].story_count == 70 and len(got) == 401
+        assert warm < cold / 10, (warm, cold)
+        # A row deleted by hand: the count disagrees, so the table is read again.
+        new_process()
+        with eng.begin() as conn:
+            conn.execute(db.topics.delete().where(tp.id == 3))
+        with eng.connect() as conn:
+            got = cache.topics(conn)
+            assert 3 not in got and as_rows(got) == table(conn)
+
+
 def test_social_reads_only_the_stories_that_are_not_live():
     from digest import social
 
