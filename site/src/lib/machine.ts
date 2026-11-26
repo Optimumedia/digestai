@@ -98,7 +98,7 @@ export function llmsFull(): string {
   const out = [
     "# Digest AI (digestai.news), full index",
     "",
-    `> An automated AI news desk. It reads about 80 sources every 20 minutes, merges the outlets that report the same event into one story, writes a short plain-English digest and links every source. Not affiliated with other products named DigestAI. Generated ${now}; the site and this file are rebuilt about every 20 minutes.`,
+    `> An automated AI news desk. It reads about 90 sources every 20 minutes, merges the outlets that report the same event into one story, writes a short plain-English digest and links every source. Not affiliated with other products named DigestAI. Generated ${now}; the site and this file are rebuilt about every 20 minutes.`,
     "",
     `Short index: ${SITE}/llms.txt. About and editorial standards: ${SITE}/about. Contact: hello@digestai.news.`,
     "",
