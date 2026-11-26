@@ -81,6 +81,24 @@ console.log(JSON.stringify({{
     assert "Opus 6" not in names and "Decisions API" not in names and "Mischief" not in names
 
 
+def test_audit_rows_of_26_november():
+    """/api/models.json on 26 Nov 2026: a legal name and a product's name as makers. (The launch row of
+    GPT-6.2 Astra linked a story about GPT-6.2 Sol; the pipeline's join now picks the story that names
+    it. Here a story retitled for a sibling still counts: Gemini 4 Carbon's only story now carries
+    Gemini 4 Neon's headline, and dropping Carbon would lose a real launch.)"""
+    if not shutil.which("node"):
+        print("SKIP node not installed")
+        return
+    out = _run("console.log(JSON.stringify(['OpenAI Group PBC', 'NousResearch', 'MAI', 'Nous Research'].map(a.canonicalLab)))")
+    assert out == ["OpenAI", "Nous Research", "Microsoft", "Nous Research"], out
+    rows = [
+        row("Gemini 4 Carbon", "Google", "2026-10-28", "Google releases Gemini 4 Neon with one-million-token context window"),
+        row("DeepSeek-V4.1-Flash-20261017", "DeepSeek", "2026-10-18", "DeepSeek releases V4.1-Flash-1017 update with lower cost"),
+    ]
+    out = _run(f"console.log(JSON.stringify({json.dumps(rows)}.map(a.releaseIssue)))")
+    assert out == [None, None], out
+
+
 def test_newest_by_lab_needs_a_confirmed_launch_and_a_track_record():
     if not shutil.which("node"):
         print("SKIP node not installed")

@@ -88,6 +88,39 @@ def test_models_collapse_and_prices_go_to_the_right_model():
     assert len(out["prices"]) == 2                          # "the model" in a round-up belongs to no one
 
 
+def test_a_price_is_not_given_to_a_model_it_does_not_belong_to():
+    """26 Nov 2026, /models/pricing: GLM-Legal showed its base model's price, Gemini 4 Hydrogen showed
+    Neon's, and the Decisions API (not a model) had a row."""
+    if not _node():
+        return
+    models = [
+        {"name": "GLM-Legal", "lab": "Z.ai", "kind": "llm", "availability": "api", "date": "2026-10-13T00:00:00Z", "storySlug": "glm"},
+        {"name": "Gemini 4 Hydrogen", "lab": "Google", "kind": "llm", "availability": "api", "date": "2026-11-10T00:00:00Z", "storySlug": "hydrogen"},
+        {"name": "Decisions API", "lab": "OpenAI", "kind": "other", "availability": "api", "date": "2026-11-15T00:00:00Z", "storySlug": "decisions"},
+        {"name": "d1-ultra", "lab": "Liquid AI", "kind": "llm", "availability": "api", "date": "2026-10-16T00:00:00Z", "storySlug": "d1"},
+        {"name": "Step 5 Preview", "lab": "StepFun", "kind": "llm", "availability": "open_weights", "date": "2026-10-17T00:00:00Z", "storySlug": "step"},
+    ]
+    def st(i, slug, headline, summary, at):
+        return {"id": i, "slug": slug, "headline": headline, "articles": [{}], "firstPublishedAt": at, "summaryMd": summary, "keyPoints": []}
+    stories = [
+        st(1, "glm", "Z.ai previews GLM-Legal for law firms",
+           "Developers can prototype using the base model ($0.15/$0.50 per 1M tokens) before swapping to GLM-Legal.", "2026-10-13T00:00:00Z"),
+        st(2, "hydrogen", "Google releases Gemini 4 Hydrogen in AI Studio",
+           "Gemini 4 Hydrogen is free in AI Studio; Neon costs $3.00/$15.00 per 1M tokens, both offer four reasoning depths.", "2026-11-23T00:00:00Z"),
+        st(3, "decisions", "OpenAI makes its Decisions API widely available",
+           "OpenAI released a Decisions API in public beta on October 6 at $0.10 per million input tokens.", "2026-11-15T00:00:00Z"),
+        # Still the launched model's own price: a plain statement in its launch story.
+        st(4, "d1", "Liquid AI releases d1-ultra decision model",
+           "It is currently available via the Liquid API at a rate of $0.042 per million input tokens.", "2026-10-16T00:00:00Z"),
+        st(5, "step", "StepFun releases Step 5 Preview open weights",
+           "The FP8 checkpoint requires 4x B300 or 8x H200 GPUs, and the API charges $1.00 per 1M input tokens and $2.70 per 1M output tokens.", "2026-10-17T00:00:00Z"),
+    ]
+    out = _run(
+        f"const g = eg.buildEvergreen({{stories: {json.dumps(stories)}, models: {json.dumps(models)}, tools: []}});\n"
+        "console.log(JSON.stringify(Object.fromEntries([...g.prices].map(([k, v]) => [k, [v.input, v.output]]))));")
+    assert out == {"d1-ultra": [0.042, None], "step-5-preview": [1, 2.7]}, out
+
+
 def test_context_windows_parse():
     if not _node():
         return
