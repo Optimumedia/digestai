@@ -332,6 +332,11 @@ PRIMARY_DOMAINS = {
     "x.ai", "cohere.com", "stability.ai", "arxiv.org", "github.com", "deepseek.com", "qwenlm.github.io",
     "ai.google.dev", "cloud.google.com", "apple.com", "meta.com", "perplexity.ai", "cursor.com",
     "europa.eu", "whitehouse.gov", "gov.uk", "nist.gov", "ftc.gov", "sec.gov",
+    # The hosts of the company feeds sources.yaml types primary (26 Nov 2026), so their posts count
+    # as the company speaking however they arrive.
+    "engineering.fb.com", "allenai.org", "ollama.com", "blog.cloudflare.com", "salesforce.com", "stripe.com",
+    "blog.youtube", "developers.google.com", "workspaceupdates.googleblog.com", "changelog.shopify.com",
+    "product.hubspot.com", "notion.com",
 }
 
 # Focus categories: a score bonus so their stories hold top places, and a reserved place in the
