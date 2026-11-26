@@ -219,6 +219,11 @@ def test_backup_restores_into_a_new_database_and_the_site_builds_from_it():
 
     with tr.fresh_db() as (eng, tmp):
         tr.seed(eng)
+        # A story merged into another keeps its row (its slug answers with a redirect): the backup
+        # holds it without its texts, so the restore fills what it lacks from the column defaults.
+        with eng.begin() as conn:
+            conn.execute(db.stories.update().where(db.stories.c.id == 12).values(status="merged", redirect_to=11, pinned=True))
+            conn.execute(db.articles.update().where(db.articles.c.story_id == 12).values(story_id=11))
         config.SITE_DATA_DIR = tmp / "site-original"
         export.run()
         original = json.loads((config.SITE_DATA_DIR / "stories.json").read_text(encoding="utf-8"))
@@ -226,7 +231,7 @@ def test_backup_restores_into_a_new_database_and_the_site_builds_from_it():
 
         # The nightly check: the file opens and loads into a throwaway database.
         checked = backup.verify(blob, "pass phrase")
-        assert checked["restored"]["stories"] == 12 and checked["check"]["publishedWithArticles"] == 12, checked
+        assert checked["restored"]["stories"] == 12 and checked["check"]["publishedWithArticles"] == 11, checked
         # Rejected articles are only known by their small columns (no address): skipped, and said so.
         assert checked["restored"]["articles"] == 36 and checked["skipped"]["articles"] == 40, checked
 
@@ -241,7 +246,7 @@ def test_backup_restores_into_a_new_database_and_the_site_builds_from_it():
         except RuntimeError:
             pass
         with eng.connect() as a, target.connect() as b:
-            for col in ("slug", "headline", "summary_md", "key_points", "status", "category", "thread_id", "article_count"):
+            for col in ("slug", "headline", "status", "redirect_to", "pinned", "category", "thread_id", "article_count", "importance"):
                 q = lambda c: c.execute(select(db.stories.c.id, db.stories.c[col]).order_by(db.stories.c.id)).all()
                 assert q(a) == q(b), col
             cols = [db.articles.c[c] for c in ("id", "url", "story_id", "title", "summary_md", "status", "domain", "source_id")]
@@ -250,6 +255,8 @@ def test_backup_restores_into_a_new_database_and_the_site_builds_from_it():
             # Dates come back as dates, and a restored row gets its revision from the tracking trigger.
             fp = b.execute(select(db.stories.c.first_published_at).where(db.stories.c.id == 1)).scalar()
             assert db.as_utc(fp) == db.as_utc(a.execute(select(db.stories.c.first_published_at).where(db.stories.c.id == 1)).scalar())
+            q = lambda c: c.execute(select(db.stories.c.summary_md, db.stories.c.key_points).where(db.stories.c.status == "published").order_by(db.stories.c.id)).all()
+            assert q(a) == q(b)
             # Ids continue after the restored rows.
             assert b.execute(select(func.max(db.stories.c.id))).scalar() == 12
 
@@ -270,7 +277,7 @@ def test_backup_restores_into_a_new_database_and_the_site_builds_from_it():
         for a, b in zip(original, restored):
             for key in ("headline", "summaryMd", "keyPoints", "whyItMatters", "category", "articleCount", "threadId", "firstPublishedAt"):
                 assert a[key] == b[key], (a["slug"], key)
-            assert [x["url"] for x in a["articles"]] == [x["url"] for x in b["articles"]] and len(a["articles"]) == 3
+            assert [x["url"] for x in a["articles"]] == [x["url"] for x in b["articles"]] and len(a["articles"]) >= 3
 
 
 def test_backup_command_line_verifies_a_file():

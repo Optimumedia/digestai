@@ -138,9 +138,12 @@ def collect(conn) -> dict[str, dict]:
     # columns (status, dates, scores) and whatever text an earlier backup already had.
     stories = cache.stories(conn)
     s_text = cache.story_text(conn, [s for s in stories.values() if s.status == "published"])
+    # Merged and unpublished stories keep their slug and headline (a restore needs both, and a merged
+    # story's slug is the address its redirect answers); the dashboard keeps these in the runner's copy.
+    s_title = cache.story_titles(conn, [s for s in stories.values() if s.status != "published"])
     tables["stories"] = _load("stories")
     for i, s in stories.items():
-        tables["stories"][str(i)] = {**tables["stories"].get(str(i), {}), **_row(s, s_text.get(i))}
+        tables["stories"][str(i)] = {**tables["stories"].get(str(i), {}), **_row(s, s_title.get(i), s_text.get(i))}
     articles = cache.articles(conn)
     a_text = cache.article_text(conn, [a for a in articles.values() if a.status == "published"])
     tables["articles"] = _load("articles")
@@ -207,37 +210,58 @@ def unpack(data: bytes) -> dict[str, dict]:
 RESTORE_ORDER = ("sources", "threads", "stories", "articles", "topics", "newsletters", "social_posts", "llm_usage", "daily_stats")
 
 
-def _restore_row(table, row: dict) -> dict | None:
-    """One backup row as values for `table`, or None when a required column is missing."""
-    from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, BigInteger
+def _converters(table) -> dict:
+    """Column name -> a function turning a backup (JSON) value into one the database takes."""
+    from sqlalchemy import BigInteger, Boolean, DateTime, Float, Integer
 
-    row = dict(row)
-    if table.name == "articles":
-        if not row.get("reject_reason") and row.get("reject_kind"):
-            row["reject_reason"] = row["reject_kind"]
-        row.setdefault("fetched_at", row.get("created_at"))  # text columns are kept for published rows only
+    def when(v):
+        return datetime.fromisoformat(v.replace("Z", "+00:00")) if isinstance(v, str) else v
+
     out = {}
     for col in table.columns:
-        if col.name == "rev" or col.name not in row:  # rev: the change-tracking trigger stamps it
+        if col.name == "rev":  # the change-tracking trigger stamps it
             continue
-        v = row[col.name]
-        if v is not None:
-            if isinstance(col.type, DateTime) and isinstance(v, str):
-                v = datetime.fromisoformat(v.replace("Z", "+00:00"))
-            elif isinstance(col.type, Boolean):
-                v = bool(v)
-            elif isinstance(col.type, (Integer, BigInteger)) and not isinstance(v, bool):
-                v = int(v)
-            elif isinstance(col.type, Float):
-                v = float(v)
-            elif isinstance(col.type, JSON) and isinstance(v, str) and col.name == "embedding":
-                pass  # a packed vector stays a string
-        out[col.name] = v
-    for col in table.columns:
-        required = not col.nullable and not col.primary_key and col.default is None and col.server_default is None
-        if required and out.get(col.name) is None:
-            return None
+        t = col.type
+        out[col.name] = (when if isinstance(t, DateTime) else bool if isinstance(t, Boolean)
+                         else (lambda v: v if isinstance(v, bool) else int(v)) if isinstance(t, (Integer, BigInteger))
+                         else float if isinstance(t, Float) else (lambda v: v))
     return out
+
+
+def _restore_rows(table, rows) -> tuple[list[dict], int]:
+    """Backup rows as values for `table` (every row with the same columns, as one insert needs: a
+    column a row lacks takes the column's default), and how many were skipped for lacking a
+    required column."""
+    conv = _converters(table)
+    if table.name == "articles":
+        fixed = []
+        for r in rows:
+            r = dict(r)
+            if not r.get("reject_reason") and r.get("reject_kind"):
+                r["reject_reason"] = r["reject_kind"]
+            if r.get("fetched_at") is None:  # text columns are kept for published rows only
+                r["fetched_at"] = r.get("created_at")
+            fixed.append(r)
+        rows = fixed
+    names = [n for n in conv if any(n in r for r in rows)]
+    defaults = {}
+    for n in names:
+        col = table.c[n]
+        default = col.default.arg if col.default is not None and col.default.is_scalar else None
+        defaults[n] = default
+    required = [c.name for c in table.columns if not c.nullable and not c.primary_key and c.name in conv
+                and (c.default is None or not c.default.is_scalar) and c.server_default is None]
+    out, skipped = [], 0
+    for r in rows:
+        v = {}
+        for n in names:
+            x = r.get(n)
+            v[n] = defaults[n] if x is None else conv[n](x)
+        if any(v.get(n) is None for n in required):
+            skipped += 1
+            continue
+        out.append(v)
+    return out, skipped
 
 
 def restore(tables: dict[str, dict], eng, force: bool = False) -> dict:
@@ -255,18 +279,14 @@ def restore(tables: dict[str, dict], eng, force: bool = False) -> dict:
         kept_ids: dict[str, set] = {}
         for name in RESTORE_ORDER:
             table = db.metadata.tables[name]
-            rows, skipped = [], 0
-            for r in (tables.get(name) or {}).values():
-                v = _restore_row(table, r)
-                if v is None:
-                    skipped += 1
-                    continue
-                if name == "articles":
-                    if v.get("story_id") is not None and v["story_id"] not in kept_ids.get("stories", set()):
+            rows, skipped = _restore_rows(table, list((tables.get(name) or {}).values()))
+            if name == "articles":
+                stories_kept, sources_kept = kept_ids.get("stories", set()), kept_ids.get("sources", set())
+                for v in rows:
+                    if v.get("story_id") is not None and v["story_id"] not in stories_kept:
                         v["story_id"] = None
-                    if v.get("source_id") is not None and v["source_id"] not in kept_ids.get("sources", set()):
+                    if v.get("source_id") is not None and v["source_id"] not in sources_kept:
                         v["source_id"] = None
-                rows.append(v)
             # Unique columns (slugs, addresses) keep their first row: a backup merged over several
             # nights can hold an old row and its renamed successor.
             for col in [c for c in table.columns if c.unique]:
