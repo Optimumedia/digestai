@@ -36,6 +36,10 @@ const jsonLd = {
 
 <Base title="Digest AI" jsonLd={jsonLd}>
   {workHome && <link slot="head" rel="preload" href="/fonts/archivo-semicondensed-700-latin.woff2" as="font" type="font/woff2" crossorigin />}
+  {/* The lead picture and the row thumbnails are release downloads: github.com answers with a
+      redirect to the file host, so both connections are opened while the page is still parsing. */}
+  {leadThumb?.startsWith("https://github.com/") && <link slot="head" rel="preconnect" href="https://github.com" />}
+  {leadThumb?.startsWith("https://github.com/") && <link slot="head" rel="preconnect" href="https://release-assets.githubusercontent.com" />}
   <div class:list={["grid", { "has-teaser": Boolean(workHome) }]}>
     {workHome && <WorkTeaser home={workHome} />}
     <div class="grid-main">
