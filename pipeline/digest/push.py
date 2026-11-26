@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 from sqlalchemy import delete, func, select, update
 
@@ -22,6 +23,24 @@ MAX_PER_RUN = 1
 FRESH_HOURS = 4          # only stories first seen recently qualify
 MIN_ARTICLES = 2         # at least two outlets, or one primary source with high importance
 MIN_IMPORTANCE = 7
+
+# The push services browsers subscribe through (Chrome and most others: FCM; Firefox: Mozilla; Edge:
+# Windows; Safari: Apple). push_subscriptions takes inserts from anyone with the public key, so an
+# endpoint elsewhere is not a browser's: it would have this run post to an address of the sender's
+# choosing and wait on it. Such a row is deleted, unsent.
+PUSH_HOSTS = ("fcm.googleapis.com", "android.googleapis.com", "push.services.mozilla.com",
+              "notify.windows.com", "push.apple.com")
+
+
+def push_service_ok(endpoint: str | None) -> bool:
+    try:
+        parts = urlsplit(endpoint or "")
+        host, port = (parts.hostname or "").lower(), parts.port
+    except ValueError:
+        return False
+    if parts.scheme != "https" or port not in (None, 443) or parts.username or parts.password:
+        return False
+    return any(host == h or host.endswith("." + h) for h in PUSH_HOSTS)
 
 
 def _candidates(conn, now):
@@ -98,7 +117,10 @@ def run() -> dict:
         failed: list[int] = []
         delivered = 0
         for s in subs:
-            info = {"endpoint": s.endpoint, "keys": {"p256dh": s.p256dh, "auth": s.auth}}
+            if not push_service_ok(s.endpoint):
+                gone.append(s.id)
+                continue
+            info ={"endpoint": s.endpoint, "keys": {"p256dh": s.p256dh, "auth": s.auth}}
             try:
                 webpush(subscription_info=info, data=data, vapid_private_key=config.VAPID_PRIVATE_KEY,
                         vapid_claims=dict(claims), ttl=6 * 3600, timeout=10)
