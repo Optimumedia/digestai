@@ -148,6 +148,12 @@ def test_one_model_under_two_makers_or_three_names_is_one_row():
         ("Muse Ember", "Meta", "2026-11-09"),
         ("Prism", "Sarvam AI", "2026-11-04"), ("Prism", "OpenAI", "2026-11-05"),
     ]), got
+    # Each folded row keeps the names it took in, so the old /models/<slug> addresses can redirect;
+    # a row folded from nothing has none, and a row never lists its own name.
+    by_name = {r["name"]: r for r in out.values()}
+    assert by_name["Phonon"]["aliases"] == ["Phonon 31m"], by_name["Phonon"].get("aliases")
+    assert "Le Chonk" in by_name["Mistral Large 4"]["aliases"] and "Mistral Large 4" not in by_name["Mistral Large 4"]["aliases"]
+    assert "aliases" not in by_name["Muse Ember"] and "aliases" not in by_name["Hy4 Flash"]
     # The kept row is the launch: the earliest report's story, the larger source count.
     mai = next(r for r in out.values() if r["name"] == "MAI Code 2")
     assert mai["sources"] == 2 and mai["date"] == "2026-11-17T09:00:00Z", mai

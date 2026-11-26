@@ -212,6 +212,9 @@ def join(target: dict, other: dict) -> None:
         if not target.get(f) and other.get(f):
             target[f] = other[f]
     target["sources"] = max(int(target.get("sources") or 0), int(other.get("sources") or 0))
+    # The folded row's other spellings: the site keeps their old /models/<slug> addresses working.
+    names = set(target.get("aliases") or []) | set(other.get("aliases") or []) | {other.get("name") or ""}
+    target["aliases"] = sorted(n for n in names if n)
 
 
 def _core(name: str, lab: str | None) -> tuple[str, str]:
@@ -314,7 +317,8 @@ def fold_aliases(rows: dict[str, dict]) -> dict[str, dict]:
         # A version in the name's core first ("Mistral Large 4" over "Le Chonk"), then the longest core
         # ("GPT-6.2 Astra" over "6.2 Astra"), then the shortest ("Phonon" over "Phonon 31m").
         best = max(names, key=lambda n: (bool(re.search(r"\d", _core(*n)[0])), len(_core(*n)[0]), -len(n[0])))
-        if best[0]:
+        if best[0] and best[0] != row.get("name"):
+            row["aliases"] = sorted(set(row.get("aliases") or []) | {row.get("name") or ""})
             row["name"] = best[0]
         for m in members:
             if m != home:
@@ -324,5 +328,13 @@ def fold_aliases(rows: dict[str, dict]) -> dict[str, dict]:
 
 
 def fold_all(rows: dict[str, dict]) -> dict[str, dict]:
-    """Every folding rule, in order: versions, then spellings."""
-    return fold_aliases(fold_versions(rows))
+    """Every folding rule, in order: versions, then spellings. A folded row lists the names it took in
+    under "aliases" (never its own name), so their pages can redirect to it."""
+    out = fold_aliases(fold_versions(rows))
+    for row in out.values():
+        aliases = sorted(a for a in (row.get("aliases") or []) if a and a != row.get("name"))
+        if aliases:
+            row["aliases"] = aliases
+        else:
+            row.pop("aliases", None)
+    return out

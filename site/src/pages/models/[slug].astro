@@ -11,16 +11,29 @@ import StoryRow from "../../components/StoryRow.astro";
 import Rail from "../../components/Rail.astro";
 import Breadcrumbs from "../../components/Breadcrumbs.astro";
 import Pager from "../../components/Pager.astro";
+import StoryRedirect from "../../components/StoryRedirect.astro";
+import { entitySlug } from "../../lib/indexing.mjs";
 import { modelPageList, modelPageIndexable, modelsByLab, modelStories, modelQuickFacts, topicInfo, hubHref, formatDate, dateTime, meta, isQuiet, type ModelPage } from "../../lib/data";
 import { pageSlice } from "../../lib/paging";
 import { comparisonsFor, evergreen } from "../../lib/evergreen-data";
 import { priceLabel } from "../../lib/evergreen.mjs";
 
 export function getStaticPaths() {
-  return modelPageList.map((page) => ({ params: { slug: page.slug }, props: { page } }));
+  const pages = modelPageList.map((page) => ({ params: { slug: page.slug }, props: { page } }));
+  // A model the tracker folded from two spellings ("Phonon 31m" into "Phonon") keeps its old address
+  // as a redirect to the one page, unless another model now has a page there.
+  const taken = new Set(modelPageList.map((p) => p.slug));
+  const moved = new Map<string, ModelPage>();
+  for (const page of modelPageList)
+    for (const row of page.rows)
+      for (const alias of (row as any).aliases || []) {
+        const slug = entitySlug(alias);
+        if (slug && !taken.has(slug) && !moved.has(slug)) moved.set(slug, page);
+      }
+  return [...pages, ...[...moved].map(([slug, page]) => ({ params: { slug }, props: { page, movedTo: page.slug } }))];
 }
 
-const { page } = Astro.props as { page: ModelPage };
+const { page, movedTo } = Astro.props as { page: ModelPage; movedTo?: string };
 const { slug, name, rows } = page;
 const fact = rows[0];
 const list = modelStories(page);
@@ -92,6 +105,9 @@ if (facts.length) {
 }
 ---
 
+{movedTo ? (
+  <StoryRedirect to={movedTo} href={`/models/${movedTo}`} headline={name} site={meta.siteUrl} lead="This model's page is now:" />
+) : (
 <Base title={title} description={description} image={ogImage} jsonLd={jsonLd} thin={!modelPageIndexable(page)} quiet={isQuiet(base)}>
   <div class="grid">
     <div>
@@ -159,3 +175,4 @@ if (facts.length) {
     <Rail />
   </div>
 </Base>
+)}
