@@ -21,8 +21,8 @@ LAUNCH_WORDS = re.compile(
     r"roll(?:s|ed)? out|ship(?:s|ped)?|open-sourc(?:e|es|ed)|drop(?:s|ped)?|adds|now available|available)\b", re.I)
 COMPARISON = re.compile(r"\bvs\.?\b|\bversus\b", re.I)
 FILE_SUFFIX = re.compile(r"(?:[-_. ]?gguf\b.*|\.(?:safetensors|bin|onnx))$", re.I)
-ORG_WORDS = re.compile(r"\b(?:ai|inc|labs?|platforms|technologies|corp(?:oration)?|ltd|llc|research|machine learning|"
-                       r"s\.?a\.?s?|gmbh|ag|plc|bv|nv|pte|pty|srl|holdings?)\b\.?", re.I)
+ORG_WORDS = re.compile(r"\b(?:ai|inc|labs?|platforms|technologies|corp(?:oration)?|ltd|limited|llc|research|machine learning|"
+                       r"s\.?a\.?s?|gmbh|ag|ab|plc|pbc|bv|nv|pte|pty|srl|holdings?|holding|group|co|company)\b\.?", re.I)
 
 
 def _plain(text: str) -> str:
@@ -33,6 +33,7 @@ def _plain(text: str) -> str:
 
 def org_key(lab: str | None) -> str:
     s = _plain(lab or "").replace("google deepmind", "google").replace("deepmind", "google")
+    s = re.sub(r"\.com\b", " ", s)  # "Amazon.com Inc." is Amazon
     return re.sub(r"[^a-z0-9]", "", ORG_WORDS.sub(" ", s))
 
 

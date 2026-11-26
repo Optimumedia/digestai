@@ -545,10 +545,14 @@ def run() -> dict:
     # And every launch listed before, so a model keeps its row and its page after its stories leave the
     # window (releases.py: a small file in the runner's cache, no database read).
     models = releases.remember(models, [s.strip() for s in rules.get("unpublish") or [] if s],
-                               tracker_rules.is_release, tracker_rules.fold_versions)
+                               tracker_rules.is_release, tracker_rules.fold_versions, tracker_rules.model_key)
     # Funding: one row per deal, with figures the coverage agrees on and that the articles' own text
     # states (funding.py); the page's total adds these rows only.
     funding_rows, funding_dropped = funding_rules.build(stories_out, now)
+    # And every deal listed before, so a round stays on /funding, its company's page and its week after
+    # its stories leave the window (funding.py: a small file in the runner's cache, no database read).
+    funding_rows = funding_rules.remember(funding_rows, {s["slug"] for s in stories_out},
+                                          [s.strip() for s in rules.get("unpublish") or [] if s], now)
     trackers = {
         "models": sorted(models.values(), key=lambda r: r["date"] or "", reverse=True),
         "funding": funding_rows,

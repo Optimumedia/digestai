@@ -92,16 +92,22 @@ def merge(kept: dict[str, dict], current: dict[str, dict]) -> dict[str, dict]:
 
 
 def remember(current: dict[str, dict], unpublished: set[str] | list[str],
-             is_release: Callable[[dict, str], bool], fold: Callable[[dict], dict]) -> dict[str, dict]:
-    """Every release kept so far plus this run's, by tracker key. `is_release` and `fold` are the
+             is_release: Callable[[dict, str], bool], fold: Callable[[dict], dict],
+             key: Callable[[str, str | None], str] | None = None) -> dict[str, dict]:
+    """Every release kept so far plus this run's, by tracker key. `is_release`, `fold` and `key` are the
     tracker's own rules (trackers.py), passed in so the rules live in one place."""
     gone = set(unpublished or [])
     # The export tested each row against its story's headline and the article's title; a kept row has
     # the headline only, so the name stands in for the title. The rules on the row's own fields (a real
     # maker, a usable model, not a comparison) still apply in full.
-    kept = {k: r for k, r in load().items()
-            if isinstance(r, dict) and r.get("storySlug") not in gone
-            and is_release(r, f"{r.get('storyHeadline') or ''} | {r.get('name') or ''}")}
+    kept: dict[str, dict] = {}
+    for k, r in load().items():
+        if not (isinstance(r, dict) and r.get("storySlug") not in gone
+                and is_release(r, f"{r.get('storyHeadline') or ''} | {r.get('name') or ''}")):
+            continue
+        # Keyed again by today's rules, so a key rule fixed today ("OpenAI Group PBC" is OpenAI) joins
+        # the rows it now calls one model instead of listing both.
+        kept = merge(kept, {key(r.get("name") or "", r.get("lab")) if key else k: r})
     rows = fold(merge(kept, current))
     if len(rows) > MAX_ROWS:
         rows = dict(sorted(rows.items(), key=lambda kv: kv[1].get("date") or "", reverse=True)[:MAX_ROWS])

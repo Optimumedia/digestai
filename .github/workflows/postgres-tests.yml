@@ -51,6 +51,7 @@ jobs:
           python tests/test_hold.py
           python tests/test_trackers.py
           python tests/test_funding.py
+          python tests/test_releases.py
           python tests/test_site_redirects.py
           python tests/test_site_search_pages.py
           python tests/test_site_api.py

@@ -96,6 +96,17 @@ def test_a_lost_cache_is_restored_from_the_archive_copy_and_a_damaged_file_is_ig
         assert [r["name"] for r in run({}).values()] == ["GPT-6"]
 
 
+def test_kept_rows_are_keyed_again_by_todays_rules():
+    with cache_dir():
+        # Kept under an older key rule, which read "OpenAI Group PBC" as a lab of its own.
+        old = row("GPT-6 Cyber", "OpenAI Group PBC", "2026-11-05T09:00:00Z", "cyber", "OpenAI releases GPT-6 Cyber")
+        releases.save({"gpt6cyber|openaigrouppbc": old})
+        new = row("GPT-6 Cyber", "OpenAI", "2026-11-06T09:00:00Z", "cyber-2", "OpenAI launches GPT-6 Cyber for defenders")
+        out = releases.remember(keyed(new), [], is_release, fold_versions, model_key)
+        assert list(out) == [model_key("GPT-6 Cyber", "OpenAI")], out
+        assert next(iter(out.values()))["storySlug"] == "cyber"
+
+
 def test_nothing_kept_and_nothing_new_is_an_empty_tracker():
     with cache_dir():
         assert run({}) == {}

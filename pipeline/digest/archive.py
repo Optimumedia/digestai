@@ -191,6 +191,11 @@ def update(conn, now: datetime, since: datetime, sources: dict, unpublished: lis
     kept = releases.read_file()
     if kept:
         data[releases.ARCHIVE_KEY] = kept
+    # The funding tracker's kept deals (funding.py) likewise.
+    from . import funding
+    deals = funding.read_file()
+    if deals:
+        data[funding.ARCHIVE_KEY] = deals
     _save(data)
     stats["total"] = len(data["stories"])
     return stats
