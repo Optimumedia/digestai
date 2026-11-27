@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 26 November 2026
+## Today in AI, 27 November 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [FCC approves SpaceX plan for 1 million Starmind AI satellites](https://digestai.news/story/fcc-approves-spacex-plan-for-1-million-ai-satellites) (13 sources)
-2. [Treasury CIO vibe-codes Civilization clone while FinCEN handles cybersecurity incident](https://digestai.news/story/treasury-cio-vibe-codes-civilization-clone-while-fincen-handles-cybers) (2 sources)
-3. [Anthropic releases shorter Lean 4 proof of Generalized Riemann Hypothesis](https://digestai.news/story/anthropic-releases-shorter-lean-proof-of-riemann-hypothesis) (2 sources)
-4. [S&P considers Nvidia credit downgrade over governance risks](https://digestai.news/story/s-p-considers-nvidia-credit-downgrade-over-governance-risks) (2 sources)
-5. [OpenAI says ChatGPT ads won't show prompt-level reports](https://digestai.news/story/openai-says-chatgpt-ads-won-t-show-prompt-level-reports) (1 source)
+1. [Hugging Face launches llama.cpp benchmark dashboard for AMD Ryzen and Radeon hardware](https://digestai.news/story/hugging-face-launches-llama-cpp-benchmark-dashboard-for-amd-ryzen-and) (2 sources)
+2. [Z.AI and Moonshot AI reportedly delay models due to US export rules and data curbs](https://digestai.news/story/z-ai-delays-glm-5-5-release-to-q1-2027) (3 sources)
+3. [Elon Musk pledges two SpaceX shares to every US child](https://digestai.news/story/elon-musk-pledges-two-spacex-shares-to-every-us-child) (2 sources)
+4. [Canada adds $700 million to AI Compute Access Fund, raising total to $1 billion](https://digestai.news/story/canada-expands-ai-compute-access-fund) (1 source)
+5. [Search Engine Journal lists 8 SEO wins for 2026](https://digestai.news/story/search-engine-journal-lists-8-seo-wins-for-2026) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
