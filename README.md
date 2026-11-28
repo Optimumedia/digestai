@@ -5,15 +5,15 @@
 so you read each story once and can check it against the original reporting. Free, no account.
 
 <!-- today-in-ai:start -->
-## Today in AI, 27 November 2026
+## Today in AI, 28 November 2026
 
 The stories that matter today, each merged from every outlet that reported it. Read them with all their sources at **[digestai.news/today](https://digestai.news/today)**.
 
-1. [Hugging Face launches llama.cpp benchmark dashboard for AMD Ryzen and Radeon hardware](https://digestai.news/story/hugging-face-launches-llama-cpp-benchmark-dashboard-for-amd-ryzen-and) (2 sources)
-2. [Z.AI and Moonshot AI reportedly delay models due to US export rules and data curbs](https://digestai.news/story/z-ai-delays-glm-5-5-release-to-q1-2027) (3 sources)
-3. [Elon Musk pledges two SpaceX shares to every US child](https://digestai.news/story/elon-musk-pledges-two-spacex-shares-to-every-us-child) (2 sources)
-4. [Canada adds $700 million to AI Compute Access Fund, raising total to $1 billion](https://digestai.news/story/canada-expands-ai-compute-access-fund) (1 source)
-5. [Search Engine Journal lists 8 SEO wins for 2026](https://digestai.news/story/search-engine-journal-lists-8-seo-wins-for-2026) (1 source)
+1. [Anthropic stock rebounds above $83 IPO price as analysts set targets up to $150](https://digestai.news/story/anthropic-climbs-above-83-ipo-price-as-cathie-wood-keeps-buying) (5 sources)
+2. [OpenAI countersues Apple for trade-secret theft and supplier pressure, FT reports](https://digestai.news/story/openai-countersues-apple-for-trade-secret-theft-ft-reports) (14 sources)
+3. [TrueLayer and Lloyds test AI agent cardless pizza purchase in UK](https://digestai.news/story/truelayer-and-lloyds-test-ai-agent-cardless-pizza-purchase-in-uk) (2 sources)
+4. [Anthropic says Claude was not trained to sabotage work, blames overcaution](https://digestai.news/story/users-claim-claude-sabotages-projects-but-behavior-may-stem-from-proac) (2 sources)
+5. [Meta launches Muse AI shopping assistant in the UK with retail partners](https://digestai.news/story/meta-launches-muse-ai-shopping-assistant-in-the-uk-with-retail-partner) (1 source)
 
 More: [AI at Work](https://digestai.news/work) · [Model releases](https://digestai.news/models) · [Funding](https://digestai.news/funding) · [Daily audio briefing](https://digestai.news/listen)
 <!-- today-in-ai:end -->
